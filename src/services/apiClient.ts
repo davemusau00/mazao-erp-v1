@@ -7,6 +7,9 @@ export interface BackendSession {
 }
 export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;quantity:string;version:number }
 export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;expectedCashMinor:number;version:number;openedAt:string }
+export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
+export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
+export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number}
 export interface BackendCommand { protocolVersion:1;commandId:string;tenantId?:string;deviceId:string;type:string;occurredAt:string;expectedVersions:Record<string,number>;payload:Record<string,unknown> }
 
 class ApiClient {
@@ -31,6 +34,9 @@ class ApiClient {
   listInventoryMovements(){return this.request<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string}>}>('/inventory/movements')}
   getCurrentShift(){return this.request<{shift:BackendShift|null}>('/shifts/current')}
   listSalesOrders(){return this.request<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders')}
+  listHotelRooms(){return this.request<{rooms:BackendRoom[]}>('/hospitality/rooms')}
+  listHotelReservations(){return this.request<{reservations:BackendReservation[]}>('/hospitality/reservations')}
+  listHotelStays(){return this.request<{stays:BackendStay[]}>('/hospitality/stays')}
   async submitCommand(command:BackendCommand){
     await commandJournal.save(command,'sending');await this.emitRecovery();
     try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await commandJournal.remove(command.commandId);else await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();return result}

@@ -34,7 +34,7 @@ CREATE TABLE hospitality.reservations (
   nightly_rate_minor bigint NOT NULL CHECK (nightly_rate_minor > 0),
   tax_rate_bps integer NOT NULL CHECK (tax_rate_bps BETWEEN 0 AND 10000),
   currency char(3) NOT NULL,
-  status text NOT NULL CHECK (status IN ('CONFIRMED','CANCELLED','CHECKED_IN')),
+  status text NOT NULL CHECK (status IN ('CONFIRMED','CANCELLED','CHECKED_IN','CHECKED_OUT')),
   version bigint NOT NULL DEFAULT 1,
   created_by uuid NOT NULL REFERENCES identity.users(id),
   created_at timestamptz NOT NULL DEFAULT now(),
