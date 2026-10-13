@@ -9,13 +9,32 @@
 **Latest CI:** Success, https://github.com/davemusau00/mazao-erp-v1/actions/runs/38455212343; Bun install, TypeScript check, five small API/boundary tests, Vite build.  
 **Method:** Read GitHub repository tree, commit comparison, selected application/domain/schema/UI source files, integration register, API test suite, and workflow run jobs. **No live PostgreSQL migration, full API transaction suite, browser E2E, deployment, or printer test was executed by this audit.** Static defects are categorized as confirmed in source; behavioral consequences are predicted until runtime tests verify them.
 
-## Decision
+## Remediation recheck (13 October 2026)
+
+The current local branch is at `f2bee31b79e39d5b90ab8bf940975970242c76a9`, two commits after the audited SHA. The following remediation is present in the **uncommitted worktree**; it is not part of that commit and has no CI result yet.
+
+| Finding | Current source status | Remaining proof / limitation |
+|---|---|---|
+| G-00 wrong order status constraint name | Addressed without editing migration 003: the migration runner normalizes the legacy generated constraint name before applying an unapplied 003. | Fresh PostgreSQL migration and checksum-safe rerun are configured in CI; workflow result is pending. |
+| G-01 missing hospitality schema | Addressed without editing migration 004: the runner creates `hospitality` before applying an unapplied 004. | Fresh PostgreSQL migration and upgrade path are not yet observed. |
+| G-02 catalog product join | Fixed to join `inventory.balances.product_id` to `catalog.products.id`. | Authenticated read is covered by the new PostgreSQL CI test; run pending. |
+| G-03 server POS demo fallback | Signed-in checkout now blocks when server catalog state is unavailable; the local `processSale` path runs only without a server session. | Browser/API failure-transition acceptance is still pending. |
+| G-04 command replay shape | Exact replay now returns the stored canonical response shape instead of nesting it under `response`. | New PostgreSQL acceptance asserts same response and one product/command row; run pending. |
+| G-05 PostgreSQL acceptance | CI now provisions PostgreSQL, applies migrations twice, and runs authenticated catalog, replay and reservation-contention acceptance. | No result from the changed workflow is available in this worktree. Bootstrap and full sale/refund/shift/journal matrix remain uncovered. |
+| G-06 serialization retries | `inTransaction` now retries SQLSTATE `40001` and `40P01` up to three times with a short backoff; callbacks are documented as database-only. | Retry behavior has not been exercised against PostgreSQL. |
+| G-07 reservation contention | Reservation create/cancel advances the locked room version in the serializable transaction; the integration test races two overlapping commands. | No database exclusion constraint exists; rely on versioned room writes, transaction retries and the pending race test. |
+| G-08 hotel operator integration | Server room, reservation, stay and housekeeping workspace is wired into Hotel and Reservations; server Today uses authenticated session/shift data. | No PostgreSQL/browser acceptance; deposits, add-ons, early checkout, split settlement and complete folio remain out of scope. |
+| G-15 server-mode local workflows | Navigation hides unsupported server modules; authenticated POS cannot post a local demo sale. | Role permissions remain coarse role maps and require broader authorization/security review. |
+
+**Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript). No test command, PostgreSQL runtime, browser E2E, production deployment, or hardware test was run. The revised CI and integration test are configuration/source evidence only until that workflow runs.
+
+## Decision at audited SHA
 
 **PRODUCTION NO-GO.** The repository contains significant and improving backend code, but fresh database creation and server product loading have source-level defects. An authenticated checkout can also take a browser-local fallback when server catalog readiness is absent, and command replay changes the response structure. Passing CI does not test real PostgreSQL transactions or migrations.
 
 Estimated broad ERP scope completeness: **35–40%** (subjective, based on repository implementation versus the product specifications, *not* test pass percentage). A substantial frontend preview exists, but only a narrow set of workflows are server-authoritative.
 
-## Delta from previous audit
+## Delta recorded at audit SHA 530cdbf (historical baseline)
 
 | Previously reported area | Updated assessment | Evidence |
 |---|---|---|
@@ -31,7 +50,7 @@ Estimated broad ERP scope completeness: **35–40%** (subjective, based on repos
 | Identical command replay envelope | Still inconsistent | `apps/api/src/app.ts` lines 153–176 |
 | PostgreSQL CI acceptance | Still absent | `.github/workflows/ci.yml`; `apps/api/test/api.test.ts` |
 
-## P0 — Release-blocking defects
+## P0 — Release-blocking defects at audited SHA 530cdbf
 
 ### G-00 — Migration 003 references the wrong generated status constraint name (P0, highly probable)
 
@@ -90,7 +109,7 @@ Acceptance: authenticated cashier loads catalog after fresh migrations, tenant a
 
 New submission yields `{ commandId, status:'CONFIRMED', value }`. Duplicate exact ID returns `{ commandId, status:'CONFIRMED', response: { status:'CONFIRMED', value } }` in `apps/api/src/app.ts`, which violates the canonical API response contract and the frontend's expected value field. **Fix** return the originally persisted result *flattened* to the same canonical shape; never execute the business mutation twice. Test byte-equivalent response and unchanged row counts on repeat submission and concurrent duplicate submissions.
 
-## P1 — Integrity, security, reliability, and functionality blockers
+## P1 — Findings at audited SHA 530cdbf: integrity, security, reliability, and functionality
 
 | ID | Gap / source | Consequence and required acceptance |
 |---|---|---|
@@ -112,7 +131,7 @@ New submission yields `{ commandId, status:'CONFIRMED', value }`. Duplicate exac
 | G-20 | No financial report endpoints, trial balance drill-down, period close, AP, customer credit service | ERP finance not authoritative outside journal posting. Add validated report datasets with completeness metadata before calling them P&L. |
 | G-21 | `004_hospitality.sql` functionality dates, rates and checkout policies untested in PostgreSQL | Stay lifecycle may fail on SQL/date/runtime behavior despite TypeScript passing. Include live PostgreSQL 2-business/2-device tests and room reservation contention. |
 
-## P2 — Scope completeness and product operations
+## P2 — Scope completeness and product operations at audited SHA 530cdbf
 
 | Domain | Missing or incomplete |
 |---|---|
@@ -125,7 +144,7 @@ New submission yields `{ commandId, status:'CONFIRMED', value }`. Duplicate exac
 | SaaS identity | Invitations, password reset/MFA, multiple outlet memberships, granular grants, device assignment and revocation UI |
 | Infrastructure | Staging production parity, TLS ingress, worker deployment, backup and restore verification, observability/alerts, failover runbooks, hardware tests |
 
-## Updated engineering estimates (not measured test coverage)
+## Engineering estimates at audited SHA (not measured test coverage)
 
 | Area | Estimated feature scope implemented | Reason |
 |---|---:|---|
@@ -159,9 +178,9 @@ New submission yields `{ commandId, status:'CONFIRMED', value }`. Duplicate exac
 
 **Gate E, breadth and production:** Add customers, procurement/AP, kitchen, reports, offline sync, real hardware and provider integrations as separately accepted vertical slices. Load/restore/recovery evidence and production deployment approval required.
 
-## Suggested Codex direction
+## Suggested Codex direction recorded in the original audit
 
-> Audit against SHA `530cdbf` and this gap report. First eliminate G-00 through G-04 in one reviewable P0 remediation set and add PostgreSQL integration tests that fail on the old code. Do not deploy or add unrelated UI. Then complete Gate B with exact SQL balance, replay and cross-tenant assertions. Keep `docs/24-BACKEND-INTEGRATION.md` synchronized with **actual** capabilities; its current migration list and hospitality status lag the source. At the end, report changed files, commit SHA, executed commands, observed PostgreSQL/E2E results and remaining gaps. Never claim runtime tests without execution.
+> The P0 remediation set and PostgreSQL CI test setup are now present in the local worktree as recorded above. Next, obtain CI execution evidence, then complete Gate B with exact SQL balance, replay and cross-tenant assertions. Do not treat this worktree as deployed or production accepted. Keep `docs/24-BACKEND-INTEGRATION.md` synchronized with **actual** capabilities. At the end, report changed files, commit SHA only if a commit is created, executed commands, observed PostgreSQL/E2E results and remaining gaps. Never claim runtime tests without execution.
 
 ## Reference paths
 
