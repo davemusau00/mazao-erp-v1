@@ -11,22 +11,22 @@
 
 ## Remediation recheck (13 October 2026)
 
-The current local branch is at `f2bee31b79e39d5b90ab8bf940975970242c76a9`, two commits after the audited SHA. The following remediation is present in the **uncommitted worktree**; it is not part of that commit and has no CI result yet.
+The source remediation is in commit `a1625452e30126acdba37c10acb8dfd4456d0d59`; the current worktree also contains an expanded, uncommitted PostgreSQL acceptance test. GitHub Actions run [38458774590](https://github.com/davemusau00/mazao-erp-v1/actions/runs/38458774590) failed in that committed test version because it expected quantity `0` while PostgreSQL correctly returned the canonical decimal string `0.000000`. The log shows fresh migrations, authenticated login, catalog read and canonical command replay succeeded before that assertion. The expected value is corrected in the current worktree, which also adds sale/receive/refund/shift-close, journal-balance, tenant-isolation and reservation-contention assertions; that expanded version has not run in CI yet.
 
 | Finding | Current source status | Remaining proof / limitation |
 |---|---|---|
-| G-00 wrong order status constraint name | Addressed without editing migration 003: the migration runner normalizes the legacy generated constraint name before applying an unapplied 003. | Fresh PostgreSQL migration and checksum-safe rerun are configured in CI; workflow result is pending. |
-| G-01 missing hospitality schema | Addressed without editing migration 004: the runner creates `hospitality` before applying an unapplied 004. | Fresh PostgreSQL migration and upgrade path are not yet observed. |
-| G-02 catalog product join | Fixed to join `inventory.balances.product_id` to `catalog.products.id`. | Authenticated read is covered by the new PostgreSQL CI test; run pending. |
+| G-00 wrong order status constraint name | Addressed without editing migration 003: the migration runner normalizes the legacy generated constraint name before applying an unapplied 003. | Fresh PostgreSQL migration succeeded in CI run 38458774590; the overall run failed later on a quantity-string test assertion. |
+| G-01 missing hospitality schema | Addressed without editing migration 004: the runner creates `hospitality` before applying an unapplied 004. | Fresh PostgreSQL migration succeeded in CI run 38458774590; upgrade-from-003 remains untested. |
+| G-02 catalog product join | Fixed to join `inventory.balances.product_id` to `catalog.products.id`. | Authenticated catalog read succeeded in CI run 38458774590. |
 | G-03 server POS demo fallback | Signed-in checkout now blocks when server catalog state is unavailable; the local `processSale` path runs only without a server session. | Browser/API failure-transition acceptance is still pending. |
-| G-04 command replay shape | Exact replay now returns the stored canonical response shape instead of nesting it under `response`. | New PostgreSQL acceptance asserts same response and one product/command row; run pending. |
-| G-05 PostgreSQL acceptance | CI now provisions PostgreSQL, applies migrations twice, and runs authenticated catalog, replay and reservation-contention acceptance. | No result from the changed workflow is available in this worktree. Bootstrap and full sale/refund/shift/journal matrix remain uncovered. |
+| G-04 command replay shape | Exact replay now returns the stored canonical response shape instead of nesting it under `response`. | Exact replay passed in CI run 38458774590 before the later quantity assertion failed. |
+| G-05 PostgreSQL acceptance | CI provisions PostgreSQL, applies migrations twice, and runs authenticated catalog/replay plus the expanded sale, refund, shift, journal, tenant-isolation and reservation-contention acceptance. | Run 38458774590 failed at the old quantity expectation. The corrected and expanded test is only in the current worktree; no result yet. |
 | G-06 serialization retries | `inTransaction` now retries SQLSTATE `40001` and `40P01` up to three times with a short backoff; callbacks are documented as database-only. | Retry behavior has not been exercised against PostgreSQL. |
 | G-07 reservation contention | Reservation create/cancel advances the locked room version in the serializable transaction; the integration test races two overlapping commands. | No database exclusion constraint exists; rely on versioned room writes, transaction retries and the pending race test. |
 | G-08 hotel operator integration | Server room, reservation, stay and housekeeping workspace is wired into Hotel and Reservations; server Today uses authenticated session/shift data. | No PostgreSQL/browser acceptance; deposits, add-ons, early checkout, split settlement and complete folio remain out of scope. |
 | G-15 server-mode local workflows | Navigation hides unsupported server modules; authenticated POS cannot post a local demo sale. | Role permissions remain coarse role maps and require broader authorization/security review. |
 
-**Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript). No test command, PostgreSQL runtime, browser E2E, production deployment, or hardware test was run. The revised CI and integration test are configuration/source evidence only until that workflow runs.
+**Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript), and GitHub Actions exercised migrations/login/catalog/replay but failed on the `0` versus `0.000000` assertion. The current corrected and expanded integration test has not run. No local test command, browser E2E, production deployment, or hardware test was run.
 
 ## Decision at audited SHA
 

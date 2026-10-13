@@ -49,6 +49,7 @@ if (!databaseUrl) {
       assert.match(cookies, /maz_csrf=/);
 
       const headers = { cookie: cookies, origin: 'http://localhost:3000', 'x-csrf-token': loginBody.csrfToken };
+      const postCommand = (payload: unknown) => app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...headers, 'content-type': 'application/json' }, payload: JSON.stringify(payload) });
       const createProduct = {
         protocolVersion: 1,
         commandId,
@@ -62,11 +63,11 @@ if (!databaseUrl) {
           currency: 'KES', sellingPriceMinor: 25000, costPriceMinor: 15000, taxRateBps: 1600,
         },
       };
-      const first = await app.inject({ method: 'POST', url: '/api/v1/commands', headers, payload: createProduct });
+      const first = await postCommand(createProduct);
       assert.equal(first.statusCode, 200, first.body);
       assert.equal(first.json().status, 'CONFIRMED');
 
-      const replay = await app.inject({ method: 'POST', url: '/api/v1/commands', headers, payload: createProduct });
+      const replay = await postCommand(createProduct);
       assert.equal(replay.statusCode, 200, replay.body);
       assert.deepEqual(replay.json(), first.json(), 'same command ID and payload must have the same response shape and value');
 
@@ -75,7 +76,8 @@ if (!databaseUrl) {
       const items = catalog.json().items as Array<{ id: string; sku: string; quantity: string }>;
       assert.equal(items.length, 1);
       assert.equal(items[0].sku, 'GAP-530CDBF');
-      assert.equal(items[0].quantity, '0');
+      assert.equal(items[0].quantity, '0.000000');
+      const productId = String(first.json().value.productId);
 
       const persisted = await db.pool.query<{ command_count: string; product_count: string }>(`SELECT
         (SELECT count(*) FROM system.commands WHERE tenant_id=$1 AND command_id=$2)::text command_count,
@@ -84,11 +86,11 @@ if (!databaseUrl) {
       assert.equal(persisted.rows[0].product_count, '1');
 
       const roomCommandId = randomUUID();
-      const roomResult = await app.inject({ method: 'POST', url: '/api/v1/commands', headers, payload: {
+      const roomResult = await postCommand({
         protocolVersion: 1, commandId: roomCommandId, tenantId, deviceId,
         type: 'hotel.room.create', occurredAt: new Date().toISOString(), expectedVersions: {},
         payload: { roomNumber: '101', roomType: 'Standard', nightlyRateMinor: 12000, taxRateBps: 1600 },
-      } });
+      });
       assert.equal(roomResult.statusCode, 200, roomResult.body);
       assert.equal(roomResult.json().status, 'CONFIRMED');
       const roomId = String(roomResult.json().value.roomId);
@@ -103,10 +105,104 @@ if (!databaseUrl) {
         expectedVersions: { [`room:${roomId}`]: 1 },
         payload: { roomId, guestName: `Overlap guest ${index + 1}`, checkInDate: '2030-01-10', checkOutDate: '2030-01-12' },
       }));
-      const reservationResponses = await Promise.all(reservations.map(payload => app.inject({ method: 'POST', url: '/api/v1/commands', headers, payload })));
+      const reservationResponses = await Promise.all(reservations.map(payload => postCommand(payload)));
       assert.deepEqual(reservationResponses.map(response => response.json().status).sort(), ['CONFIRMED', 'CONFLICT']);
       const confirmedReservations = await db.pool.query<{ count: string }>(`SELECT count(*)::text count FROM hospitality.reservations WHERE tenant_id=$1 AND outlet_id=$2 AND room_id=$3 AND status='CONFIRMED' AND check_in_date<'2030-01-12' AND check_out_date>'2030-01-10'`, [tenantId, outletId, roomId]);
       assert.equal(confirmedReservations.rows[0].count, '1');
+
+      const foreignTenantId = randomUUID();
+      const foreignOutletId = randomUUID();
+      const foreignProductId = randomUUID();
+      await db.pool.query('INSERT INTO core.tenants(id,name,currency,time_zone) VALUES($1,$2,$3,$4)', [foreignTenantId, 'Foreign integration tenant', 'KES', 'Africa/Nairobi']);
+      await db.pool.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone) VALUES($1,$2,$3,$4)', [foreignOutletId, foreignTenantId, 'Foreign outlet', 'Africa/Nairobi']);
+      await db.pool.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps)
+        VALUES($1,$2,$3,'FOREIGN-ITEM','Foreign item','each','KES',25000,15000,1600)`, [foreignProductId, foreignTenantId, foreignOutletId]);
+      await db.pool.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,5)', [foreignTenantId, foreignOutletId, foreignProductId]);
+
+      const receipt = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.receive',
+        occurredAt: new Date().toISOString(), expectedVersions: {},
+        payload: { documentReference: 'CI-GRN-1', supplierName: 'Integration supplier', lines: [{ productId, quantity: '4', unitCostMinor: 15000 }] },
+      });
+      assert.equal(receipt.statusCode, 200, receipt.body);
+      assert.equal(receipt.json().status, 'CONFIRMED');
+
+      const shiftOpen = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.open',
+        occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { openingFloatMinor: 50000 },
+      });
+      assert.equal(shiftOpen.json().status, 'CONFIRMED');
+      const shiftId = String(shiftOpen.json().value.shiftId);
+
+      const foreignSale = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'sales.order.settle',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 1 },
+        payload: { shiftId, lines: [{ productId: foreignProductId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 30000, currency: 'KES' }] },
+      });
+      assert.equal(foreignSale.json().status, 'REJECTED');
+
+      const saleCommand = {
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        tenantId,
+        deviceId,
+        type: 'sales.order.settle',
+        occurredAt: new Date().toISOString(),
+        expectedVersions: { [`shift:${shiftId}`]: 1 },
+        payload: { shiftId, lines: [{ productId, quantity: '2' }], tenders: [{ method: 'CASH', amountMinor: 60000, currency: 'KES' }] },
+      };
+      const sale = await postCommand(saleCommand);
+      assert.equal(sale.statusCode, 200, sale.body);
+      assert.equal(sale.json().status, 'CONFIRMED');
+      assert.equal(sale.json().value.subtotalMinor, 50000);
+      assert.equal(sale.json().value.taxMinor, 8000);
+      assert.equal(sale.json().value.totalMinor, 58000);
+      assert.equal(sale.json().value.changeMinor, 2000);
+      const saleReplay = await postCommand(saleCommand);
+      assert.deepEqual(saleReplay.json(), sale.json());
+      const saleId = String(sale.json().value.saleId);
+      const line = await db.pool.query<{ id: string }>('SELECT id FROM commerce.order_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3', [tenantId, outletId, saleId]);
+      assert.equal(line.rowCount, 1);
+
+      const refundCommand = {
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        tenantId,
+        deviceId,
+        type: 'sales.order.refund',
+        occurredAt: new Date().toISOString(),
+        expectedVersions: { [`shift:${shiftId}`]: 2 },
+        payload: { orderId: saleId, shiftId, reason: 'CI partial return', lines: [{ orderLineId: line.rows[0].id, quantity: '1', restock: true }] },
+      };
+      const refund = await postCommand(refundCommand);
+      assert.equal(refund.statusCode, 200, refund.body);
+      assert.equal(refund.json().status, 'CONFIRMED');
+      assert.equal(refund.json().value.totalMinor, 29000);
+      const refundReplay = await postCommand(refundCommand);
+      assert.deepEqual(refundReplay.json(), refund.json());
+
+      const close = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.close',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 3 },
+        payload: { shiftId, countedCashMinor: 79000 },
+      });
+      assert.equal(close.statusCode, 200, close.body);
+      assert.equal(close.json().status, 'CONFIRMED');
+      assert.equal(close.json().value.varianceMinor, 0);
+
+      const balances = await db.pool.query<{ quantity: string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
+        (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,
+        (SELECT count(*)::text FROM (SELECT je.id FROM finance.journal_entries je LEFT JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 GROUP BY je.id HAVING coalesce(sum(jl.debit_minor),0)<>coalesce(sum(jl.credit_minor),0) OR coalesce(sum(jl.debit_minor),0)=0) unbalanced) unbalanced_journals,
+        (SELECT count(*)::text FROM commerce.refunds WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$4) refunds,
+        (SELECT status FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) shift_status,
+        (SELECT expected_cash_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) expected_cash_minor,
+        (SELECT variance_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) variance_minor`, [tenantId, outletId, productId, saleId, shiftId]);
+      assert.equal(balances.rows[0].quantity, '3.000000');
+      assert.equal(balances.rows[0].unbalanced_journals, '0');
+      assert.equal(balances.rows[0].refunds, '1');
+      assert.equal(balances.rows[0].shift_status, 'CLOSED');
+      assert.equal(balances.rows[0].expected_cash_minor, '79000');
+      assert.equal(balances.rows[0].variance_minor, '0');
     } finally {
       await app.close();
       await db.pool.end();
