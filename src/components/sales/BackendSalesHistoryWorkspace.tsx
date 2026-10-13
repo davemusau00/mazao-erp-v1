@@ -8,7 +8,7 @@ type ServerOrder=Awaited<ReturnType<typeof apiClient.listSalesOrders>>['orders']
 type RefundLineDraft={quantity:string;restock:boolean};
 
 export function BackendSalesHistoryWorkspace({tenant,onReprintOrder}:{tenant:TenantProfile;onReprintOrder:(order:SaleOrder)=>void}){
- const session=apiClient.getSession()!;const canRefund=['admin','owner','manager'].includes(session.user.role);
+ const session=apiClient.getSession()!;const canRefund=session.user.permissions.includes('commerce.refund');
  const [orders,setOrders]=useState<ServerOrder[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [query,setQuery]=useState('');
  const [target,setTarget]=useState<ServerOrder|null>(null);const [reason,setReason]=useState('Customer returned undamaged merchandise');const [lines,setLines]=useState<Record<string,RefundLineDraft>>({});
  const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);const [unknownId,setUnknownId]=useState('');const pending=useRef<BackendCommand|null>(null);

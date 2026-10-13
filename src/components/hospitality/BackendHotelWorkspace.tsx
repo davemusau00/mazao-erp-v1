@@ -42,10 +42,10 @@ function percentToBps(value: string) {
 
 export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?: HotelView }) {
   const session = apiClient.getSession()!;
-  const role = session.user.role;
-  const canFrontdesk = ['admin', 'owner', 'manager', 'receptionist'].includes(role);
-  const canManage = ['admin', 'owner', 'manager'].includes(role);
-  const canHousekeep = ['admin', 'owner', 'manager', 'housekeeper'].includes(role);
+  const permissions = session.user.permissions;
+  const canFrontdesk = permissions.includes('hotel.frontdesk');
+  const canManage = permissions.includes('hotel.manage');
+  const canHousekeep = permissions.includes('hotel.housekeeping');
   const today = todayLocal(session.tenant.timeZone);
 
   const [view, setView] = useState<HotelView>(initialView);

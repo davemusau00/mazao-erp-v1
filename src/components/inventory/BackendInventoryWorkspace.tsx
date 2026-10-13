@@ -7,7 +7,7 @@ import type {TenantProfile} from '../../types/erp';
 function percentToBps(value:string){const m=/^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(value.trim());if(!m)throw new Error('Enter a tax percentage from 0 to 100 with at most 2 decimals.');const bps=Number(BigInt(m[1])*100n+BigInt((m[2]??'').padEnd(2,'0')||'0'));if(bps>10000)throw new Error('Tax rate cannot exceed 100%.');return bps}
 
 export function BackendInventoryWorkspace({tenant:_tenant}:{tenant:TenantProfile}){
- const session=apiClient.getSession()!;const canManage=['admin','owner','manager'].includes(session.user.role);
+ const session=apiClient.getSession()!;const canManage=session.user.permissions.includes('catalog.manage');
  const [items,setItems]=useState<BackendProduct[]>([]);const [movements,setMovements]=useState<Awaited<ReturnType<typeof apiClient.listInventoryMovements>>['movements']>([]);
  const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [dialog,setDialog]=useState(false);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [unknownId,setUnknownId]=useState('');const pending=useRef<BackendCommand|null>(null);
  const [sku,setSku]=useState('');const [name,setName]=useState('');const [unit,setUnit]=useState('each');const [sellPrice,setSellPrice]=useState('');const [costPrice,setCostPrice]=useState('');const [taxRate,setTaxRate]=useState('0');

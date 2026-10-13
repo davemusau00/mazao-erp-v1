@@ -16,6 +16,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 - The ledger no longer claims trial-balance verification or invents operating-bank data.
 - Signed-in POS no longer falls through to local sale processing when the server catalog fails. Server checkout is disabled until catalog and shift state are loaded.
 - Server-mode navigation hides local-only customer, kitchen, stock-count, report, management and onboarding workflows.
+- Authenticated UI permissions now come from the server session contract; catalog and sales history omit cost fields from unauthorized projections. Production API startup requires an exact `APP_ORIGINS` allowlist.
 
 ## Role journey map
 
@@ -58,7 +59,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 
 ## Service integration contract
 
-`src/services/apiClient.ts` implements the authenticated HTTP boundary and IndexedDB command journal. `apps/api/src/contracts.ts` and the command dispatcher define protocol version 1, server-derived actor/tenant authority, role checks, expected versions, idempotent outcomes and status lookup for connected workflows. Contracts are not generated from a shared package; payloads are runtime-validated in domain code, permissions remain coarse role maps, and the server does not replay offline commands. Money crosses server boundaries as integer minor units and quantities as decimal strings. Local storage remains a distinct preview authority.
+`src/services/apiClient.ts` implements the authenticated HTTP boundary and IndexedDB command journal. `apps/api/src/contracts.ts` and the command dispatcher define protocol version 1, server-derived actor/tenant authority, server-issued role permissions, expected versions, idempotent outcomes and status lookup for connected workflows. Contracts are not generated from a shared package; payloads are runtime-validated in domain code, permissions remain coarse role maps, and the server does not replay offline commands. Money crosses server boundaries as integer minor units and quantities as decimal strings. Local storage remains a distinct preview authority. The exhaustive screen-to-client-to-route-to-command map is in [the backend integration register](24-BACKEND-INTEGRATION.md).
 
 ## Reporting and data coverage
 
