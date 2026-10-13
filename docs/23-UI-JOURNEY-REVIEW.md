@@ -51,7 +51,7 @@ The repository contains a React/Vite PWA and a browser-local `StorageEngine` bac
 
 ## Reporting corrections and gates
 
-The reports view now scopes records to the selected active tenant, excludes refunded records from sales totals, and uses configured outlet time zone for calendar grouping. Cross-tenant consolidation is removed because the preview does not define currency conversion or tenant data coverage. Sales counts and stock rows remain local snapshot data. COGS and margin are estimates from current product costs, not historical cost snapshots or posted accounting results.
+The reports view now scopes records to the selected active tenant, excludes refunded records from sales totals, and uses configured outlet time zone for calendar grouping. Cross-tenant consolidation is removed because the preview does not define currency conversion or tenant data coverage. Sales counts and stock rows remain local snapshot data. COGS and margin are estimates from stored item cost fields, not verified historical cost snapshots or posted accounting results.
 
 - [ ] Replace preview calculations with a permission-scoped report query and a reproducible calculation version.
 - [ ] Show half-open local-business-date range, outlet scope, `asOf`, source count, completeness/partial/unavailable status, exclusions, and currency.

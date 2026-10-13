@@ -17,10 +17,10 @@ export function shiftBusinessDate(key: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-export function formatBusinessDateLabel(key: string, timeZone: string): string {
+export function formatBusinessDateLabel(key: string, _timeZone: string): string {
   const date = new Date(`${key}T12:00:00.000Z`);
   return new Intl.DateTimeFormat(undefined, {
-    timeZone,
+    timeZone: 'UTC',
     weekday: 'short',
     month: 'numeric',
     day: 'numeric',

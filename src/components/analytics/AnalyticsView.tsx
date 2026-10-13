@@ -5,16 +5,11 @@ import { businessDateKey, formatBusinessDateLabel, shiftBusinessDate } from '../
 import {
   TrendingUp,
   BarChart3,
-  Calendar,
   DollarSign,
   Package,
   Layers,
-  ArrowUpRight,
-  ArrowDownRight,
-  Filter,
-  Download,
   Flame,
-  CheckCircle2
+  CircleHelp
 } from 'lucide-react';
 
 interface AnalyticsViewProps {
@@ -156,7 +151,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
       </div>
 
       <div className="rounded-xl border border-blue-900/60 bg-blue-950/30 px-4 py-3 text-xs text-blue-100 flex flex-wrap items-center justify-between gap-3">
-        <span>Coverage: {filteredOrders.length} local sales records · product cost uses current catalog values · ledger reconciliation is not available in this preview.</span>
+        <span>Outlet day: {timeZone} · coverage: {filteredOrders.length} local sales records · COGS estimate uses stored item costs · ledger reconciliation is unavailable.</span>
         {onOpenSales && <button type="button" onClick={onOpenSales} className="min-h-11 rounded-lg border border-blue-800 px-3 font-semibold hover:bg-blue-900/50">Review sales history</button>}
       </div>
 
@@ -230,7 +225,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
           </div>
 
           {/* SVG / Flex Bar Chart */}
-          <div className="h-56 flex items-end justify-between gap-3 pt-6 pb-2 border-b border-zinc-850">
+          <div className="h-56 flex items-end justify-between gap-3 pt-6 pb-2 border-b border-zinc-850" role="img" aria-label={`Seven day local sales chart. ${chartData.map(day => `${day.label}: ${targetCurrency} ${day.total.toFixed(2)}`).join('; ')}`}>
             {chartData.map((d, idx) => {
               const heightPct = Math.max(8, Math.round((d.total / maxDayTotal) * 100));
               return (
@@ -242,7 +237,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
                   {/* Bar */}
                   <div
                     style={{ height: `${heightPct}%` }}
-                    className="w-full max-w-[42px] rounded-t-md bg-blue-600/80 hover:bg-blue-500 transition-all cursor-pointer relative"
+                    aria-hidden="true"
+                    className="w-full max-w-[42px] rounded-t-md bg-blue-600/80 hover:bg-blue-500 transition-all relative"
                   />
                   {/* Date label */}
                   <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[48px] text-center">
@@ -356,9 +352,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                      <span>{item.units} {item.product.unit} sold · {margin}% margin</span>
+                      <span>{item.units} {item.product.unit} sold · estimated {margin}% margin</span>
                       <span className="font-mono text-emerald-400">
-                        Profit: {targetCurrency} {(item.units * (item.product.sellingPrice - item.product.costPrice)).toFixed(2)}
+                        Est.: {targetCurrency} {(item.units * (item.product.sellingPrice - item.product.costPrice)).toFixed(2)}
                       </span>
                     </div>
 
@@ -394,11 +390,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
 
           <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-850 flex items-center justify-between text-xs">
             <div>
-              <div className="font-semibold text-zinc-200">Consolidated Audit Status</div>
+              <div className="font-semibold text-zinc-200">Report source status</div>
               <div className="text-[11px] text-zinc-500">Ledger coverage is not provided by local demo records</div>
             </div>
-            <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[11px]">
-              <CheckCircle2 className="w-4 h-4" />
+            <div className="flex items-center gap-1.5 text-zinc-400 font-mono text-[11px]">
+              <CircleHelp className="w-4 h-4" />
               <span>Unavailable</span>
             </div>
           </div>

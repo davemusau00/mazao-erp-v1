@@ -17,11 +17,11 @@ Open the Vite URL printed in the terminal. `npm run lint` runs the TypeScript ch
 
 - **Today:** shift snapshot, local sales activity, and common task shortcuts.
 - **Sell and Sales history:** point of sale, receipts, transaction lookup, and the preview's supported return flow.
-- **Stock:** item catalogue, stock levels, and movement review.
-- **Hotel:** room operations and guest bills for hospitality demo profiles.
+- **Stock and Purchasing:** item catalogue, stock levels, movement review, count review, and supplier/delivery drafts.
+- **Hotel and Tables & kitchen:** room operations, reservation availability preview, guest bills, floor/table orders, and kitchen status preview.
 - **Customers and Shifts:** customer accounts, repayments, till activity, and cash-up.
 - **Money and Reports:** ledger and operating summaries from preview data.
-- **Manage and Help:** setup areas, operator guidance, and recovery entry points.
+- **Setup checklist, Manage, and Help:** first-use readiness steps, setup areas, operator guidance, and recovery entry points.
 
 The interface uses an OLED dark theme with blue and emerald semantic accents. Navigation and the main workflows adapt to role, enabled business type, and screen width.
 
@@ -34,3 +34,5 @@ The v1 service contracts are in `src/types/ui.ts`. They define typed boundaries 
 ## Product specifications
 
 The product requirements, interaction design, domain constraints, and release gates live in `docs/`. Start with `docs/01-PRODUCT-PRD.md`, `docs/02-UX-DESIGN-SYSTEM.md`, and `agents/AGENTS.md` before extending the application.
+
+The current role journey review, prototype gaps, service integration gate, report coverage requirements, and unverified accessibility/viewport matrix are recorded in `docs/23-UI-JOURNEY-REVIEW.md`.

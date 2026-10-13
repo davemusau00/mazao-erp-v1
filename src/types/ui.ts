@@ -79,11 +79,14 @@ export interface UiApplicationServices {
 }
 
 export interface CommandContext {
+  protocolVersion: 1;
   commandId: string;
   tenantId: string;
   outletId: string;
   actorId: string;
   deviceId: string;
+  occurredAt: string;
+  expectedVersions: Record<string, number>;
 }
 
 export interface SaleDraftInput {
@@ -123,9 +126,30 @@ export interface CustomerRepaymentInput {
 
 export interface ReportQuery {
   reportId: string;
+  tenantId: string;
+  currency: TenantProfile['currency'];
+  timeZone: string;
   from: string;
   to: string;
   outletIds: string[];
+}
+
+export interface RefundInput {
+  saleId: string;
+  reason: string;
+  lines: Array<{ productId: string; quantity: QuantityValue }>;
+  amount: MoneyValue;
+}
+
+export interface CashShiftOpenInput {
+  operatorId: string;
+  openingFloat: MoneyValue;
+}
+
+export interface GuestCheckoutInput {
+  stayId: string;
+  settlement?: MoneyValue;
+  approvedBalanceReason?: string;
 }
 
 export interface CatalogItemInput {
@@ -177,17 +201,20 @@ export interface KitchenTicketUpdateInput {
 
 /** UI adapters implement this contract; the local demo store is not an implementation of server authority. */
 export interface V1ApplicationServices extends UiApplicationServices {
+  openCashShift(context: CommandContext, input: CashShiftOpenInput): Promise<CommandOutcome<{ shiftId: string }>>;
   createCatalogItem(context: CommandContext, input: CatalogItemInput): Promise<CommandOutcome<{ productId: string }>>;
   previewImport(context: CommandContext, input: ImportPreviewRequest): Promise<ImportPreviewResult>;
   applyImport(context: CommandContext, batchId: string): Promise<CommandOutcome<{ imported: number; rejected: number }>>;
   receiveDelivery(context: CommandContext, input: DeliveryReceiptInput): Promise<CommandOutcome<{ receiptId: string; movementBatchId: string }>>;
   submitSale(context: CommandContext, input: SaleDraftInput): Promise<CommandOutcome<{ saleId: string; receiptId: string }>>;
+  refundSale(context: CommandContext, input: RefundInput): Promise<CommandOutcome<{ refundId: string; receiptId: string }>>;
   submitTableOrder(context: CommandContext, input: TableOrderInput): Promise<CommandOutcome<{ orderId: string }>>;
   updateKitchenTicket(context: CommandContext, input: KitchenTicketUpdateInput): Promise<CommandOutcome<{ ticketId: string }>>;
   reviewStockCount(context: CommandContext, input: StockCountReviewInput): Promise<CommandOutcome<{ movementBatchId: string }>>;
   createReservation(context: CommandContext, input: ReservationInput): Promise<CommandOutcome<{ reservationId: string }>>;
   createRoomStay(context: CommandContext, input: RoomStayInput): Promise<CommandOutcome<{ stayId: string; guestBillId: string }>>;
   closeCashShift(context: CommandContext, input: ShiftCashUpInput): Promise<CommandOutcome<{ reportId: string }>>;
+  checkoutGuest(context: CommandContext, input: GuestCheckoutInput): Promise<CommandOutcome<{ guestBillId: string; statementId: string }>>;
   recordCustomerRepayment(context: CommandContext, input: CustomerRepaymentInput): Promise<CommandOutcome<{ repaymentId: string; balance: MoneyValue }>>;
   loadReport(query: ReportQuery): Promise<{ coverage: ReportCoverage; rows: Array<Record<string, string | number | null>> }>;
 }

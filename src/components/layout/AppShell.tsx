@@ -80,6 +80,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const selectWorkspace = (id: WorkspaceId) => { onTabChange(id); setMoreOpen(false); };
 
   return <div className="app-shell">
+    <a className="skip-link" href="#main-content">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Main navigation">
       <div className="brand-lockup"><div className="brand-mark">M</div><div><strong>Mazao</strong><small>BUSINESS WORKSPACE</small></div></div>
       <div className="sidebar-context"><span className="context-label">BUSINESS</span><strong title={activeTenant.outletName ?? activeTenant.name}>{activeTenant.outletName ?? activeTenant.name}</strong><span>{activeTenant.currency} · {activeTenant.timeZone ?? 'Africa/Nairobi'}</span></div>
@@ -107,8 +108,8 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
           </button>{operatorOpen && <div className="operator-menu" role="menu"><span className="menu-caption">DEMO OPERATOR</span>{staffUsers.map(staff => <button role="menuitem" type="button" key={staff.id} onClick={() => changeStaff(staff.id)} className={staff.id === activeStaff.id ? 'selected' : ''}><span>{staff.name}</span><small>{staff.title} · {staff.role}</small></button>)}</div>}</div>
         </div>
         <div className="topbar-actions">
-          <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Online' : 'Offline'}${pendingOutbox ? `, ${pendingOutbox} waiting to sync` : ''}`}>
-            {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Online' : 'Offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
+          <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Demo online' : 'Demo offline'}${pendingOutbox ? `, ${pendingOutbox} waiting to sync in the local preview` : ''}`}>
+            {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Demo online' : 'Demo offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
           </button>
           {isInstallable && !isInstalled && <button type="button" className="icon-action install-action" onClick={install}><Download size={16} /><span>Install app</span></button>}
           {storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}
