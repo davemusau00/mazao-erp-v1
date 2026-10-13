@@ -1138,6 +1138,9 @@ class StorageEngine {
     const rm = this.rooms.find(r => r.id === roomId);
     if (!rm) throw new Error('Room not found');
     if (rm.status !== 'occupied') throw new Error('Only an occupied room can be checked out.');
+    if (!['cash', 'card', 'mobile_money'].includes(paymentMethod)) {
+      throw new Error('Guest folio checkout requires cash, card, or mobile money settlement.');
+    }
 
     const finalizedCharges = [...rm.folioCharges];
     const totalDue = finalizedCharges.reduce((acc, c) => acc + c.amount, 0);
@@ -1236,6 +1239,17 @@ class StorageEngine {
         creditAccount,
         order.tax
       );
+    }
+
+    if (this.activeShift?.status === 'open') {
+      if (refundMethod === 'cash') {
+        this.activeShift.cashSales -= order.total;
+        this.activeShift.expectedCash -= order.total;
+      } else if (refundMethod === 'card') {
+        this.activeShift.cardSales -= order.total;
+      } else if (refundMethod === 'mobile_money') {
+        this.activeShift.mobileSales -= order.total;
+      }
     }
 
     // Keep an explicit refund movement after all ledger validations succeed.
