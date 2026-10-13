@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart3, Building2, ChefHat, ChevronDown, CircleHelp, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, UserPlus, Users, Wifi, WifiOff, Wrench, X } from 'lucide-react';
+import { BarChart3, Building2, ChefHat, ChevronDown, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, UserPlus, Users, Wifi, WifiOff, Wrench, X, CalendarDays } from 'lucide-react';
 import { TenantProfile, Permission } from '../../types/erp';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
 import { storage } from '../../services/storage';
@@ -13,8 +13,10 @@ const workspaceItems: Array<WorkspaceDefinition & { icon: React.ReactNode }> = [
   { id: 'sales', label: 'Sales history', description: 'Find receipts and returns', permission: 'sales.history', group: 'work', icon: <Clock3 /> },
   { id: 'service', label: 'Tables & kitchen', description: 'Orders, tabs and preparation', anyPermissions: ['pos.sell', 'kitchen.work'], capability: 'food_service', group: 'work', icon: <ChefHat /> },
   { id: 'stock', label: 'Stock', description: 'Items, movements and counts', permission: 'inventory.adjust', group: 'work', icon: <Package /> },
+  { id: 'stock-count', label: 'Count stock', description: 'Scan and review a count', permission: 'inventory.adjust', group: 'work', icon: <ClipboardCheck /> },
   { id: 'purchasing', label: 'Purchasing', description: 'Suppliers and deliveries', permission: 'procurement.manage', group: 'work', icon: <Truck /> },
   { id: 'hotel', label: 'Hotel', description: 'Rooms and guest bills', anyPermissions: ['rooms.checkin', 'rooms.checkout', 'hotel.housekeeping'], capability: 'hospitality', group: 'work', icon: <Hotel /> },
+  { id: 'reservations', label: 'Reservations', description: 'Check dates and room options', permission: 'rooms.checkin', capability: 'hospitality', group: 'work', icon: <CalendarDays /> },
   { id: 'customers', label: 'Customers', description: 'Accounts and repayments', permission: 'customers.view', group: 'work', icon: <Users /> },
   { id: 'shifts', label: 'Shifts', description: 'Till opening and cash-up', permission: 'shift.open', group: 'money', icon: <Clock3 /> },
   { id: 'money', label: 'Money', description: 'Ledger and balances', permission: 'ledger.view', group: 'money', icon: <Scale /> },

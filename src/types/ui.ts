@@ -9,6 +9,8 @@ export type WorkspaceId =
   | 'stock'
   | 'purchasing'
   | 'hotel'
+  | 'reservations'
+  | 'stock-count'
   | 'customers'
   | 'shifts'
   | 'money'
