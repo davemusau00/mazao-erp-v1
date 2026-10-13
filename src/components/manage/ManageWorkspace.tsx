@@ -1,25 +1,46 @@
-import React from 'react';
-import { Building2, CircleAlert, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2 } from 'lucide-react';
-import { TenantProfile } from '../../types/erp';
+import React, { useState } from 'react';
+import { ArrowLeft, Building2, CircleAlert, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench } from 'lucide-react';
+import { ROLE_PERMISSIONS, TenantProfile, UserRole } from '../../types/erp';
+import type { WorkspaceId } from '../../types/ui';
 import { storage } from '../../services/storage';
-import { WorkspaceHeading } from '../common/WorkspacePrimitives';
+import { EmptyState, WorkspaceHeading } from '../common/WorkspacePrimitives';
 
-const cards = [
-  { icon: <Building2 />, title: 'Business and outlets', detail: 'Business profile, outlet identity, currency and time zone.' },
-  { icon: <ContactRound />, title: 'Staff and access', detail: 'Staff membership, assigned roles, and permission review.' },
-  { icon: <ReceiptText />, title: 'Payments and receipts', detail: 'Receipt details, payment methods, and printer profile.' },
-  { icon: <MonitorCog />, title: 'Devices', detail: 'Enrolled terminals, device status, and access revocation.' },
-  { icon: <FileUp />, title: 'Bring in your data', detail: 'Map product columns, review errors, and preview the import.' },
-  { icon: <Settings2 />, title: 'Business capabilities', detail: 'Turn on the workflows your outlets use.' },
+type ManageSection = 'overview' | 'business' | 'team' | 'permissions' | 'devices' | 'imports' | 'assets' | 'capabilities';
+const sections: Array<{ id: Exclude<ManageSection, 'overview'>; icon: React.ReactNode; title: string; detail: string }> = [
+  { id: 'business', icon: <Building2 />, title: 'Business and outlets', detail: 'Profile, currency, outlet and time zone' },
+  { id: 'team', icon: <ContactRound />, title: 'Staff', detail: 'Operator profiles and roles' },
+  { id: 'permissions', icon: <Shield />, title: 'Roles and permissions', detail: 'Review role capabilities' },
+  { id: 'devices', icon: <MonitorCog />, title: 'Devices and printing', detail: 'Enrollment, pairing, printer profile' },
+  { id: 'imports', icon: <FileUp />, title: 'Data import', detail: 'Map and review item files' },
+  { id: 'assets', icon: <Wrench />, title: 'Assets and maintenance', detail: 'Equipment, custody and repair' },
+  { id: 'capabilities', icon: <Settings2 />, title: 'Business capabilities', detail: 'Modules enabled at this outlet' },
 ];
 
-export function ManageWorkspace({ tenant }: { tenant: TenantProfile }) {
+export function ManageWorkspace({ tenant, onNavigate }: { tenant: TenantProfile; onNavigate: (id: WorkspaceId) => void }) {
+  const [section, setSection] = useState<ManageSection>('overview');
+  const [draftName, setDraftName] = useState('');
+  const [draftRole, setDraftRole] = useState<UserRole>('cashier');
+  const [staffDrafts, setStaffDrafts] = useState<Array<{ name: string; role: UserRole }>>([]);
+  const [assetName, setAssetName] = useState('');
+  const [assetDraft, setAssetDraft] = useState<string | null>(null);
   const staff = storage.getStaffUsers();
+  const roles = Object.keys(ROLE_PERMISSIONS) as UserRole[];
+  const permissions = Array.from(new Set(Object.values(ROLE_PERMISSIONS).flat())).sort();
+  const roleLabel = (role: UserRole) => role.replace('_', ' ');
+  const back = () => setSection('overview');
+
   return <div className="page-stack">
-    <WorkspaceHeading eyebrow="BUSINESS SETUP" title="Manage your workspace" description="Business details and day-to-day setup for this local demo." />
-    <div className="settings-profile-card"><div className="settings-profile-icon"><Building2 /></div><div><span className="eyebrow">ACTIVE BUSINESS</span><h2>{tenant.name}</h2><p>{tenant.type.replace('_', ' ')} · {tenant.currency} · Africa/Nairobi</p></div><span className="local-data-badge"><span /> On this device</span></div>
-    <div className="manage-grid">{cards.map(card => <article className="manage-card" key={card.title}><div className="manage-card-icon">{card.icon}</div><div><h2>{card.title}</h2><p>{card.detail}</p></div><span className="not-connected">Admin service not connected</span></article>)}</div>
-    <section className="workspace-section"><div className="section-heading"><div><h2>Demo operators</h2><p>Operator profiles available in this browser preview.</p></div></div><div className="operator-summary-list">{staff.map(person => <div key={person.id}><span className="operator-avatar">{person.name.slice(0, 1)}</span><span><strong>{person.name}</strong><small>{person.title}</small></span><span className="role-tag">{person.role}</span></div>)}</div></section>
-    <div className="integration-boundary"><CircleAlert size={17} /><span><strong>Configuration changes are not enabled here.</strong> This prototype has no authenticated administration service. These sections will not save or change business access.</span></div>
+    <WorkspaceHeading eyebrow="WORKSPACE ADMIN" title={section === 'overview' ? 'Manage your workspace' : sections.find(item => item.id === section)?.title ?? 'Manage your workspace'} description={section === 'overview' ? 'Business details and setup areas for this local demo.' : 'Review the workspace configuration and its current service boundary.'} action={section !== 'overview' ? <button type="button" className="quiet-action" onClick={back}><ArrowLeft size={14} /> All settings</button> : <span className="local-data-badge"><span /> Local preview</span>} />
+    <div className="preview-notice"><CircleAlert size={16} /><span>Changes in this workspace are preview-only. Staff, device, outlet, and asset updates require an authenticated administration service.</span></div>
+    {section === 'overview' && <>
+      <div className="settings-profile-card"><div className="settings-profile-icon"><Building2 /></div><div><span className="eyebrow">ACTIVE BUSINESS</span><h2>{tenant.name}</h2><p>{tenant.type.replace('_', ' ')} · {tenant.currency} · {tenant.timeZone ?? 'Africa/Nairobi'}</p></div><span className="local-data-badge"><span /> On this device</span></div>
+      <div className="manage-grid">{sections.map(item => <button type="button" className="manage-card manage-card-button" key={item.id} onClick={() => item.id === 'imports' ? onNavigate('onboarding') : setSection(item.id)}><div className="manage-card-icon">{item.icon}</div><div><h2>{item.title}</h2><p>{item.detail}</p></div><span className="not-connected">Preview only</span></button>)}</div>
+    </>}
+    {section === 'business' && <section className="workflow-panel"><div className="panel-heading"><div><h2>Business identity</h2><p>Current local preview profile</p></div><Building2 size={18} /></div><div className="settings-detail-grid">{[['Business name', tenant.name], ['Outlet', tenant.outletName ?? 'Not specified'], ['Business type', tenant.type.replace('_', ' ')], ['Currency', tenant.currency], ['Time zone', tenant.timeZone ?? 'Africa/Nairobi'], ['Capabilities', tenant.capabilities?.join(', ') || 'Based on demo business type']].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="preview-notice"><CircleAlert size={15} /><span>Tax, legal entity, receipt, and outlet changes are not editable here.</span></div></section>}
+    {section === 'team' && <div className="admin-two-column"><section className="workflow-panel"><div className="panel-heading"><div><h2>Local preview profiles</h2><p>These seeded profiles do not represent authenticated users.</p></div><ContactRound size={18} /></div><div className="operator-summary-list">{staff.map(person => <div key={person.id}><span className="operator-avatar">{person.name.slice(0, 1)}</span><span><strong>{person.name}</strong><small>{person.title}</small></span><span className="role-tag">{roleLabel(person.role)}</span></div>)}</div></section><section className="workflow-panel"><div className="panel-heading"><div><h2>Draft staff profile</h2><p>Preview the fields for adding an operator.</p></div></div><form className="form-grid" onSubmit={event => { event.preventDefault(); if (!draftName.trim()) return; setStaffDrafts(previous => [...previous, { name: draftName.trim(), role: draftRole }]); setDraftName(''); }}><label className="form-field"><span>Staff name</span><input value={draftName} onChange={event => setDraftName(event.target.value)} placeholder="Full name" /></label><label className="form-field"><span>Role</span><select value={draftRole} onChange={event => setDraftRole(event.target.value as UserRole)}>{roles.map(role => <option value={role} key={role}>{roleLabel(role)}</option>)}</select></label><button type="submit" className="secondary-action">Add draft profile</button></form>{staffDrafts.map((draft, index) => <div className="draft-profile-row" key={`${draft.name}-${index}`}><strong>{draft.name}</strong><span>{roleLabel(draft.role)} · not saved</span></div>)}</section></div>}
+    {section === 'permissions' && <section className="workflow-panel"><div className="panel-heading"><div><h2>Role capability overview</h2><p>Visual navigation guidance only; real access must be enforced by the server.</p></div><Shield size={18} /></div><div className="permission-table-wrap"><table className="permission-table"><thead><tr><th>CAPABILITY</th>{roles.map(role => <th key={role}>{roleLabel(role)}</th>)}</tr></thead><tbody>{permissions.map(permission => <tr key={permission}><th>{permission}</th>{roles.map(role => <td key={`${permission}-${role}`} aria-label={`${roleLabel(role)} ${ROLE_PERMISSIONS[role].includes(permission) ? 'allowed' : 'not allowed'}`}>{ROLE_PERMISSIONS[role].includes(permission) ? '✓' : '—'}</td>)}</tr>)}</tbody></table></div></section>}
+    {section === 'devices' && <section className="workflow-panel"><div className="panel-heading"><div><h2>Devices and printer profiles</h2><p>Enrollment and hardware acceptance information.</p></div><MonitorCog size={18} /></div><EmptyState title="No enrolled devices in this preview" detail="Pairing, revocation, printer profiles, and hardware acceptance require a device service. Browser print remains the planned fallback." action={<button type="button" className="secondary-action" onClick={() => onNavigate('help')}><ReceiptText size={14} /> Print and recovery help</button>} /></section>}
+    {section === 'assets' && <div className="admin-two-column"><section className="workflow-panel"><div className="panel-heading"><div><h2>Assets and maintenance</h2><p>Track equipment custody and service history.</p></div><Wrench size={18} /></div><EmptyState title="No asset records available" detail="This preview has no asset register. Acquisition, assignment, maintenance, and disposal need auditable service records." /></section><section className="workflow-panel"><div className="panel-heading"><div><h2>Asset draft</h2><p>Sketch an asset entry for interface review.</p></div></div><label className="form-field"><span>Asset name</span><input value={assetName} onChange={event => setAssetName(event.target.value)} placeholder="Equipment or fixture" /></label><button className="secondary-action asset-draft-button" type="button" disabled={!assetName.trim()} onClick={() => setAssetDraft(assetName.trim())}>Preview asset draft</button>{assetDraft && <div className="preview-notice"><CircleAlert size={15} /><span>{assetDraft} is a draft only; no asset record or accounting entry was created.</span></div>}</section></div>}
+    {section === 'capabilities' && <section className="workflow-panel"><div className="panel-heading"><div><h2>Capabilities at this outlet</h2><p>Shown from the selected business profile.</p></div><Settings2 size={18} /></div><div className="capability-chip-list">{(tenant.capabilities ?? [tenant.type]).map(capability => <span key={capability}>{capability.replace('_', ' ')}</span>)}</div><p className="muted-copy">Feature changes affect navigation and policies but do not remove the underlying business history.</p></section>}
   </div>;
 }

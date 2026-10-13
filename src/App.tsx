@@ -21,6 +21,11 @@ import { SalesHistoryView } from './components/sales/SalesHistoryView';
 import { TodayWorkspace } from './components/home/TodayWorkspace';
 import { ManageWorkspace } from './components/manage/ManageWorkspace';
 import { HelpWorkspace } from './components/help/HelpWorkspace';
+import { FoodServiceWorkspace } from './components/service/FoodServiceWorkspace';
+import { ProcurementWorkspace } from './components/procurement/ProcurementWorkspace';
+import { OnboardingWorkspace } from './components/onboarding/OnboardingWorkspace';
+import { ReservationWorkspace } from './components/hospitality/ReservationWorkspace';
+import { StockCountWorkspace } from './components/inventory/StockCountWorkspace';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
@@ -91,13 +96,21 @@ export default function App() {
           <SalesHistoryView tenant={activeTenant} onReprintOrder={handleOrderCompleted} />
         )}
 
+        {activeTab === 'service' && <FoodServiceWorkspace />}
+
         {activeTab === 'hotel' && (
           <HospitalityView tenant={activeTenant} />
         )}
 
+        {activeTab === 'reservations' && <ReservationWorkspace tenant={activeTenant} />}
+
         {activeTab === 'stock' && (
           <InventoryView tenant={activeTenant} />
         )}
+
+        {activeTab === 'stock-count' && <StockCountWorkspace />}
+
+        {activeTab === 'purchasing' && <ProcurementWorkspace />}
 
         {activeTab === 'customers' && (
           <CustomerDirectoryView tenant={activeTenant} />
@@ -115,7 +128,9 @@ export default function App() {
           <AnalyticsView currentTenant={activeTenant} />
         )}
 
-        {activeTab === 'manage' && <ManageWorkspace tenant={activeTenant} />}
+        {activeTab === 'manage' && <ManageWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}
+
+        {activeTab === 'onboarding' && <OnboardingWorkspace tenant={activeTenant} />}
 
         {activeTab === 'help' && <HelpWorkspace onNavigate={setActiveTab} onOpenSyncCenter={() => setIsSyncCenterOpen(true)} />}
       </AppShell>

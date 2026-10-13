@@ -6,7 +6,7 @@ import { EmptyState, WorkspaceHeading } from '../common/WorkspacePrimitives';
 
 type BoardTab = 'floor' | 'kitchen';
 interface DraftLine { product: ProductItem; quantity: number; notes: string; }
-interface DraftTicket { id: string; table: string; lines: DraftLine[]; createdAt: string; state: 'draft' | 'preview'; }
+interface DraftTicket { id: string; table: string; lines: DraftLine[]; createdAt: string; state: 'draft' | 'sent' | 'preparing' | 'ready' | 'served'; }
 
 export function FoodServiceWorkspace() {
   const [tab, setTab] = useState<BoardTab>('floor');
@@ -18,7 +18,6 @@ export function FoodServiceWorkspace() {
   const [query, setQuery] = useState('');
   const products = storage.getProducts();
   const filteredProducts = useMemo(() => products.filter(product => product.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6), [products, query]);
-  const currentTicket = tickets.find(ticket => ticket.table === selectedTable);
 
   const addTable = (event: React.FormEvent) => {
     event.preventDefault();
@@ -39,18 +38,21 @@ export function FoodServiceWorkspace() {
     });
     setLines([]);
   };
-  const firePreview = (ticket: DraftTicket) => setTickets(previous => previous.map(row => row.id === ticket.id ? { ...row, state: 'preview' } : row));
+  const firePreview = (ticket: DraftTicket) => {
+    const next: DraftTicket['state'] = ticket.state === 'draft' ? 'sent' : ticket.state === 'sent' ? 'preparing' : ticket.state === 'preparing' ? 'ready' : ticket.state === 'ready' ? 'served' : 'served';
+    setTickets(previous => previous.map(row => row.id === ticket.id ? { ...row, state: next } : row));
+  };
 
   return <div className="page-stack">
     <WorkspaceHeading eyebrow="FOOD SERVICE" title="Tables & kitchen" description="Manage a floor order and follow its preparation through a clear station view." action={<span className="local-data-badge"><span /> Interaction preview</span>} />
     <div className="preview-notice"><CircleAlert size={16} /><span>This preview keeps table orders in memory only. Sending a ticket here does not reach a kitchen printer or post a sale.</span></div>
     <div className="workspace-tabs" role="tablist" aria-label="Food service view">
       <button type="button" role="tab" aria-selected={tab === 'floor'} className={tab === 'floor' ? 'active' : ''} onClick={() => setTab('floor')}><Utensils size={15} /> Floor</button>
-      <button type="button" role="tab" aria-selected={tab === 'kitchen'} className={tab === 'kitchen' ? 'active' : ''} onClick={() => setTab('kitchen')}><ChefHat size={15} /> Kitchen <span className="tab-count">{tickets.filter(ticket => ticket.state === 'preview').length}</span></button>
+      <button type="button" role="tab" aria-selected={tab === 'kitchen'} className={tab === 'kitchen' ? 'active' : ''} onClick={() => setTab('kitchen')}><ChefHat size={15} /> Kitchen <span className="tab-count">{tickets.filter(ticket => !['draft', 'served'].includes(ticket.state)).length}</span></button>
     </div>
     {tab === 'floor' ? <div className="food-floor-layout">
       <section className="workflow-panel"><div className="panel-heading"><div><h2>Floor tables</h2><p>Table layout preview · not saved</p></div></div>
-        {!tableNames.length ? <EmptyState title="No tables in this preview" detail="Add temporary table labels to explore the floor and order workflow." /> : <div className="table-card-grid">{tableNames.map(name => { const ticket = tickets.find(row => row.table === name); return <button key={name} type="button" className={`table-card ${selectedTable === name ? 'selected' : ''}`} onClick={() => { setSelectedTable(name); setLines(ticket?.lines ?? []); }}><span className="table-card-icon"><Utensils size={19} /></span><strong>{name}</strong><small>{ticket ? `${ticket.lines.reduce((sum, line) => sum + line.quantity, 0)} items · ${ticket.state === 'preview' ? 'Ticket previewed' : 'Draft'}` : 'Available'}</small></button>; })}</div>}
+        {!tableNames.length ? <EmptyState title="No tables in this preview" detail="Add temporary table labels to explore the floor and order workflow." /> : <div className="table-card-grid">{tableNames.map(name => { const ticket = tickets.find(row => row.table === name); return <button key={name} type="button" className={`table-card ${selectedTable === name ? 'selected' : ''}`} onClick={() => { setSelectedTable(name); setLines(ticket?.lines ?? []); }}><span className="table-card-icon"><Utensils size={19} /></span><strong>{name}</strong><small>{ticket ? `${ticket.lines.reduce((sum, line) => sum + line.quantity, 0)} items · ${ticket.state.replace('_', ' ')}` : 'Available'}</small></button>; })}</div>}
         <form className="inline-create-form" onSubmit={addTable}><label className="sr-only" htmlFor="preview-table-name">Table label</label><input id="preview-table-name" value={tableName} onChange={event => setTableName(event.target.value)} placeholder="Table name or number" /><button type="submit"><Plus size={15} /> Add preview table</button></form>
       </section>
       <section className="workflow-panel order-builder"><div className="panel-heading"><div><h2>{selectedTable ? `Order · ${selectedTable}` : 'Start an order'}</h2><p>Choose a table, then add items from the menu.</p></div></div>
@@ -61,7 +63,7 @@ export function FoodServiceWorkspace() {
         </> : <EmptyState title="Choose a table" detail="Select a table card or add a preview table to begin." />}
       </section>
     </div> : <section className="workflow-panel"><div className="panel-heading"><div><h2>Kitchen tickets</h2><p>Only preview tickets created in this browser session appear here.</p></div><span className="subtle-count"><Clock3 size={14} /> {tickets.length} drafts</span></div>
-      {tickets.filter(ticket => ticket.lines.length).length ? <div className="ticket-grid">{tickets.filter(ticket => ticket.lines.length).map(ticket => <article className="ticket-card" key={ticket.id}><div className="ticket-card-head"><div><span className="ticket-status"><Soup size={13} /> {ticket.state === 'preview' ? 'PREVIEW ONLY' : 'DRAFT'}</span><h3>{ticket.table}</h3></div><small>{new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></div><ul>{ticket.lines.map(line => <li key={line.product.id}><span>{line.quantity} ×</span>{line.product.name}{line.notes && <small>{line.notes}</small>}</li>)}</ul><button type="button" disabled={ticket.state === 'preview'} onClick={() => firePreview(ticket)}><Send size={14} /> {ticket.state === 'preview' ? 'Not sent to kitchen' : 'Preview ticket handoff'}</button></article>)}</div> : <EmptyState title="Kitchen is clear" detail="Save an order draft from the Floor tab to review a kitchen ticket." />}
+      {tickets.filter(ticket => ticket.lines.length).length ? <div className="ticket-grid">{tickets.filter(ticket => ticket.lines.length).map(ticket => <article className="ticket-card" key={ticket.id}><div className="ticket-card-head"><div><span className="ticket-status"><Soup size={13} /> {ticket.state === 'draft' ? 'LOCAL DRAFT' : `${ticket.state.toUpperCase()} · PREVIEW`}</span><h3>{ticket.table}</h3></div><small>{new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></div><ul>{ticket.lines.map(line => <li key={line.product.id}><span>{line.quantity} ×</span>{line.product.name}{line.notes && <small>{line.notes}</small>}</li>)}</ul><button type="button" disabled={ticket.state === 'served'} onClick={() => firePreview(ticket)}><Send size={14} /> {ticket.state === 'draft' ? 'Preview ticket handoff' : ticket.state === 'sent' ? 'Simulate accepted' : ticket.state === 'preparing' ? 'Simulate ready' : ticket.state === 'ready' ? 'Simulate served' : 'Served in preview'}</button></article>)}</div> : <EmptyState title="Kitchen is clear" detail="Save an order draft from the Floor tab to review a kitchen ticket." />}
     </section>}
   </div>;
 }

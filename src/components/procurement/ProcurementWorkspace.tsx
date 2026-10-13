@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ClipboardList, FileCheck2, PackageCheck, Plus, Truck } from 'lucide-react';
+import { CircleAlert, ClipboardList, FileCheck2, PackageCheck, Plus, Truck } from 'lucide-react';
 import type { ProductItem } from '../../types/erp';
 import { storage } from '../../services/storage';
 import { EmptyState, WorkspaceHeading } from '../common/WorkspacePrimitives';
