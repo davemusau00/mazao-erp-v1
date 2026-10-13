@@ -19,6 +19,10 @@ interface HospitalityViewProps {
 }
 
 export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
+  const canCheckIn = storage.hasPermission('rooms.checkin');
+  const canCheckout = storage.hasPermission('rooms.checkout');
+  const canManageFolio = storage.hasPermission('rooms.manage_folios');
+  const canHousekeep = storage.hasPermission('hotel.housekeeping');
   const [rooms, setRooms] = useState<Room[]>(storage.getRooms());
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -69,6 +73,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
   // Check-in action
   const handleConfirmCheckIn = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCheckIn) return;
     if (!checkInModalRoom || !guestName.trim()) return;
 
     storage.checkInGuest(checkInModalRoom.id, guestName.trim(), guestPhone.trim(), nights);
@@ -82,6 +87,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
   // Add charge to folio
   const handleAddFolioCharge = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageFolio) return;
     if (!selectedRoom || !chargeAmount) return;
 
     storage.addFolioCharge(selectedRoom.id, {
@@ -98,6 +104,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
 
   // Checkout action
   const handleCheckout = (room: Room) => {
+    if (!canCheckout) return;
     const total = room.folioCharges.reduce((acc, c) => acc + c.amount, 0);
     const charges = storage.checkOutGuest(room.id);
     setCheckoutSlip({ room, charges, total });
@@ -107,6 +114,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
 
   // Quick Housekeeping status toggle
   const handleHousekeepingToggle = (roomId: string, newStatus: RoomStatus, e?: React.MouseEvent) => {
+    if (!canHousekeep) return;
     if (e) e.stopPropagation();
     storage.updateRoomHousekeeping(roomId, newStatus);
     refreshRooms();
@@ -175,7 +183,10 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
           return (
             <div
               key={room.id}
-              onClick={() => setSelectedRoom(room)}
+              onClick={() => canManageFolio && setSelectedRoom(room)}
+              onKeyDown={event => { if (canManageFolio && (event.key === 'Enter' || event.key === ' ')) setSelectedRoom(room); }}
+              role={canManageFolio ? 'button' : undefined}
+              tabIndex={canManageFolio ? 0 : undefined}
               className="p-4 rounded-xl bg-zinc-950 border border-zinc-850 hover:border-zinc-700 hover:bg-zinc-900/60 cursor-pointer transition-all flex flex-col justify-between"
             >
               <div>
@@ -217,7 +228,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
 
               {/* Action Buttons depending on state */}
               <div className="pt-2 border-t border-zinc-850 flex items-center justify-between text-xs">
-                {room.status === 'vacant_clean' && (
+                {room.status === 'vacant_clean' && canCheckIn && (
                   <button
                     onClick={e => {
                       e.stopPropagation();
@@ -230,7 +241,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                   </button>
                 )}
 
-                {room.status === 'vacant_dirty' && (
+                {room.status === 'vacant_dirty' && canHousekeep && (
                   <button
                     onClick={e => handleHousekeepingToggle(room.id, 'vacant_clean', e)}
                     className="w-full py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/30 font-medium flex items-center justify-center gap-1.5 transition-colors"
@@ -240,7 +251,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                   </button>
                 )}
 
-                {room.status === 'occupied' && (
+                {room.status === 'occupied' && canManageFolio && (
                   <button
                     onClick={e => {
                       e.stopPropagation();
@@ -253,7 +264,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                   </button>
                 )}
 
-                {room.status === 'reserved' && (
+                {room.status === 'reserved' && canCheckIn && (
                   <button
                     onClick={e => {
                       e.stopPropagation();
@@ -355,7 +366,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
       )}
 
       {/* Room Folio Details Modal */}
-      {selectedRoom && selectedRoom.status === 'occupied' && (
+      {selectedRoom && selectedRoom.status === 'occupied' && canManageFolio && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
             {/* Header */}
@@ -385,13 +396,13 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Itemized Charges ({selectedRoom.folioCharges.length})
                 </h4>
-                <button
+                {canManageFolio && <button
                   onClick={() => setIsAddChargeOpen(true)}
                   className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add Manual Charge
-                </button>
+                </button>}
               </div>
 
               {/* Add Charge inline form */}
@@ -502,13 +513,13 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                 Close Window
               </button>
 
-              <button
+              {canCheckout && <button
                 onClick={() => handleCheckout(selectedRoom)}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-sm transition-all"
               >
                 <CreditCard className="w-4 h-4" />
                 <span>Settle Folio & Check Out</span>
-              </button>
+              </button>}
             </div>
           </div>
         </div>

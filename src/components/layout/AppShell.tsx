@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { BarChart3, Building2, ChefHat, ChevronDown, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, UserPlus, Users, Wifi, WifiOff, Wrench, X, CalendarDays } from 'lucide-react';
-import { TenantProfile, Permission } from '../../types/erp';
+import { TenantProfile, Permission, ROLE_PERMISSIONS } from '../../types/erp';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
 import { storage } from '../../services/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
@@ -66,7 +66,16 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     storage.switchStaff(staffId);
     setOperatorOpen(false);
     const route = workspaceItems.find(item => item.id === activeTab);
-    if (route?.permission && !storage.hasPermission(route.permission as Permission)) onTabChange('today');
+    const nextStaff = staffUsers.find(staff => staff.id === staffId);
+    const permissions = nextStaff ? ROLE_PERMISSIONS[nextStaff.role] : [];
+    const allowedByRole = !route?.permission || permissions.includes(route.permission as Permission);
+    const allowedByAnyRole = !route?.anyPermissions || route.anyPermissions.some(permission => permissions.includes(permission));
+    const allowedByCapability = route?.capability === 'hospitality'
+      ? activeTenant.capabilities?.includes('hospitality') ?? ['hospitality', 'restaurant'].includes(activeTenant.type)
+      : route?.capability === 'food_service'
+        ? activeTenant.capabilities?.includes('food_service') ?? activeTenant.type === 'restaurant'
+        : true;
+    if (!route || !allowedByRole || !allowedByAnyRole || !allowedByCapability) onTabChange('today');
   };
   const selectWorkspace = (id: WorkspaceId) => { onTabChange(id); setMoreOpen(false); };
 

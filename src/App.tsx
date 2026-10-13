@@ -12,7 +12,7 @@ import { PointOfSaleView } from './components/pos/PointOfSaleView';
 import { HospitalityView } from './components/hospitality/HospitalityView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { ShiftManagerView } from './components/shifts/ShiftManagerView';
-import { LedgerView } from './components/finance/LedgerView';
+import { FinanceWorkspace } from './components/finance/FinanceWorkspace';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { CustomerDirectoryView } from './components/customers/CustomerDirectoryView';
 import { ReceiptModal } from './components/hardware/ReceiptModal';
@@ -121,11 +121,11 @@ export default function App() {
         )}
 
         {activeTab === 'money' && (
-          <LedgerView tenant={activeTenant} />
+          <FinanceWorkspace tenant={activeTenant} />
         )}
 
         {activeTab === 'reports' && (
-          <AnalyticsView currentTenant={activeTenant} />
+          <AnalyticsView currentTenant={activeTenant} onOpenSales={() => setActiveTab('sales')} />
         )}
 
         {activeTab === 'manage' && <ManageWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}

@@ -19,11 +19,12 @@ import {
 
 interface AnalyticsViewProps {
   currentTenant: TenantProfile;
+  onOpenSales?: () => void;
 }
 
 type DateRangeFilter = 'today' | 'yesterday' | 'last7' | 'month' | 'all';
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) => {
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onOpenSales }) => {
   const [dateRange, setDateRange] = useState<DateRangeFilter>('last7');
   const [selectedTenantFilter, setSelectedTenantFilter] = useState<string>(currentTenant.id);
 
@@ -135,11 +136,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) =
           <div className="flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-blue-400" />
             <h2 className="text-base font-bold text-zinc-100">
-              Operational Reporting & Financial Intelligence
+              Sales & Operations Overview
             </h2>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
-            Real-time multi-vertical sales velocity, inventory turnover, margin analysis, and department contributions
+            Local demo records for the selected period. Values may not represent a posted financial report.
           </p>
         </div>
 
@@ -187,6 +188,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) =
         </div>
       </div>
 
+      <div className="rounded-xl border border-blue-900/60 bg-blue-950/30 px-4 py-3 text-xs text-blue-100 flex flex-wrap items-center justify-between gap-3">
+        <span>Coverage: {filteredOrders.length} local sales records · product cost uses current catalog values · ledger reconciliation is not available in this preview.</span>
+        {onOpenSales && <button type="button" onClick={onOpenSales} className="min-h-11 rounded-lg border border-blue-800 px-3 font-semibold hover:bg-blue-900/50">Review sales history</button>}
+      </div>
+
       {/* KPI Headline Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-850">
@@ -204,7 +210,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) =
 
         <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-850">
           <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
-            <span>Gross Profit & Margin</span>
+            <span>Estimated Gross Profit</span>
             <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
           </div>
           <div className="text-2xl font-bold font-mono text-blue-400 tabular-nums">
@@ -217,20 +223,20 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) =
 
         <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-850">
           <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
-            <span>Inventory Turnover Rate</span>
+            <span>Estimated Turnover</span>
             <Package className="w-3.5 h-3.5 text-amber-400" />
           </div>
           <div className="text-2xl font-bold font-mono text-zinc-100 tabular-nums">
             {turnoverRatio}x <span className="text-xs font-normal text-zinc-500">/ yr</span>
           </div>
           <div className="text-[11px] text-zinc-500 mt-1">
-            Stock health benchmark: Healthy velocity
+            Estimate from current product costs
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-850">
           <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
-            <span>Average Order Value (AOV)</span>
+            <span>Average Recorded Sale</span>
             <Layers className="w-3.5 h-3.5 text-purple-400" />
           </div>
           <div className="text-2xl font-bold font-mono text-zinc-100 tabular-nums">
@@ -405,48 +411,28 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant }) =
         {/* Inventory Velocity & Stock Turnover Classification */}
         <div className="p-5 rounded-xl bg-zinc-950 border border-zinc-850 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-100">Inventory Turnover & Health Quadrant</h3>
-            <span className="text-xs text-zinc-500 font-mono">Velocity Classification</span>
+            <h3 className="text-sm font-semibold text-zinc-100">Current Stock Snapshot</h3>
+            <span className="text-xs text-zinc-500 font-mono">Catalog levels</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3.5 rounded-lg bg-emerald-950/30 border border-emerald-900/50 space-y-1">
-              <div className="font-semibold text-emerald-400">High Velocity Movers</div>
-              <p className="text-[11px] text-zinc-400 leading-snug">
-                Items turning over &gt; 12x/yr. Fresh Milk, Sliced Bread, Draught IPA. Low stockout risk.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-lg bg-blue-950/30 border border-blue-900/50 space-y-1">
-              <div className="font-semibold text-blue-400">Steady Movers</div>
-              <p className="text-[11px] text-zinc-400 leading-snug">
-                Pantry staples, artisan coffee, wine bottles. Predictable reorder cadence.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-lg bg-amber-950/30 border border-amber-900/50 space-y-1">
-              <div className="font-semibold text-amber-400">Approaching Reorder</div>
-              <p className="text-[11px] text-zinc-400 leading-snug">
-                Portland Cement 50kg (18 left, threshold: 25). Purchase order trigger active.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-lg bg-zinc-900/60 border border-zinc-800 space-y-1">
-              <div className="font-semibold text-zinc-300">Days of Inventory (DOH)</div>
-              <p className="text-[11px] text-zinc-400 leading-snug">
-                Current aggregate stock represents ~24 days of operational trading demand.
-              </p>
-            </div>
+          <div className="space-y-2 text-xs">
+            {products.filter(product => product.stockOnHand <= product.reorderPoint).slice(0, 6).map(product => (
+              <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+                <span className="truncate text-zinc-200">{product.name}</span>
+                <span className="shrink-0 font-mono text-amber-300">{product.stockOnHand} {product.unit} · reorder {product.reorderPoint}</span>
+              </div>
+            ))}
+            {products.filter(product => product.stockOnHand <= product.reorderPoint).length === 0 && <p className="rounded-lg bg-zinc-900/50 p-4 text-zinc-400">No products are at or below their configured reorder level.</p>}
           </div>
 
           <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-850 flex items-center justify-between text-xs">
             <div>
               <div className="font-semibold text-zinc-200">Consolidated Audit Status</div>
-              <div className="text-[11px] text-zinc-500">Every sales entry reconciles with general ledger</div>
+              <div className="text-[11px] text-zinc-500">Ledger coverage is not provided by local demo records</div>
             </div>
             <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[11px]">
               <CheckCircle2 className="w-4 h-4" />
-              <span>100% Reconciled</span>
+              <span>Unavailable</span>
             </div>
           </div>
         </div>

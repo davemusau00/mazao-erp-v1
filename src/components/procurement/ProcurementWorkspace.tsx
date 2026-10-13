@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { CircleAlert, ClipboardList, FileCheck2, PackageCheck, Plus, Truck } from 'lucide-react';
 import type { ProductItem } from '../../types/erp';
 import { storage } from '../../services/storage';
 import { EmptyState, WorkspaceHeading } from '../common/WorkspacePrimitives';
+import { sumDecimalStrings } from '../../utils/decimal';
 
 type ProcurementTab = 'orders' | 'receive' | 'suppliers' | 'payables';
 interface SupplierDraft { id: string; name: string; reference: string; }
@@ -23,7 +24,7 @@ export function ProcurementWorkspace() {
   const products = storage.getProducts();
   const selectedProductRecord = products.find(product => product.id === selectedProduct);
   const tabs: Array<[ProcurementTab, string]> = [['orders', 'Purchase orders'], ['receive', 'Receive delivery'], ['suppliers', 'Suppliers'], ['payables', 'Supplier balances']];
-  const totalUnits = useMemo(() => lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0), [lines]);
+  const totalUnits = sumDecimalStrings(lines.map(line => line.quantity));
 
   const addLine = () => {
     if (!selectedProductRecord || !quantity || Number(quantity) <= 0) return;

@@ -201,6 +201,17 @@
 .asset-draft-button { margin-top: 11px; }
 .capability-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .capability-chip-list > span { padding: 7px 9px; border: 1px solid #314762; border-radius: 7px; background: #152338; color: #b4d0f5; font-size: 9px; text-transform: capitalize; }
+.finance-workspace { min-height: 100%; }
+.finance-ledger-frame { min-height: 480px; max-height: calc(100dvh - 230px); overflow: auto; border: 1px solid var(--border-subtle); border-radius: 10px; background: #0c1219; }
+.finance-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.statement-upload { cursor: default; }
+.statement-upload .secondary-action { position: relative; overflow: hidden; cursor: pointer; }
+.statement-upload .secondary-action input { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
+.period-status-card { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid #33465d; border-radius: 9px; background: #121d2a; color: #96baf0; }
+.period-status-card > span { display: flex; flex-direction: column; gap: 4px; }
+.period-status-card strong { color: #e2eaf5; font-size: 10px; }
+.period-status-card small { color: #9dacc0; font-size: 9px; line-height: 1.5; }
+.finance-source-footnote { color: var(--text-muted); font-size: 8px; }
 .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .help-grid button { min-height: 89px; display: flex; align-items: center; gap: 13px; padding: 15px; border: 1px solid var(--border-subtle); border-radius: 11px; background: var(--surface-raised); text-align: left; cursor: pointer; }
 .help-grid button:hover { border-color: #3a5e8a; background: #141e2b; }
@@ -453,6 +464,7 @@
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .food-floor-layout, .procurement-layout, .reservation-layout { grid-template-columns: 1fr; }
+  .finance-two-column { grid-template-columns: 1fr; }
   .onboarding-layout { grid-template-columns: 1fr; }
   .onboarding-steps { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); overflow-x: auto; }
   .onboarding-steps button { min-width: 150px; }
@@ -502,6 +514,7 @@
   .manage-grid, .help-grid { grid-template-columns: 1fr; }
   .manage-card { min-height: 135px; }
   .form-grid { grid-template-columns: 1fr; }
+  .line-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .line-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .line-entry-grid > .form-field:first-child { grid-column: 1 / -1; }
   .count-session-header { flex-direction: column; }
