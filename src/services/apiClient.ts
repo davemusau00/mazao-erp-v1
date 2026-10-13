@@ -1,6 +1,8 @@
+import {commandJournal,type RecoverableCommand} from './commandJournal';
+
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string};
-  tenant:{id:string;name:string;currency:string;timeZone:string};
+  tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[]};
   outlet:{id:string;name:string}; deviceId:string; csrfToken:string;
 }
 export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;quantity:string;version:number }
@@ -8,8 +10,9 @@ export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number
 export interface BackendCommand { protocolVersion:1;commandId:string;tenantId?:string;deviceId:string;type:string;occurredAt:string;expectedVersions:Record<string,number>;payload:Record<string,unknown> }
 
 class ApiClient {
-  private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();
+  private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();private recoveryListeners=new Set<(records:RecoverableCommand[])=>void>();
   subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
+  subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
   private async request<T>(path:string,init:RequestInit={}):Promise<T>{
@@ -25,8 +28,16 @@ class ApiClient {
   async restore(){try{const s=await this.request<BackendSession>('/auth/me');this.csrf=s.csrfToken;this.publish(s);return s}catch{this.csrf='';this.publish(null);return null}}
   async logout(){try{await this.request('/auth/logout',{method:'POST'})}finally{this.csrf='';this.publish(null)}}
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
+  listInventoryMovements(){return this.request<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string}>}>('/inventory/movements')}
   getCurrentShift(){return this.request<{shift:BackendShift|null}>('/shifts/current')}
-  submitCommand(command:BackendCommand){return this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)})}
-  checkCommandStatus(commandId:string){return this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId))}
+  listSalesOrders(){return this.request<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders')}
+  async submitCommand(command:BackendCommand){
+    await commandJournal.save(command,'sending');await this.emitRecovery();
+    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await commandJournal.remove(command.commandId);else await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();return result}
+    catch(error){await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();throw error}
+  }
+  async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await commandJournal.remove(commandId);await this.emitRecovery()}return result}
+  listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{return commandJournal.list(tenantId)}
+  private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}
 }
 export const apiClient=new ApiClient();

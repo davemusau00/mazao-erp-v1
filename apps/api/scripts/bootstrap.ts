@@ -11,6 +11,8 @@ const tenantId=randomUUID(), outletId=randomUUID(), userId=randomUUID(), deviceI
 await inTransaction(async client=>{
   await client.query('INSERT INTO core.tenants(id,name,currency,time_zone) VALUES($1,$2,$3,$4)',[tenantId,process.env.TENANT_NAME,process.env.TENANT_CURRENCY,process.env.TENANT_TIME_ZONE]);
   await client.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone) VALUES($1,$2,$3,$4)',[outletId,tenantId,process.env.OUTLET_NAME,process.env.OUTLET_TIME_ZONE]);
+  const capabilities=(process.env.TENANT_CAPABILITIES??'retail,inventory,commerce').split(',').map(value=>value.trim()).filter(Boolean);
+  for(const capability of capabilities)await client.query('INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,$2)',[tenantId,capability]);
   await client.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,lower($2),$3,$4)',[userId,process.env.ADMIN_EMAIL,passwordHash,process.env.ADMIN_NAME]);
   await client.query("INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
   await client.query('INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,$5)',[deviceId,tenantId,outletId,userId,process.env.DEVICE_LABEL]);

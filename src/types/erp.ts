@@ -46,6 +46,8 @@ export interface ProductItem {
 
 export interface CartItem {
   product: ProductItem;
+  /** Server order-line ID when the item came from an authoritative order query. */
+  lineId?: string;
   quantity: number;
   unitPrice: number;
   discountPercent?: number;
@@ -117,7 +119,7 @@ export interface SaleOrder {
       timestamp: string;
     };
   };
-  status?: 'completed' | 'refunded';
+  status?: 'completed' | 'partially_refunded' | 'refunded';
   refundReason?: string;
   refundTimestamp?: string;
   printed?: boolean;

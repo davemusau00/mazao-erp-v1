@@ -20,6 +20,8 @@ import {
   ChevronDown,
   ArrowRight
 } from 'lucide-react';
+import {apiClient} from '../../services/apiClient';
+import {BackendSalesHistoryWorkspace} from './BackendSalesHistoryWorkspace';
 
 interface SalesHistoryViewProps {
   tenant: TenantProfile;
@@ -124,6 +126,8 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
         return <span className="text-[10px] font-mono text-zinc-400">{method}</span>;
     }
   };
+
+  if(apiClient.getSession()) return <BackendSalesHistoryWorkspace tenant={tenant} onReprintOrder={onReprintOrder}/>;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#090b10] space-y-6 pb-20 lg:pb-6">

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DATABASE_URL ??= 'postgres://test:test@127.0.0.1:1/unused';
-const [{ buildApp }, { hashCommand }, security, db] = await Promise.all([
+const [{ buildApp }, { hashCommand,refundPortionMinor }, security, db] = await Promise.all([
   import('../src/app.js'), import('../src/commands.js'), import('../src/security.js'), import('../src/db.js'),
 ]);
 const { moneyInputToMinor } = await import('../../../src/utils/money.js');
@@ -34,4 +34,12 @@ test('UI money boundary parses decimal text into integer minor units',()=>{
   assert.equal(moneyInputToMinor('1250.5'),125050);
   assert.equal(moneyInputToMinor('0.01'),1);
   assert.throws(()=>moneyInputToMinor('12.345'));
+});
+
+test('partial refund rounding allocates the original tax and subtotal exactly across retries',()=>{
+  const total=3_000_000n;const first=refundPortionMinor(101,0,0n,1_000_000n,total);
+  const second=refundPortionMinor(101,first,1_000_000n,1_000_000n,total);
+  const last=refundPortionMinor(101,first+second,2_000_000n,1_000_000n,total);
+  assert.equal(first+second+last,101);
+  assert.equal(refundPortionMinor(101,34,1_000_000n,2_000_000n,total),67);
 });

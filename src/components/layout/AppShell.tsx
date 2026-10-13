@@ -5,6 +5,7 @@ import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
 import { storage } from '../../services/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
+import type {RecoverableCommand} from '../../services/commandJournal';
 
 export type ActiveTab = WorkspaceId;
 
@@ -33,6 +34,13 @@ const groups = [
   { id: 'manage', label: 'MANAGE' },
   { id: 'support', label: 'SUPPORT' },
 ] as const;
+const serverRolePermissions:Record<string,string[]>={
+  admin:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  owner:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  manager:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  accountant:['finance.view'],cashier:['commerce.sell','shift.open','shift.close'],storekeeper:['inventory.receive'],
+  receptionist:['hotel.frontdesk','shift.open','shift.close'],housekeeper:['hotel.housekeeping'],waiter:[],cook:[],bartender:[],
+};
 
 interface AppShellProps {
   activeTab: ActiveTab;
@@ -49,6 +57,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const [moreOpen, setMoreOpen] = useState(false);
   const [operatorOpen, setOperatorOpen] = useState(false);
   const [backendSession, setBackendSession] = useState<BackendSession | null>(apiClient.getSession());
+  const [recoverableCommands,setRecoverableCommands]=useState<RecoverableCommand[]>([]);
   const [backendLoginOpen, setBackendLoginOpen] = useState(false);
   const [backendEmail, setBackendEmail] = useState('');
   const [backendPassword, setBackendPassword] = useState('');
@@ -57,6 +66,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const [, setStorageRevision] = useState(0);
   useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
   useEffect(() => apiClient.subscribe(setBackendSession), []);
+  useEffect(()=>{if(!backendSession){setRecoverableCommands([]);return}void apiClient.listRecoverableCommands(backendSession.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));return apiClient.subscribeRecovery(setRecoverableCommands)},[backendSession?.tenant.id]);
   const connectBackend = async (event: React.FormEvent) => {
     event.preventDefault(); setBackendBusy(true); setBackendError('');
     try { await apiClient.login(backendEmail,backendPassword); setBackendPassword(''); setBackendLoginOpen(false); }
@@ -70,6 +80,16 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const activeStaff = storage.getActiveStaff();
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const availableWorkspaces = useMemo(() => workspaceItems.filter(item => {
+    if(backendSession){
+      const role=backendSession.user.role;
+      const has=(...permissions:string[])=>permissions.some(permission=>serverRolePermissions[role]?.includes(permission));
+      const serverAllowed:Record<WorkspaceId,boolean>={
+        today:true,help:true,sell:has('commerce.sell'),sales:has('commerce.sell'),service:false,stock:has('catalog.manage','inventory.receive'),
+        'stock-count':false,purchasing:has('inventory.receive'),hotel:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),reservations:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage'),customers:false,
+        shifts:has('shift.open','shift.close'),money:has('finance.view'),reports:has('finance.view'),manage:['admin','owner','manager'].includes(role),onboarding:['admin','owner','manager'].includes(role),
+      };
+      return serverAllowed[item.id];
+    }
     if (item.permission && !storage.hasPermission(item.permission as Permission)) return false;
     if (item.anyPermissions && !item.anyPermissions.some(permission => storage.hasPermission(permission))) return false;
     if (item.capability === 'hospitality' && activeTenant.capabilities && !activeTenant.capabilities.includes('hospitality')) return false;
@@ -77,7 +97,8 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     if (item.capability === 'food_service' && activeTenant.capabilities && !activeTenant.capabilities.includes('food_service')) return false;
     if (item.capability === 'food_service' && !activeTenant.capabilities && activeTenant.type !== 'restaurant') return false;
     return true;
-  }), [activeTenant.id, activeTenant.type, activeTenant.capabilities, activeStaff.id, activeStaff.role]);
+  }), [activeTenant.id, activeTenant.type, activeTenant.capabilities, activeStaff.id, activeStaff.role, backendSession?.user.id,backendSession?.user.role]);
+  useEffect(()=>{if(backendSession&&!availableWorkspaces.some(item=>item.id===activeTab))onTabChange('today')},[backendSession?.user.id,activeTab,availableWorkspaces,onTabChange]);
 
   const changeStaff = (staffId: string) => {
     storage.switchStaff(staffId);
@@ -135,6 +156,8 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
       </header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {persistenceError && <div role="alert" className="persistence-error-banner"><strong>Local save failed.</strong> {persistenceError}</div>}
+        {backendSession&&['today','manage','onboarding','help'].includes(activeTab)&&<div role="status" className="persistence-error-banner"><strong>Local preview workspace.</strong> This screen is not connected to the signed-in server account.</div>}
+        {backendSession&&recoverableCommands.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length} server command{recoverableCommands.length===1?'':'s'} need status review.</strong> The exact command is safely retained on this device. <button type="button" className="ml-2 underline" onClick={()=>{const type=recoverableCommands[0].command.type;onTabChange(type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type==='catalog.product.create'?'stock':'shifts')}}>Open recovery workspace</button></div>}
         <div className="workspace-interaction-boundary" inert={persistenceError ? true : undefined}>{children}</div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">

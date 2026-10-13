@@ -1,14 +1,14 @@
 export type ApiRole = 'admin' | 'owner' | 'manager' | 'accountant' | 'cashier' | 'storekeeper' | 'receptionist' | 'housekeeper' | 'waiter' | 'cook' | 'bartender';
-export type ApiPermission = 'catalog.manage' | 'inventory.receive' | 'commerce.sell' | 'shift.open' | 'shift.close' | 'finance.view';
+export type ApiPermission = 'catalog.manage' | 'inventory.receive' | 'commerce.sell' | 'commerce.refund' | 'shift.open' | 'shift.close' | 'finance.view' | 'hotel.manage' | 'hotel.frontdesk' | 'hotel.housekeeping';
 
 export const ROLE_PERMISSIONS: Record<ApiRole, ApiPermission[]> = {
-  admin: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'shift.open', 'shift.close', 'finance.view'],
-  owner: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'shift.open', 'shift.close', 'finance.view'],
-  manager: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'shift.open', 'shift.close', 'finance.view'],
+  admin: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  owner: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  manager: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
   accountant: ['finance.view'],
   cashier: ['commerce.sell', 'shift.open', 'shift.close'],
   storekeeper: ['inventory.receive'],
-  receptionist: [], housekeeper: [], waiter: [], cook: [], bartender: [],
+  receptionist: ['hotel.frontdesk','shift.open','shift.close'], housekeeper: ['hotel.housekeeping'], waiter: [], cook: [], bartender: [],
 };
 
 export interface ApiSession {
@@ -24,6 +24,7 @@ export interface ApiSession {
   timeZone: string;
   deviceId: string;
   role: ApiRole;
+  capabilities:string[];
   expiresAt: Date;
 }
 

@@ -36,6 +36,8 @@ function taxFor(subtotal: number, basisPoints: number): number {
 function requirePermission(session: ApiSession, permission: ApiPermission): void {
   if (!ROLE_PERMISSIONS[session.role].includes(permission)) throw new DomainError('FORBIDDEN', 'Your role cannot perform this operation.', 403);
 }
+function requireCapability(session:ApiSession,capability:string){if(!session.capabilities.includes(capability))throw new DomainError('CAPABILITY_DISABLED',`The ${capability} capability is not enabled for this tenant.`,403)}
+function dateOnly(value:unknown,field:string):string{if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new DomainError('VALIDATION_FAILED',`${field} must be a valid ISO calendar date.`);try{if(new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)!==value)throw new Error()}catch{throw new DomainError('VALIDATION_FAILED',`${field} must be a valid ISO calendar date.`)}return value}
 function versionFor(envelope: CommandEnvelope, key: string): number | undefined {
   const value = envelope.expectedVersions[key];
   return Number.isSafeInteger(value) && value >= 1 ? value : undefined;
@@ -82,6 +84,13 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'shift.open': return openShift(client, session, envelope);
     case 'shift.close': return closeShift(client, session, envelope);
     case 'sales.order.settle': return settleSale(client, session, envelope);
+    case 'sales.order.refund': return refundSale(client, session, envelope);
+    case 'hotel.room.create': return createHotelRoom(client,session,envelope);
+    case 'hotel.reservation.create': return createReservation(client,session,envelope);
+    case 'hotel.reservation.cancel': return cancelReservation(client,session,envelope);
+    case 'hotel.checkin': return checkInGuest(client,session,envelope);
+    case 'hotel.checkout': return checkOutGuest(client,session,envelope);
+    case 'hotel.room.mark_ready': return markRoomReady(client,session,envelope);
     default: throw new DomainError('VALIDATION_FAILED', `Unsupported command type: ${envelope.type}`);
   }
 }
@@ -117,6 +126,10 @@ async function createProduct(client: PoolClient, session: ApiSession, envelope: 
 
 async function receiveInventory(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   requirePermission(session, 'inventory.receive');
+  const documentReference=envelope.payload.documentReference;
+  const supplierName=envelope.payload.supplierName;
+  if(documentReference!==undefined&&(typeof documentReference!=='string'||documentReference.trim().length>120)) throw new DomainError('VALIDATION_FAILED','Delivery reference must be 120 characters or fewer.');
+  if(supplierName!==undefined&&(typeof supplierName!=='string'||supplierName.trim().length>160)) throw new DomainError('VALIDATION_FAILED','Supplier name must be 160 characters or fewer.');
   const lines = envelope.payload.lines;
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > 500) throw new DomainError('VALIDATION_FAILED', 'Provide between 1 and 500 receipt lines.');
   const seen = new Set<string>();
@@ -137,9 +150,9 @@ async function receiveInventory(client: PoolClient, session: ApiSession, envelop
     if (!product.rowCount) throw new DomainError('NOT_FOUND', 'A receipt item is unavailable at this outlet.', 404);
     await client.query('UPDATE inventory.balances SET quantity=quantity+$4::numeric, version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.productId, quantityText(line.quantity)]);
     await client.query(
-      `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor)
-       VALUES($1,$2,$3,$4,$5,'RECEIPT',$6::numeric,$7)`,
-      [randomUUID(), session.tenantId, session.outletId, line.productId, envelope.commandId, quantityText(line.quantity), line.unitCost],
+      `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,document_reference)
+       VALUES($1,$2,$3,$4,$5,'RECEIPT',$6::numeric,$7,$8)`,
+      [randomUUID(), session.tenantId, session.outletId, line.productId, envelope.commandId, quantityText(line.quantity), line.unitCost, typeof documentReference==='string'?documentReference.trim()||null:null],
     );
     total += line.extended;
   }
@@ -148,7 +161,7 @@ async function receiveInventory(client: PoolClient, session: ApiSession, envelop
     { account: 'INVENTORY', debit: total, credit: 0 },
     { account: 'GOODS_RECEIVED_NOT_INVOICED', debit: 0, credit: total },
   ]);
-  const result = { receiptId: envelope.commandId, lineCount: normalized.length, totalMinor: total, currency: currencyResult.rows[0].currency };
+  const result = { receiptId: envelope.commandId, lineCount: normalized.length, totalMinor: total, currency: currencyResult.rows[0].currency,documentReference:typeof documentReference==='string'?documentReference.trim()||null:null,supplierName:typeof supplierName==='string'?supplierName.trim()||null:null };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;
@@ -333,6 +346,65 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;
+}
+
+export function refundPortionMinor(originalMinor:number,alreadyRefundedMinor:number,alreadyRefundedQty:bigint,refundQty:bigint,originalQty:bigint):number {
+  if(!Number.isSafeInteger(originalMinor)||!Number.isSafeInteger(alreadyRefundedMinor)||alreadyRefundedMinor<0||alreadyRefundedMinor>originalMinor||refundQty<=0n||originalQty<=0n||alreadyRefundedQty+refundQty>originalQty) throw new DomainError('VALIDATION_FAILED','Refund allocation is outside the refundable line quantity.');
+  const remainingQty=originalQty-alreadyRefundedQty;const remainingMinor=originalMinor-alreadyRefundedMinor;
+  if(refundQty===remainingQty)return remainingMinor;
+  return Number((BigInt(remainingMinor)*refundQty+remainingQty/2n)/remainingQty);
+}
+
+async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
+  requirePermission(session,'commerce.refund');
+  const orderId=envelope.payload.orderId;const reason=envelope.payload.reason;const rawLines=envelope.payload.lines;
+  if(typeof orderId!=='string'||typeof reason!=='string'||reason.trim().length<3||reason.trim().length>500)throw new DomainError('VALIDATION_FAILED','A sale ID and return reason are required.');
+  if(!Array.isArray(rawLines)||rawLines.length<1||rawLines.length>100)throw new DomainError('VALIDATION_FAILED','Select at least one order line to refund.');
+  const requested=rawLines.map((raw,index)=>{if(!raw||typeof raw!=='object')throw new DomainError('VALIDATION_FAILED',`Refund line ${index+1} is invalid.`);const row=raw as Record<string,unknown>;if(typeof row.orderLineId!=='string'||typeof row.restock!=='boolean')throw new DomainError('VALIDATION_FAILED',`Refund line ${index+1} requires an orderLineId and stock disposition.`);return {orderLineId:row.orderLineId,quantity:quantityMicros(row.quantity),restock:row.restock}});
+  if(new Set(requested.map(line=>line.orderLineId)).size!==requested.length)throw new DomainError('VALIDATION_FAILED','Each order line can appear only once in a refund command.');
+  const shiftId=envelope.payload.shiftId;if(typeof shiftId!=='string')throw new DomainError('VALIDATION_FAILED','Refund requires an open cash shift.');
+  const expectedShift=versionFor(envelope,`shift:${shiftId}`);if(!expectedShift)throw new DomainError('VALIDATION_FAILED','Expected shift version is required.');
+  const shift=await client.query<{version:string;expected_cash_minor:string}>(`SELECT version,expected_cash_minor FROM commerce.shifts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,[shiftId,session.tenantId,session.outletId,session.userId]);
+  if(!shift.rowCount)throw new DomainError('NOT_FOUND','Open refund shift was not found for this operator.',404);
+  if(Number(shift.rows[0].version)!==expectedShift)throw new DomainError('VERSION_CONFLICT','The shift changed. Reload before issuing the refund.',409,{currentVersion:Number(shift.rows[0].version)});
+  const order=await client.query<{currency:string;status:string;subtotal_minor:string;tax_minor:string;total_minor:string}>(`SELECT currency,status,subtotal_minor,total_minor FROM commerce.orders WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE`,[orderId,session.tenantId,session.outletId]);
+  if(!order.rowCount)throw new DomainError('NOT_FOUND','Sale was not found at this outlet.',404);
+  const tenantCurrency=await client.query<{currency:string}>('SELECT currency FROM core.tenants WHERE id=$1',[session.tenantId]);
+  if(order.rows[0].currency!==tenantCurrency.rows[0].currency)throw new DomainError('VALIDATION_FAILED','Sale currency differs from the active tenant currency.');
+  const refundId=randomUUID();let subtotal=0,tax=0,cogs=0,restockedCogs=0,total=0;const normalized=[] as Array<{orderLineId:string;productId:string;quantity:bigint;restock:boolean;subtotal:number;tax:number;cogs:number;unitCost:number}>;
+  for(const requestedLine of requested){
+    const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;sku_snapshot:string}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,sku_snapshot FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
+    if(!lineResult.rowCount)throw new DomainError('NOT_FOUND','A selected item does not belong to this sale.',404);
+    const line=lineResult.rows[0];const originalQty=databaseQuantityMicros(line.quantity);
+    const prior=await client.query<{quantity:string;subtotal_minor:string;tax_minor:string;cogs_minor:string}>('SELECT COALESCE(SUM(quantity),0)::text quantity,COALESCE(SUM(subtotal_minor),0)::text subtotal_minor,COALESCE(SUM(tax_minor),0)::text tax_minor,COALESCE(SUM(cogs_minor),0)::text cogs_minor FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_line_id=$3',[session.tenantId,session.outletId,requestedLine.orderLineId]);
+    const p=prior.rows[0];const priorQty=databaseQuantityMicros(p.quantity);if(priorQty+requestedLine.quantity>originalQty)throw new DomainError('ALREADY_REFUNDED','Requested quantity exceeds the unrefunded amount.',409,{orderLineId:requestedLine.orderLineId,remainingQuantity:quantityText(originalQty-priorQty)});
+    const lineSubtotal=refundPortionMinor(Number(line.line_subtotal_minor),Number(p.subtotal_minor),priorQty,requestedLine.quantity,originalQty);
+    const lineTax=refundPortionMinor(Number(line.line_tax_minor),Number(p.tax_minor),priorQty,requestedLine.quantity,originalQty);
+    const lineCogs=refundPortionMinor(amountForQuantity(Number(line.cost_price_minor),originalQty),Number(p.cogs_minor),priorQty,requestedLine.quantity,originalQty);
+    const unitCost=Number(line.cost_price_minor);subtotal+=lineSubtotal;tax+=lineTax;cogs+=lineCogs;if(requestedLine.restock)restockedCogs+=lineCogs;total+=lineSubtotal+lineTax;
+    normalized.push({...requestedLine,productId:line.product_id,subtotal:lineSubtotal,tax:lineTax,cogs:lineCogs,unitCost});
+  }
+  if(![subtotal,tax,cogs,restockedCogs,total].every(Number.isSafeInteger)||total<1)throw new DomainError('VALIDATION_FAILED','Refund amount is invalid or exceeds the supported safe integer range.');
+  const payments=await client.query<{paid_minor:string}>('SELECT COALESCE(SUM(amount_minor),0)::text paid_minor FROM commerce.payments WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 AND method=\'CASH\' AND status=\'CONFIRMED\'',[session.tenantId,session.outletId,orderId]);
+  const priorRefunds=await client.query<{total_minor:string}>('SELECT COALESCE(SUM(total_minor),0)::text total_minor FROM commerce.refunds WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3',[session.tenantId,session.outletId,orderId]);
+  if(BigInt(priorRefunds.rows[0].total_minor)+BigInt(total)>BigInt(payments.rows[0].paid_minor))throw new DomainError('PAYMENT_NOT_REFUNDABLE','Cash paid does not cover this refund.',409);
+  const expectedCash=Number(shift.rows[0].expected_cash_minor);if(!Number.isSafeInteger(expectedCash)||expectedCash<total)throw new DomainError('INSUFFICIENT_CASH','The active till does not have enough expected cash for this refund.',409,{availableMinor:expectedCash,refundMinor:total});
+  await client.query(`INSERT INTO commerce.refunds(id,tenant_id,outlet_id,order_id,shift_id,command_id,actor_id,currency,reason,subtotal_minor,tax_minor,total_minor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[refundId,session.tenantId,session.outletId,orderId,shiftId,envelope.commandId,session.userId,tenantCurrency.rows[0].currency,reason.trim(),subtotal,tax,total]);
+  for(const line of normalized){
+    const qty=quantityText(line.quantity);
+    await client.query(`INSERT INTO commerce.refund_lines(id,tenant_id,outlet_id,refund_id,order_id,order_line_id,product_id,quantity,subtotal_minor,tax_minor,cogs_minor,restocked) VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10,$11,$12)`,[randomUUID(),session.tenantId,session.outletId,refundId,orderId,line.orderLineId,line.productId,qty,line.subtotal,line.tax,line.cogs,line.restock]);
+    if(line.restock){
+      await client.query('UPDATE inventory.balances SET quantity=quantity+$4::numeric,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3',[session.tenantId,session.outletId,line.productId,qty]);
+      await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'REFUND',$6::numeric,$7,$8,$9)`,[randomUUID(),session.tenantId,session.outletId,line.productId,envelope.commandId,qty,line.unitCost,orderId,`Refund ${refundId}`]);
+    }
+  }
+  await client.query('UPDATE commerce.shifts SET expected_cash_minor=expected_cash_minor-$5,cash_refunds_minor=cash_refunds_minor+$5,version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4',[shiftId,session.tenantId,session.outletId,session.userId,total]);
+  const allReturned=await client.query<{all_refunded:boolean}>(`SELECT NOT EXISTS(SELECT 1 FROM commerce.order_lines ol WHERE ol.tenant_id=$1 AND ol.outlet_id=$2 AND ol.order_id=$3 AND ol.quantity>COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)) all_refunded`,[session.tenantId,session.outletId,orderId]);
+  await client.query('UPDATE commerce.orders SET status=$4 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3',[orderId,session.tenantId,session.outletId,allReturned.rows[0].all_refunded?'REFUNDED':'PARTIALLY_REFUNDED']);
+  await journal(client,session,envelope.commandId,'SALE_REFUND',tenantCurrency.rows[0].currency,[{account:'SALES_REVENUE',debit:subtotal,credit:0},{account:'VAT_PAYABLE',debit:tax,credit:0},{account:'CASH_TILL',debit:0,credit:total}]);
+  if(restockedCogs>0)await journal(client,session,envelope.commandId,'SALE_REFUND_COGS',tenantCurrency.rows[0].currency,[{account:'INVENTORY',debit:restockedCogs,credit:0},{account:'COST_OF_GOODS_SOLD',debit:0,credit:restockedCogs}]);
+  const result={refundId,orderId,totalMinor:total,subtotalMinor:subtotal,taxMinor:tax,currency:tenantCurrency.rows[0].currency,reason:reason.trim(),status:allReturned.rows[0].all_refunded?'REFUNDED':'PARTIALLY_REFUNDED',shiftVersion:expectedShift+1};
+  await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }
 
 export function hashCommand(envelope: CommandEnvelope): Buffer {

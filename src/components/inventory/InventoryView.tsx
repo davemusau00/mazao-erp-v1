@@ -13,6 +13,8 @@ import {
   X,
   Search
 } from 'lucide-react';
+import {apiClient} from '../../services/apiClient';
+import {BackendInventoryWorkspace} from './BackendInventoryWorkspace';
 
 interface InventoryViewProps {
   tenant: TenantProfile;
@@ -65,6 +67,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
     setAdjustNote('');
     refreshData();
   };
+
+  if(apiClient.getSession()) return <BackendInventoryWorkspace tenant={tenant}/>;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#090b10] space-y-6 pb-20 lg:pb-6">

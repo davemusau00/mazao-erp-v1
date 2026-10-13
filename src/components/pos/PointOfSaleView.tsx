@@ -99,7 +99,13 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
         setBackendCatalog(true); setServerShift(shift.shift);
         setBackendTaxRates(Object.fromEntries(catalog.items.map(item=>[item.id,item.taxRateBps])));
         setBackendPriceMinor(Object.fromEntries(catalog.items.map(item=>[item.id,item.sellingPriceMinor])));
-        setProducts(catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:item.costPriceMinor/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit })));
+        const serverItems=catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:item.costPriceMinor/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit }));
+        setProducts(serverItems);
+        if(!pendingCommand.current){
+          const recoverable=await apiClient.listRecoverableCommands(session.tenant.id);
+          const stored=recoverable.find(record=>record.command.type==='sales.order.settle');
+          if(stored&&alive){pendingCommand.current=stored.command;setUnknownCommandId(stored.command.commandId);const requested=stored.command.payload.lines as Array<{productId:string;quantity:string}>;setCart(requested.flatMap(line=>{const product=serverItems.find(item=>item.id===line.productId);return product?[{product,quantity:Number(line.quantity),unitPrice:product.sellingPrice}]:[]}));setFeedbackNotice('A sale from this device has an unresolved server outcome. Check its command status before starting another sale.')}
+        }
       } catch (error) { if (alive) showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); }
     };
     void load();
@@ -270,16 +276,20 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
       const response=status.response as {status?:string;value?:Record<string,unknown>;message?:string};
       if(response.status==='CONFIRMED'&&response.value) {
         const value=response.value; const session=apiClient.getSession();
-        if(session&&pendingCommand.current&&serverShift) {
-          const sale:SaleOrder={id:String(value.saleId),idempotencyKey:unknownCommandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:session.user.name,tenantId:session.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
+        if(session&&pendingCommand.current) {
+          const shiftId=String(pendingCommand.current.payload.shiftId??serverShift?.id??'');
+          const sale:SaleOrder={id:String(value.saleId),idempotencyKey:unknownCommandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId,cashierName:session.user.name,tenantId:session.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
           setCart([]);setIsTenderModalOpen(false);setIsMobileCartOpen(false);onOrderCompleted(sale);
-          if(typeof value.shiftVersion==='number')setServerShift({...serverShift,version:value.shiftVersion,expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor)});
+          if(serverShift&&typeof value.shiftVersion==='number')setServerShift({...serverShift,version:value.shiftVersion,expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor)});
           void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:i.costPriceMinor/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))});
         }
         showNotice('Server confirmed the sale; the receipt is ready.');setUnknownCommandId(null);pendingCommand.current=null;
       } else if(response.status==='REJECTED'||response.status==='CONFLICT') {showNotice(response.message??`Command ${response.status.toLowerCase()}.`);setUnknownCommandId(null);pendingCommand.current=null;}
       else showNotice(`Command status: ${status.status}. Check again shortly.`);
-    } catch(error) { showNotice(error instanceof Error?error.message:'Unable to check command status.'); }
+    } catch(error) {
+      if((error as {status?:number}).status===404&&pendingCommand.current){try{await apiClient.submitCommand(pendingCommand.current);await recoverUnknownCommand();return}catch(retryError){showNotice(retryError instanceof Error?retryError.message:'Retry with the same command ID did not resolve the sale.');return}}
+      showNotice(error instanceof Error?error.message:'Unable to check command status.');
+    }
   };
 
   // Handle Manager Security Override for Credit Overages
