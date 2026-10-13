@@ -26,6 +26,7 @@ import { ProcurementWorkspace } from './components/procurement/ProcurementWorksp
 import { OnboardingWorkspace } from './components/onboarding/OnboardingWorkspace';
 import { ReservationWorkspace } from './components/hospitality/ReservationWorkspace';
 import { StockCountWorkspace } from './components/inventory/StockCountWorkspace';
+import { apiClient } from './services/apiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
@@ -46,6 +47,7 @@ export default function App() {
 
   // Subscribe to reactive storage changes
   useEffect(() => {
+    void apiClient.restore();
     const unsubscribe = storage.subscribe(() => {
       setActiveTenant(storage.getActiveTenant());
       setIsOnline(storage.isOnline());

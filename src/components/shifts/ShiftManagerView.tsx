@@ -3,6 +3,7 @@ import { Shift, TenantProfile, ShiftAuditLog, ShiftAuditAction } from '../../typ
 import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
+import { apiClient, type BackendShift } from '../../services/apiClient';
 import {
   Clock,
   Banknote,
@@ -61,6 +62,8 @@ export const ShiftManagerView: React.FC<ShiftManagerViewProps> = ({ tenant }) =>
   const [zReportSlip, setZReportSlip] = useState<{ shift: Shift; text: string } | null>(null);
 
   const activeStaff = storage.getActiveStaff();
+
+  if (apiClient.getSession()) return <BackendShiftWorkspace tenant={tenant} />;
 
   const refreshData = () => {
     setActiveShift(storage.getActiveShift());
@@ -898,4 +901,16 @@ export const ShiftManagerView: React.FC<ShiftManagerViewProps> = ({ tenant }) =>
       )}
     </div>
   );
+};
+
+const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant}) => {
+  const session=apiClient.getSession()!; const [shift,setShift]=useState<BackendShift|null>(null); const [float,setFloat]=useState('0'); const [counted,setCounted]=useState('0'); const [busy,setBusy]=useState(false); const [message,setMessage]=useState('');
+  const refresh=async()=>{try{setShift((await apiClient.getCurrentShift()).shift)}catch(e){setMessage(e instanceof Error?e.message:'Unable to load server shift.')}};
+  useEffect(()=>{void refresh()},[]);
+  const submit=async(type:'shift.open'|'shift.close')=>{setBusy(true);setMessage(''); const commandId=crypto.randomUUID();
+    try { const outcome=await apiClient.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type,occurredAt:new Date().toISOString(),expectedVersions:shift?{[`shift:${shift.id}`]:shift.version}:{},payload:type==='shift.open'?{openingFloatMinor:Math.round(Number(float||0)*100)}:{shiftId:shift!.id,countedCashMinor:Math.round(Number(counted||0)*100)}});
+      if(outcome.status!=='CONFIRMED')setMessage(outcome.message??'Shift command was not confirmed.'); else setMessage(type==='shift.open'?'Server shift opened.':'Server shift closed.'); await refresh();
+    }catch(e){setMessage(e instanceof Error?e.message:'Shift command outcome is unknown; check command activity before retrying.')}finally{setBusy(false)}
+  };
+  return <section className="mx-auto max-w-4xl p-4 sm:p-8"><header><p className="text-xs uppercase tracking-widest text-blue-300">Server-backed shift</p><h1 className="mt-2 text-3xl font-bold">Cash control</h1><p className="mt-2 text-zinc-400">{session.outlet.name} · {session.user.name} · {tenant.currency}</p></header><div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-6">{shift?<><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm text-emerald-300">Shift open</p><h2 className="mt-1 text-xl font-semibold">Expected cash {tenant.currencySymbol} {(shift.expectedCashMinor/100).toFixed(2)}</h2><p className="mt-1 text-sm text-zinc-400">Version {shift.version} · opened {new Date(shift.openedAt).toLocaleString()}</p></div><div className="flex items-end gap-2"><label className="text-xs text-zinc-400">Counted cash<input type="number" min="0" step="0.01" value={counted} onChange={e=>setCounted(e.target.value)} className="mt-1 block w-36 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-white"/></label><button disabled={busy} onClick={()=>void submit('shift.close')} className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold">{busy?'Working…':'Close shift'}</button></div></div></>:<div className="flex flex-wrap items-end gap-3"><div className="flex-1"><h2 className="text-lg font-semibold">No server shift is open</h2><p className="mt-1 text-sm text-zinc-400">Open a till before server-backed checkout.</p></div><label className="text-xs text-zinc-400">Opening float<input type="number" min="0" step="0.01" value={float} onChange={e=>setFloat(e.target.value)} className="mt-1 block w-36 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-white"/></label><button disabled={busy} onClick={()=>void submit('shift.open')} className="min-h-11 rounded-lg bg-emerald-600 px-4 font-semibold">{busy?'Working…':'Open shift'}</button></div>}{message&&<p role="status" className="mt-4 text-sm text-amber-300">{message}</p>}</div></section>;
 };

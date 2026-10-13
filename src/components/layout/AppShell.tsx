@@ -4,6 +4,7 @@ import { TenantProfile, Permission, ROLE_PERMISSIONS } from '../../types/erp';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
 import { storage } from '../../services/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
+import { apiClient, type BackendSession } from '../../services/apiClient';
 
 export type ActiveTab = WorkspaceId;
 
@@ -47,8 +48,21 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, activeTenant, tenants, onTenantChange, onOpenSyncCenter, onOpenDiagnostics, children }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [operatorOpen, setOperatorOpen] = useState(false);
+  const [backendSession, setBackendSession] = useState<BackendSession | null>(apiClient.getSession());
+  const [backendLoginOpen, setBackendLoginOpen] = useState(false);
+  const [backendEmail, setBackendEmail] = useState('');
+  const [backendPassword, setBackendPassword] = useState('');
+  const [backendError, setBackendError] = useState('');
+  const [backendBusy, setBackendBusy] = useState(false);
   const [, setStorageRevision] = useState(0);
   useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
+  useEffect(() => apiClient.subscribe(setBackendSession), []);
+  const connectBackend = async (event: React.FormEvent) => {
+    event.preventDefault(); setBackendBusy(true); setBackendError('');
+    try { await apiClient.login(backendEmail,backendPassword); setBackendPassword(''); setBackendLoginOpen(false); }
+    catch(error) { setBackendError(error instanceof Error ? error.message : 'Could not sign in.'); }
+    finally { setBackendBusy(false); }
+  };
   const isOnline = storage.isOnline();
   const pendingOutbox = storage.getOutboxCount();
   const persistenceError = storage.getPersistenceError();
@@ -111,6 +125,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
           </button>{operatorOpen && <div className="operator-menu" role="menu"><span className="menu-caption">DEMO OPERATOR</span>{staffUsers.map(staff => <button role="menuitem" type="button" key={staff.id} onClick={() => changeStaff(staff.id)} className={staff.id === activeStaff.id ? 'selected' : ''}><span>{staff.name}</span><small>{staff.title} · {staff.role}</small></button>)}</div>}</div>
         </div>
         <div className="topbar-actions">
+          {backendSession ? <div className="connection-pill online" title={`${backendSession.tenant.name} · ${backendSession.outlet.name}`}><Wifi size={15}/><span>Server · {backendSession.user.name}</span><button type="button" onClick={() => void apiClient.logout()} aria-label="Sign out of server">Sign out</button></div> : <button className="connection-pill offline" type="button" onClick={() => setBackendLoginOpen(true)}><WifiOff size={15}/><span>Connect backend</span></button>}
           <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Demo online' : 'Demo offline'}${pendingOutbox ? `, ${pendingOutbox} waiting to sync in the local preview` : ''}`}>
             {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Demo online' : 'Demo offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
           </button>
@@ -131,6 +146,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
         <button type="button" className={moreOpen ? 'active' : ''} onClick={() => setMoreOpen(value => !value)} aria-expanded={moreOpen}><Menu /><span>More</span></button>
       </nav>
       {moreOpen && <div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" onClick={() => setMoreOpen(false)} aria-label="Close navigation"><X size={18} /></button></div>{availableWorkspaces.filter(item => !['today', 'sell', 'stock'].includes(item.id)).map(item => <button type="button" key={item.id} onClick={() => selectWorkspace(item.id)} className={activeTab === item.id ? 'active' : ''}>{item.icon}<span>{item.label}</span></button>)}</div>}
+      {backendLoginOpen && <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" role="presentation"><form onSubmit={connectBackend} className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-950 p-6 shadow-2xl" aria-labelledby="backend-login-title"><h2 id="backend-login-title" className="text-xl font-semibold">Connect to Mazao server</h2><p className="mt-2 text-sm text-zinc-400">Use your assigned operator account. Demo data remains local until you sign in.</p><label className="mt-5 block text-sm text-zinc-300">Email<input required type="email" autoComplete="username" value={backendEmail} onChange={e=>setBackendEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-white"/></label><label className="mt-3 block text-sm text-zinc-300">Password<input required type="password" autoComplete="current-password" value={backendPassword} onChange={e=>setBackendPassword(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-white"/></label>{backendError&&<p role="alert" className="mt-3 text-sm text-rose-300">{backendError}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={()=>{setBackendLoginOpen(false);setBackendError('')}} className="rounded-lg border border-zinc-700 px-4 py-2.5">Cancel</button><button disabled={backendBusy} className="rounded-lg bg-blue-600 px-4 py-2.5 font-semibold disabled:opacity-50">{backendBusy?'Connecting…':'Sign in'}</button></div></form></div>}
     </div>
   </div>;
 };

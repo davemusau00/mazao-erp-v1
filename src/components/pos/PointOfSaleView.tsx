@@ -3,6 +3,7 @@ import { ProductItem, CartItem, PaymentMethod, TenantProfile, SaleOrder, Custome
 import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
+import { apiClient, type BackendShift } from '../../services/apiClient';
 import {
   Barcode,
   Search,
@@ -54,6 +55,10 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
   const [selectedRoomId, setSelectedRoomId] = useState<string>('');
   const [silentPrintEnabled, setSilentPrintEnabled] = useState(true);
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
+  const [serverShift, setServerShift] = useState<BackendShift | null>(null);
+  const [backendCatalog, setBackendCatalog] = useState(false);
+  const [unknownCommandId, setUnknownCommandId] = useState<string | null>(null);
+  const pendingCommand = useRef<import('../../services/apiClient').BackendCommand | null>(null);
 
   // Customer Credit Tender State
   const [customers, setCustomers] = useState<CustomerAccount[]>(storage.getCustomers(tenant.id));
@@ -76,6 +81,22 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     }
     setCart([]);
   }, [tenant.id]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const session = apiClient.getSession();
+      if (!session) { if (alive) { setBackendCatalog(false); setServerShift(null); setProducts(storage.getProducts()); } return; }
+      try {
+        const [catalog, shift] = await Promise.all([apiClient.listCatalog(), apiClient.getCurrentShift()]);
+        if (!alive) return;
+        setBackendCatalog(true); setServerShift(shift.shift);
+        setProducts(catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:item.costPriceMinor/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit })));
+      } catch (error) { if (alive) showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); }
+    };
+    void load();
+    return apiClient.subscribe(() => { void load(); });
+  }, []);
 
   // Subscribe to reactive customer balance updates
   useEffect(() => {
@@ -277,8 +298,31 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
   };
 
   // Complete sale
-  const handleFinalizeSale = () => {
+  const handleFinalizeSale = async () => {
     if (cart.length === 0) return;
+
+    const backendSession = apiClient.getSession();
+    if (backendSession && backendCatalog) {
+      if (paymentMethod !== 'cash') { showNotice('Server checkout currently accepts verified cash tender only. Other tenders are blocked until their providers are connected.'); return; }
+      if (!serverShift) { showNotice('Open a server shift before taking a sale.'); return; }
+      const toMinor = (value:number) => Math.round((value + Number.EPSILON) * 100);
+      const command = pendingCommand.current ?? {
+        protocolVersion:1 as const, commandId:crypto.randomUUID(), tenantId:backendSession.tenant.id, deviceId:backendSession.deviceId,
+        type:'sales.order.settle', occurredAt:new Date().toISOString(), expectedVersions:{[`shift:${serverShift.id}`]:serverShift.version},
+        payload:{shiftId:serverShift.id,lines:cart.map(item=>({productId:item.product.id,quantity:String(item.quantity)})),tenders:[{method:'CASH',amountMinor:toMinor(tenderedNum || total),currency:backendSession.tenant.currency}]},
+      };
+      pendingCommand.current=command;
+      try {
+        const outcome=await apiClient.submitCommand(command);
+        if(outcome.status==='CONFIRMED' && outcome.value) {
+          const value=outcome.value; const saleOrder:SaleOrder={id:String(value.saleId),idempotencyKey:command.commandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:backendSession.user.name,tenantId:backendSession.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
+          pendingCommand.current=null; setUnknownCommandId(null); setCart([]); setIsTenderModalOpen(false); setIsMobileCartOpen(false); setServerShift({...serverShift,version:Number(value.shiftVersion),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor),expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor)}); onOrderCompleted(saleOrder); void apiClient.listCatalog().then(c=>setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:i.costPriceMinor/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})))); return;
+        }
+        if(outcome.status==='CONFLICT'||outcome.status==='REJECTED') { pendingCommand.current=null; setUnknownCommandId(null); showNotice(outcome.message??`Sale ${outcome.status.toLowerCase()}: ${outcome.code??''}`); return; }
+        setUnknownCommandId(command.commandId); showNotice('Sale outcome is not confirmed. Check command status before any retry.');
+      } catch(error) { setUnknownCommandId(command.commandId); showNotice(error instanceof Error?error.message:'Sale outcome is unknown.'); }
+      return;
+    }
 
     const activeShift = storage.getActiveShift();
     if (!activeShift) {
@@ -452,6 +496,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
           <div className="mb-2 p-2 rounded-lg bg-blue-950/80 border border-blue-800 text-xs text-blue-300 flex items-center gap-2 shrink-0 animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span className="truncate">{feedbackNotice}</span>
+            {unknownCommandId && <button type="button" className="ml-auto underline whitespace-nowrap" onClick={async()=>{try{const status=await apiClient.checkCommandStatus(unknownCommandId);const response=status.response as {status?:string;value?:Record<string,unknown>;message?:string};if(response.status==='CONFIRMED'){showNotice('Server confirms this command. Refresh server catalog and review the sale in sales history.');setUnknownCommandId(null);pendingCommand.current=null;setCart([]);}else if(response.status==='REJECTED'||response.status==='CONFLICT'){showNotice(response.message??`Command ${response.status.toLowerCase()}.`);setUnknownCommandId(null);pendingCommand.current=null;}else showNotice(`Command status: ${status.status}. Retry status check shortly.`)}catch(e){showNotice(e instanceof Error?e.message:'Unable to check command status.')}}}>Check status</button>}
           </div>
         )}
 
