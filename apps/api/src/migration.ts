@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import { pool } from './db.js';
 
 const migrationPath = fileURLToPath(new URL('../migrations/001_initial.sql', import.meta.url));

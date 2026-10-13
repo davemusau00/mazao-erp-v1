@@ -192,7 +192,9 @@ CREATE TABLE finance.journal_lines (
 CREATE FUNCTION finance.assert_journal_balanced() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE entry_id uuid; debit_total numeric; credit_total numeric;
 BEGIN
-  entry_id := COALESCE(NEW.journal_entry_id, OLD.journal_entry_id);
+  IF TG_OP = 'DELETE' THEN entry_id := OLD.journal_entry_id;
+  ELSE entry_id := NEW.journal_entry_id;
+  END IF;
   SELECT COALESCE(sum(debit_minor),0), COALESCE(sum(credit_minor),0)
     INTO debit_total, credit_total FROM finance.journal_lines WHERE journal_entry_id = entry_id;
   IF debit_total = 0 OR debit_total <> credit_total THEN
