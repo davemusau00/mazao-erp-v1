@@ -6,6 +6,7 @@ const [{ buildApp }, { hashCommand,refundPortionMinor }, security, db] = await P
   import('../src/app.js'), import('../src/commands.js'), import('../src/security.js'), import('../src/db.js'),
 ]);
 const { moneyInputToMinor } = await import('../../../src/utils/money.js');
+const { escapeHtml, safeRasterImageSource } = await import('../../../src/utils/html.js');
 
 test('liveness is public while tenant catalog requires authentication', async () => {
   const app=buildApp(); await app.ready();
@@ -34,6 +35,12 @@ test('UI money boundary parses decimal text into integer minor units',()=>{
   assert.equal(moneyInputToMinor('1250.5'),125050);
   assert.equal(moneyInputToMinor('0.01'),1);
   assert.throws(()=>moneyInputToMinor('12.345'));
+});
+
+test('print HTML escapes operator content and rejects unsafe image sources',()=>{
+  assert.equal(escapeHtml(`<img src=x onerror='alert(1)'>&`), '&lt;img src=x onerror=&#39;alert(1)&#39;&gt;&amp;');
+  assert.equal(safeRasterImageSource('javascript:alert(1)'), '');
+  assert.equal(safeRasterImageSource('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA');
 });
 
 test('partial refund rounding allocates the original tax and subtotal exactly across retries',()=>{

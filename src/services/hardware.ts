@@ -5,6 +5,7 @@
  */
 
 import { SaleOrder, Shift, TenantProfile, Room } from '../types/erp';
+import { escapeHtml, safeRasterImageSource } from '../utils/html';
 
 class HardwareService {
   private audioCtx: AudioContext | null = null;
@@ -127,30 +128,32 @@ class HardwareService {
     }
 
     const widthStyle = tenant.paperWidth === '58mm' ? 'width: 54mm; max-width: 58mm;' : 'width: 76mm; max-width: 80mm;';
+    const logoSource = tenant.logoImage && tenant.showLogoOnReceipt !== false ? safeRasterImageSource(tenant.logoImage) : '';
+    const qrSource = tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? safeRasterImageSource(tenant.receiptQrImage) : '';
     printContainer.setAttribute('style', `${widthStyle} padding: 4mm; font-family: 'JetBrains Mono', monospace; font-size: 11px;`);
 
     printContainer.innerHTML = `
-      ${tenant.logoImage && tenant.showLogoOnReceipt !== false ? `
+      ${logoSource ? `
         <div style="text-align: center; margin-bottom: 6px;">
-          <img src="${tenant.logoImage}" style="max-height: 48px; max-width: 140px; filter: grayscale(100%) contrast(150%); display: inline-block;" alt="Logo" />
+          <img src="${logoSource}" style="max-height: 48px; max-width: 140px; filter: grayscale(100%) contrast(150%); display: inline-block;" alt="Logo" />
         </div>
       ` : ''}
       <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 2px;">
-        ${tenant.name.toUpperCase()}
+        ${escapeHtml(tenant.name.toUpperCase())}
       </div>
-      <div style="text-align: center; font-size: 10px; margin-bottom: 2px;">${tenant.tagline}</div>
-      <div style="text-align: center; font-size: 10px; margin-bottom: 6px;">${tenant.address} · ${tenant.phone}</div>
+      <div style="text-align: center; font-size: 10px; margin-bottom: 2px;">${escapeHtml(tenant.tagline)}</div>
+      <div style="text-align: center; font-size: 10px; margin-bottom: 6px;">${escapeHtml(tenant.address)} · ${escapeHtml(tenant.phone)}</div>
       <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
       <div style="display: flex; justify-content: space-between; font-size: 10px;">
-        <span>REC: ${order.orderNumber}</span>
+        <span>REC: ${escapeHtml(order.orderNumber)}</span>
         <span>${new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
       <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px;">
-        <span>STAFF: ${order.cashierName}</span>
-        <span>${order.paymentMethod.toUpperCase().replace('_', ' ')}</span>
+        <span>STAFF: ${escapeHtml(order.cashierName)}</span>
+        <span>${escapeHtml(order.paymentMethod.toUpperCase().replace('_', ' '))}</span>
       </div>
-      ${order.roomChargeRef ? `<div style="font-size: 10px; font-weight: bold; background: #eee; padding: 2px;">BILLED TO RM ${order.roomChargeRef.roomNumber} (${order.roomChargeRef.guestName})</div>` : ''}
-      ${order.customerAccountRef ? `<div style="font-size: 10px; font-weight: bold; background: #eee; padding: 2px;">CHARGED TO: ${order.customerAccountRef.customerName.toUpperCase()}</div>` : ''}
+      ${order.roomChargeRef ? `<div style="font-size: 10px; font-weight: bold; background: #eee; padding: 2px;">BILLED TO RM ${escapeHtml(order.roomChargeRef.roomNumber)} (${escapeHtml(order.roomChargeRef.guestName)})</div>` : ''}
+      ${order.customerAccountRef ? `<div style="font-size: 10px; font-weight: bold; background: #eee; padding: 2px;">CHARGED TO: ${escapeHtml(order.customerAccountRef.customerName.toUpperCase())}</div>` : ''}
       <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
       <table style="width: 100%; font-size: 10px; border-collapse: collapse;">
         <thead>
@@ -164,7 +167,7 @@ class HardwareService {
         <tbody>
           ${order.items.map(item => `
             <tr>
-              <td style="padding: 2px 0;">${item.product.name}</td>
+              <td style="padding: 2px 0;">${escapeHtml(item.product.name)}</td>
               <td style="text-align: right; padding: 2px 0;">${item.quantity}</td>
               <td style="text-align: right; padding: 2px 0;">${item.unitPrice.toFixed(2)}</td>
               <td style="text-align: right; padding: 2px 0;">${(item.quantity * item.unitPrice).toFixed(2)}</td>
@@ -175,48 +178,48 @@ class HardwareService {
       <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
       <div style="display: flex; justify-content: space-between; font-size: 10px;">
         <span>SUBTOTAL:</span>
-        <span>${tenant.currencySymbol} ${order.subtotal.toFixed(2)}</span>
+        <span>${escapeHtml(tenant.currencySymbol)} ${order.subtotal.toFixed(2)}</span>
       </div>
       <div style="display: flex; justify-content: space-between; font-size: 10px;">
         <span>TAX (${Math.round(tenant.taxRate * 100)}%):</span>
-        <span>${tenant.currencySymbol} ${order.tax.toFixed(2)}</span>
+        <span>${escapeHtml(tenant.currencySymbol)} ${order.tax.toFixed(2)}</span>
       </div>
       <div style="border-top: 1px solid #000; margin: 4px 0;"></div>
       <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px;">
         <span>TOTAL:</span>
-        <span>${tenant.currencySymbol} ${order.total.toFixed(2)}</span>
+        <span>${escapeHtml(tenant.currencySymbol)} ${order.total.toFixed(2)}</span>
       </div>
       ${order.paymentMethod === 'cash' ? `
         <div style="display: flex; justify-content: space-between; font-size: 10px; margin-top: 4px;">
           <span>TENDERED:</span>
-          <span>${tenant.currencySymbol} ${order.amountTendered.toFixed(2)}</span>
+          <span>${escapeHtml(tenant.currencySymbol)} ${order.amountTendered.toFixed(2)}</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10px;">
           <span>CHANGE:</span>
-          <span>${tenant.currencySymbol} ${order.changeDue.toFixed(2)}</span>
+          <span>${escapeHtml(tenant.currencySymbol)} ${order.changeDue.toFixed(2)}</span>
         </div>
       ` : ''}
       ${order.customerAccountRef ? `
         <div style="display: flex; justify-content: space-between; font-size: 10px; margin-top: 4px;">
           <span>NEW ACCOUNT BAL:</span>
-          <span>${tenant.currencySymbol} ${order.customerAccountRef.newBalance.toFixed(2)}</span>
+          <span>${escapeHtml(tenant.currencySymbol)} ${order.customerAccountRef.newBalance.toFixed(2)}</span>
         </div>
       ` : ''}
-      ${tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? `
+      ${qrSource ? `
         <div style="text-align: center; margin: 8px 0 4px 0;">
-          <img src="${tenant.receiptQrImage}" style="width: 80px; height: 80px; display: inline-block; filter: grayscale(100%);" alt="Payment QR" />
+          <img src="${qrSource}" style="width: 80px; height: 80px; display: inline-block; filter: grayscale(100%);" alt="Payment QR" />
           <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">SCAN TO PAY</div>
-          ${tenant.tillNumber ? `<div style="font-size: 9px; font-family: monospace;">TILL NO: ${tenant.tillNumber}</div>` : ''}
+          ${tenant.tillNumber ? `<div style="font-size: 9px; font-family: monospace;">TILL NO: ${escapeHtml(tenant.tillNumber)}</div>` : ''}
         </div>
       ` : (tenant.tillNumber ? `
         <div style="text-align: center; margin: 6px 0; font-size: 10px; font-weight: bold;">
-          BUY GOODS TILL: ${tenant.tillNumber}
+          BUY GOODS TILL: ${escapeHtml(tenant.tillNumber)}
         </div>
       ` : '')}
       <div style="border-top: 1px dashed #000; margin: 8px 0 4px 0;"></div>
-      <div style="text-align: center; font-size: 9px;">${tenant.receiptFooter}</div>
+      <div style="text-align: center; font-size: 9px;">${escapeHtml(tenant.receiptFooter)}</div>
       <div style="text-align: center; font-size: 8px; color: #555; margin-top: 4px; font-family: monospace;">
-        AUTH REF: ${order.idempotencyKey.slice(0, 16)}
+        AUTH REF: ${escapeHtml(order.idempotencyKey.slice(0, 16))}
       </div>
     `;
 

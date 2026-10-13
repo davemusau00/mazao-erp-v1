@@ -26,7 +26,7 @@ The source remediation is in commit `a1625452e30126acdba37c10acb8dfd4456d0d59`; 
 | G-08 hotel operator integration | Server room, reservation, stay and housekeeping workspace is wired into Hotel and Reservations; server Today uses authenticated session/shift data. | No PostgreSQL/browser acceptance; deposits, add-ons, early checkout, split settlement and complete folio remain out of scope. |
 | G-15 server-mode local workflows | Navigation hides unsupported server modules; authenticated POS cannot post a local demo sale. | Role permissions remain coarse role maps and require broader authorization/security review. |
 
-**Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript), and GitHub Actions exercised migrations/login/catalog/replay but failed on the `0` versus `0.000000` assertion. The current corrected and expanded integration test has not run. No local test command, browser E2E, production deployment, or hardware test was run.
+**Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript) and `npm run build` passed; Vite warned about `__dirname` in `vite.config.ts` and the 653 kB main JS chunk. GitHub Actions exercised migrations/login/catalog/replay but failed on the `0` versus `0.000000` assertion. The current corrected and expanded integration test has not run. No local test command, browser E2E, production deployment, or hardware test was run.
 
 ## Decision at audited SHA
 
