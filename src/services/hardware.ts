@@ -168,7 +168,7 @@ class HardwareService {
           ${order.items.map(item => `
             <tr>
               <td style="padding: 2px 0;">${escapeHtml(item.product.name)}</td>
-              <td style="text-align: right; padding: 2px 0;">${item.quantity}</td>
+              <td style="text-align: right; padding: 2px 0;">${escapeHtml(item.quantity)}</td>
               <td style="text-align: right; padding: 2px 0;">${item.unitPrice.toFixed(2)}</td>
               <td style="text-align: right; padding: 2px 0;">${(item.quantity * item.unitPrice).toFixed(2)}</td>
             </tr>

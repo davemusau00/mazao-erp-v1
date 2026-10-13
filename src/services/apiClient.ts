@@ -1,11 +1,11 @@
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 
 export interface BackendSession {
-  user:{id:string;name:string;email:string;role:string};
+  user:{id:string;name:string;email:string;role:string;permissions:string[]};
   tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[]};
   outlet:{id:string;name:string}; deviceId:string; csrfToken:string;
 }
-export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;quantity:string;version:number }
+export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;taxRateBps:number;quantity:string;version:number }
 export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;expectedCashMinor:number;version:number;openedAt:string }
 export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
 export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
@@ -33,7 +33,7 @@ class ApiClient {
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
   listInventoryMovements(){return this.request<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string}>}>('/inventory/movements')}
   getCurrentShift(){return this.request<{shift:BackendShift|null}>('/shifts/current')}
-  listSalesOrders(){return this.request<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders')}
+  listSalesOrders(){return this.request<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor?:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders')}
   listHotelRooms(){return this.request<{rooms:BackendRoom[]}>('/hospitality/rooms')}
   listHotelReservations(){return this.request<{reservations:BackendReservation[]}>('/hospitality/reservations')}
   listHotelStays(){return this.request<{stays:BackendStay[]}>('/hospitality/stays')}

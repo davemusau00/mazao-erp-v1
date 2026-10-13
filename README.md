@@ -15,7 +15,7 @@ Open the Vite URL printed in the terminal. `npm run typecheck` checks both the U
 
 ## Run the backend integration slice
 
-The repository includes a partial Fastify/PostgreSQL API for authenticated sessions, catalog and inventory reads, item setup, reviewed receiving, operator shifts, cash sales/refunds, and the initial hotel room/reservation/stay workflow. For database provisioning, `TENANT_CAPABILITIES`, bootstrap, command contracts and module-by-module status, follow [Backend integration register](docs/24-BACKEND-INTEGRATION.md). Start PostgreSQL, run `npm run db:migrate`, and bootstrap an operator before `npm run api:dev`; the UI dev server proxies `/api/v1` to the API. CI now provisions PostgreSQL for migration and API acceptance checks.
+The repository includes a partial Fastify/PostgreSQL API for authenticated sessions, catalog and inventory reads, item setup, reviewed receiving, operator shifts, cash sales/refunds, and the initial hotel room/reservation/stay workflow. The [Backend integration register](docs/24-BACKEND-INTEGRATION.md) maps each connected screen to its client calls, routes, commands, persistence effects, and unsupported boundaries. Start PostgreSQL, run `npm run db:migrate`, and bootstrap an operator before `npm run api:dev`; the UI dev server proxies `/api/v1` to the API. CI provisions PostgreSQL for migration and API acceptance checks.
 
 ## Current UI
 

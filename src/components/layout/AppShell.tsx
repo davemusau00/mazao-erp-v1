@@ -34,14 +34,6 @@ const groups = [
   { id: 'manage', label: 'MANAGE' },
   { id: 'support', label: 'SUPPORT' },
 ] as const;
-const serverRolePermissions:Record<string,string[]>={
-  admin:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
-  owner:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
-  manager:['catalog.manage','inventory.receive','commerce.sell','commerce.refund','shift.open','shift.close','finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
-  accountant:['finance.view'],cashier:['commerce.sell','shift.open','shift.close'],storekeeper:['inventory.receive'],
-  receptionist:['hotel.frontdesk','shift.open','shift.close'],housekeeper:['hotel.housekeeping'],waiter:[],cook:[],bartender:[],
-};
-
 interface AppShellProps {
   activeTab: ActiveTab;
   onTabChange: (tab: ActiveTab) => void;
@@ -81,10 +73,9 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const availableWorkspaces = useMemo(() => workspaceItems.filter(item => {
     if(backendSession){
-      const role=backendSession.user.role;
-      const has=(...permissions:string[])=>permissions.some(permission=>serverRolePermissions[role]?.includes(permission));
+      const has=(...permissions:string[])=>permissions.some(permission=>backendSession.user.permissions.includes(permission));
       const serverAllowed:Record<WorkspaceId,boolean>={
-        today:true,help:true,sell:has('commerce.sell'),sales:has('commerce.sell'),service:false,stock:has('catalog.manage','inventory.receive'),
+        today:true,help:true,sell:has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),service:false,stock:has('catalog.manage','inventory.receive'),
         'stock-count':false,purchasing:has('inventory.receive'),hotel:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),reservations:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage'),customers:false,
         shifts:has('shift.open','shift.close'),money:false,reports:false,manage:false,onboarding:false,
       };
@@ -97,7 +88,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     if (item.capability === 'food_service' && activeTenant.capabilities && !activeTenant.capabilities.includes('food_service')) return false;
     if (item.capability === 'food_service' && !activeTenant.capabilities && activeTenant.type !== 'restaurant') return false;
     return true;
-  }), [activeTenant.id, activeTenant.type, activeTenant.capabilities, activeStaff.id, activeStaff.role, backendSession?.user.id,backendSession?.user.role,backendSession?.tenant.capabilities.join(',')]);
+  }), [activeTenant.id, activeTenant.type, activeTenant.capabilities, activeStaff.id, activeStaff.role, backendSession?.user.id,backendSession?.user.role,backendSession?.user.permissions.join(','),backendSession?.tenant.capabilities.join(',')]);
   useEffect(()=>{if(backendSession&&!availableWorkspaces.some(item=>item.id===activeTab))onTabChange('today')},[backendSession?.user.id,activeTab,availableWorkspaces,onTabChange]);
 
   const changeStaff = (staffId: string) => {

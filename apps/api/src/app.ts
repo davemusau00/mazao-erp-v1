@@ -14,6 +14,9 @@ const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
 
 export function buildApp() {
+  const allowedOrigins=(process.env.APP_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);
+  if(process.env.NODE_ENV==='production'&&allowedOrigins.length===0)throw new Error('APP_ORIGINS must contain the exact public application origin in production.');
+  if(allowedOrigins.some(origin=>{try{return new URL(origin).origin!==origin}catch{return true}}))throw new Error('APP_ORIGINS entries must be exact origins such as https://erp.example.com.');
   const app = Fastify({ logger: true, bodyLimit: 1_048_576 });
   app.register(cookie);
   app.register(rateLimit, { global: false });
@@ -23,8 +26,10 @@ export function buildApp() {
   });
   app.addHook('onRequest', async (request, reply) => {
     const origin = request.headers.origin;
-    const allowed = (process.env.APP_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
-    if (['POST','PUT','PATCH','DELETE'].includes(request.method) && origin && allowed.length && !allowed.includes(origin)) {
+    const unsafe=['POST','PUT','PATCH','DELETE'].includes(request.method);
+    const productionOriginMissing=process.env.NODE_ENV==='production'&&unsafe&&(!origin||!allowedOrigins.includes(origin));
+    const configuredOriginDenied=unsafe&&!!origin&&allowedOrigins.length>0&&!allowedOrigins.includes(origin);
+    if (productionOriginMissing||configuredOriginDenied) {
       return reply.code(403).send({ error: { code: 'ORIGIN_DENIED', message: 'Request origin is not allowed.' } });
     }
   });
@@ -58,7 +63,7 @@ export function buildApp() {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name }, deviceId:row.device_id, csrfToken };
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -85,14 +90,16 @@ export function buildApp() {
     const token = request.cookies?.[cookieName]; if (token) await pool.query('UPDATE identity.sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL',[hashToken(token)]);
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
-  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.timeZone,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.timeZone,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
-    if (!ROLE_PERMISSIONS[operator.role].some(permission=>['commerce.sell','catalog.manage','inventory.receive'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,b.quantity,b.version
+    const permissions=ROLE_PERMISSIONS[operator.role];
+    if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
+    const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),costPriceMinor:Number(r.cost_price_minor),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
+    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
   app.get('/api/v1/inventory/movements', async request => {
     const operator=request.operator!;
@@ -111,14 +118,16 @@ export function buildApp() {
   });
   app.get('/api/v1/sales/orders', async request => {
     const operator=request.operator!;
-    if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='commerce.sell'||permission==='commerce.refund'||permission==='finance.view')) throw new DomainError('FORBIDDEN','Your role cannot review sales.',403);
+    const permissions=ROLE_PERMISSIONS[operator.role];
+    if(!permissions.some(permission=>permission==='commerce.sell'||permission==='commerce.refund'||permission==='finance.view')) throw new DomainError('FORBIDDEN','Your role cannot review sales.',403);
+    const canReadCost=permissions.includes('finance.view');
     const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,u.full_name cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,
         COALESCE((SELECT SUM(p.amount_minor) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),0)::text paid_minor,
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
-        COALESCE((SELECT jsonb_agg(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',ol.cost_price_minor::text,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text) ORDER BY ol.id)
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
       FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
-      WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId]);
+      WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:'cash',lines:r.lines}))};
   });
   app.get('/api/v1/hospitality/rooms', async request => {

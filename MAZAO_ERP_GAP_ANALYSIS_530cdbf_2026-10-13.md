@@ -28,6 +28,19 @@ The source remediation is in commit `a1625452e30126acdba37c10acb8dfd4456d0d59`; 
 
 **Verification performed for this recheck:** `npm run typecheck` passed (UI and API TypeScript) and `npm run build` passed; Vite warned about `__dirname` in `vite.config.ts` and the 653 kB main JS chunk. GitHub Actions exercised migrations/login/catalog/replay but failed on the `0` versus `0.000000` assertion. The current corrected and expanded integration test has not run. No local test command, browser E2E, production deployment, or hardware test was run.
 
+## Integration follow-up (14 October 2026)
+
+The original audit date and SHA above remain the historical baseline. On current `main` at `22e76a4` plus this worktree, the backend integration register has been expanded to map each connected UI surface to its client methods, API routes, command records and remaining boundaries. Authenticated session responses now carry the server role permissions and the shell consumes them instead of maintaining a second server role map. Catalog cost fields are returned only to `catalog.manage` or `finance.view`; order-line cost fields are returned only to `finance.view`. The receipt HTML helper escapes the dynamic text fields, including quantity, and restricts image sources to an allowlist.
+
+| Finding | Follow-up source status | Evidence and limit |
+|---|---|---|
+| G-11 cost projection | API response projection is now role-scoped for catalog and sales history. | Source update only in this worktree; no database-backed cashier-versus-manager projection test has been run. |
+| G-15 duplicated navigation roles | Login and `/auth/me` issue `user.permissions` from the API role map; `AppShell` uses that session value for server navigation. | Server route and command authorization remain authoritative. Some connected workspace action affordances still use role names and coarse role maps remain in force. |
+| G-18 print HTML interpolation | Text interpolation is escaped; logo/QR sources are restricted; quantity is now escaped. Helper hostile-input coverage exists. | The prior local API test run was 6 passed / 1 skipped (PostgreSQL acceptance skipped); the current permission/projection edits have not been verified by a fresh run. No browser print or hardware acknowledgement was tested. |
+| G-19 production origin allowlist | Production API startup now requires exact `APP_ORIGINS` entries, and unsafe production requests without an allowed Origin are rejected. | Source change only; no production-mode origin regression test or deployment was run. |
+
+The broad integration request is **not complete**: server endpoints still do not exist for restaurant tickets, stock counts, customer credit, full accounting/reporting, user/device administration, imports, or settings. Those preview surfaces remain hidden in authenticated mode and the expanded integration map identifies them as local-only. Do not describe the prototype as fully linked or production-ready.
+
 ## Decision at audited SHA
 
 **PRODUCTION NO-GO.** The repository contains significant and improving backend code, but fresh database creation and server product loading have source-level defects. An authenticated checkout can also take a browser-local fallback when server catalog readiness is absent, and command replay changes the response structure. Passing CI does not test real PostgreSQL transactions or migrations.
