@@ -57,6 +57,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [serverShift, setServerShift] = useState<BackendShift | null>(null);
   const [backendCatalog, setBackendCatalog] = useState(false);
+  const [backendTaxRates, setBackendTaxRates] = useState<Record<string,number>>({});
   const [unknownCommandId, setUnknownCommandId] = useState<string | null>(null);
   const pendingCommand = useRef<import('../../services/apiClient').BackendCommand | null>(null);
 
@@ -91,6 +92,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
         const [catalog, shift] = await Promise.all([apiClient.listCatalog(), apiClient.getCurrentShift()]);
         if (!alive) return;
         setBackendCatalog(true); setServerShift(shift.shift);
+        setBackendTaxRates(Object.fromEntries(catalog.items.map(item=>[item.id,item.taxRateBps])));
         setProducts(catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:item.costPriceMinor/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit })));
       } catch (error) { if (alive) showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); }
     };
@@ -138,8 +140,8 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
 
   // Cart calculations
   const totalItemCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-  const subtotal = cart.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
-  const tax = subtotal * tenant.taxRate;
+  const subtotal = backendCatalog ? cart.reduce((acc,item)=>acc+Math.round(item.unitPrice*100)*item.quantity,0)/100 : cart.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
+  const tax = backendCatalog ? cart.reduce((acc,item)=>{const base=Math.round(item.unitPrice*100)*item.quantity;return acc+Math.floor((base*(backendTaxRates[item.product.id]??0)+5000)/10000)},0)/100 : subtotal * tenant.taxRate;
   const total = subtotal + tax;
   const tenderedNum = parseFloat(amountTendered) || 0;
   const changeDue = Math.max(0, tenderedNum - total);

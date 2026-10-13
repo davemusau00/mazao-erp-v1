@@ -110,7 +110,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
           </button>)}</section>;
         })}
       </nav>
-      <div className="sidebar-footer"><span className="demo-indicator"><span />Local demo workspace</span>{storage.hasPermission('settings.view') && <button type="button" className="sidebar-tool" onClick={onOpenDiagnostics}><Wrench size={16} /> Diagnostics</button>}</div>
+      <div className="sidebar-footer"><span className="demo-indicator"><span />{backendSession?`Server · ${backendSession.outlet.name}`:'Local demo workspace'}</span>{storage.hasPermission('settings.view') && <button type="button" className="sidebar-tool" onClick={onOpenDiagnostics}><Wrench size={16} /> Diagnostics</button>}</div>
     </aside>
 
     <div className="app-main-column">
