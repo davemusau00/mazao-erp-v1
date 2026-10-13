@@ -45,7 +45,7 @@ Sale tender values express cash handed over; only the amount due is posted as pa
 
 - The top bar's **Connect backend** signs into server identity; local demo operator selection and seeded records are not server identities.
 - Signed-in POS fetches server catalog and current shift. It blocks non-cash tender and requires an open server shift. Confirmed server sale is rendered in receipt preview and the catalog is refreshed.
-- An unknown checkout response retains its command envelope and displays **Check status**. `GET /commands/:id` decides confirmed/rejected/conflict; status lookup is tenant-scoped. A confirmed lookup clears the cart, but this first connector does not yet reconstruct a lost receipt from the stored outcome.
+- An unknown checkout response retains its command envelope and displays **Check status**. `GET /commands/:id` decides confirmed/rejected/conflict; status lookup is tenant-scoped. A confirmed lookup rebuilds the receipt summary from the stored outcome and current cart snapshot.
 - Signed-in Shifts uses API `shift.open` / `shift.close`; local demo shift controls are shown only without server session.
 - Other workspaces continue to use prototype local/demo services and must be labeled accordingly in operator workflows. They are not silently claimed as API-backed.
 

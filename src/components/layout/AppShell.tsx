@@ -100,7 +100,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Main navigation">
       <div className="brand-lockup"><div className="brand-mark">M</div><div><strong>Mazao</strong><small>BUSINESS WORKSPACE</small></div></div>
-      <div className="sidebar-context"><span className="context-label">BUSINESS</span><strong title={activeTenant.outletName ?? activeTenant.name}>{activeTenant.outletName ?? activeTenant.name}</strong><span>{activeTenant.currency} · {activeTenant.timeZone ?? 'Africa/Nairobi'}</span></div>
+      <div className="sidebar-context"><span className="context-label">{backendSession?'SERVER OUTLET':'BUSINESS'}</span><strong title={backendSession?.outlet.name ?? activeTenant.outletName ?? activeTenant.name}>{backendSession?.outlet.name ?? activeTenant.outletName ?? activeTenant.name}</strong><span>{backendSession?`${backendSession.tenant.currency} · ${backendSession.tenant.timeZone}`:`${activeTenant.currency} · ${activeTenant.timeZone ?? 'Africa/Nairobi'}`}</span></div>
       <nav className="workspace-nav">
         {groups.map(group => {
           const items = availableWorkspaces.filter(item => item.group === group.id);
@@ -116,7 +116,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     <div className="app-main-column">
       <header className="topbar">
         <div className="topbar-context">
-          <label className="tenant-select-wrap"><Building2 size={15} /><span className="sr-only">Business</span><select value={activeTenant.id} onChange={event => onTenantChange(event.target.value)} aria-label="Select business">
+          <label className="tenant-select-wrap"><Building2 size={15} /><span className="sr-only">Business</span><select disabled={!!backendSession} value={activeTenant.id} onChange={event => onTenantChange(event.target.value)} aria-label="Select business">
             {tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
           </select><ChevronDown size={13} /></label>
           <span className="topbar-divider" />
@@ -126,8 +126,8 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
         </div>
         <div className="topbar-actions">
           {backendSession ? <div className="connection-pill online" title={`${backendSession.tenant.name} · ${backendSession.outlet.name}`}><Wifi size={15}/><span>Server · {backendSession.user.name}</span><button type="button" onClick={() => void apiClient.logout()} aria-label="Sign out of server">Sign out</button></div> : <button className="connection-pill offline" type="button" onClick={() => setBackendLoginOpen(true)}><WifiOff size={15}/><span>Connect backend</span></button>}
-          <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Demo online' : 'Demo offline'}${pendingOutbox ? `, ${pendingOutbox} waiting to sync in the local preview` : ''}`}>
-            {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Demo online' : 'Demo offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
+          <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Local preview online' : 'Local preview offline'}${pendingOutbox ? `, ${pendingOutbox} waiting in the local preview` : ''}`}>
+            {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Local preview online' : 'Local preview offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
           </button>
           {isInstallable && !isInstalled && <button type="button" className="icon-action install-action" onClick={install}><Download size={16} /><span>Install app</span></button>}
           {storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}

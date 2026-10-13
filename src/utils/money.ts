@@ -1,3 +1,12 @@
+/** Convert a currency amount string to integer minor units without binary float arithmetic. */
+export function moneyInputToMinor(value:string):number {
+  const match=/^(\d+)(?:\.(\d*))?$/.exec(value.trim());
+  if(!match||match[2]?.length>2) throw new Error('Enter an amount with up to two decimal places.');
+  const minor=BigInt(match[1])*100n+BigInt((match[2]??'').padEnd(2,'0')||'0');
+  if(minor>BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Amount exceeds supported limit.');
+  return Number(minor);
+}
+
 export function currencyMinorDigits(currency: string, locale?: string): number {
   try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2; }
   catch { return 2; }

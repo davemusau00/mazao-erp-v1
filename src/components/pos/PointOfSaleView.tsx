@@ -4,6 +4,7 @@ import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
 import { apiClient, type BackendShift } from '../../services/apiClient';
+import { moneyInputToMinor } from '../../utils/money';
 import {
   Barcode,
   Search,
@@ -34,11 +35,14 @@ interface PointOfSaleViewProps {
 }
 
 export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
-  tenant,
+  tenant: demoTenant,
   onOrderCompleted,
   scannedBarcodeFromDiagnostics,
   onClearScannedBarcode,
 }) => {
+  const sessionTenant=apiClient.getSession()?.tenant;
+  const currencySymbol=sessionTenant ? new Intl.NumberFormat(undefined,{style:'currency',currency:sessionTenant.currency}).formatToParts(0).find(part=>part.type==='currency')?.value ?? sessionTenant.currency : demoTenant.currencySymbol;
+  const tenant=sessionTenant ? {...demoTenant,currency:sessionTenant.currency,currencySymbol,timeZone:sessionTenant.timeZone} : demoTenant;
   const [products, setProducts] = useState<ProductItem[]>(storage.getProducts());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,6 +62,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
   const [serverShift, setServerShift] = useState<BackendShift | null>(null);
   const [backendCatalog, setBackendCatalog] = useState(false);
   const [backendTaxRates, setBackendTaxRates] = useState<Record<string,number>>({});
+  const [backendPriceMinor, setBackendPriceMinor] = useState<Record<string,number>>({});
   const [unknownCommandId, setUnknownCommandId] = useState<string | null>(null);
   const pendingCommand = useRef<import('../../services/apiClient').BackendCommand | null>(null);
 
@@ -93,6 +98,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
         if (!alive) return;
         setBackendCatalog(true); setServerShift(shift.shift);
         setBackendTaxRates(Object.fromEntries(catalog.items.map(item=>[item.id,item.taxRateBps])));
+        setBackendPriceMinor(Object.fromEntries(catalog.items.map(item=>[item.id,item.sellingPriceMinor])));
         setProducts(catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:item.costPriceMinor/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit })));
       } catch (error) { if (alive) showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); }
     };
@@ -140,8 +146,10 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
 
   // Cart calculations
   const totalItemCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-  const subtotal = backendCatalog ? cart.reduce((acc,item)=>acc+Math.round(item.unitPrice*100)*item.quantity,0)/100 : cart.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
-  const tax = backendCatalog ? cart.reduce((acc,item)=>{const base=Math.round(item.unitPrice*100)*item.quantity;return acc+Math.floor((base*(backendTaxRates[item.product.id]??0)+5000)/10000)},0)/100 : subtotal * tenant.taxRate;
+  const subtotalMinor = backendCatalog ? Number(cart.reduce((acc,item)=>acc+BigInt(backendPriceMinor[item.product.id]??0)*BigInt(item.quantity),0n)) : 0;
+  const taxMinor = backendCatalog ? Number(cart.reduce((acc,item)=>{const base=BigInt(backendPriceMinor[item.product.id]??0)*BigInt(item.quantity);return acc+(base*BigInt(backendTaxRates[item.product.id]??0)+5000n)/10000n},0n)) : 0;
+  const subtotal = backendCatalog ? subtotalMinor/100 : cart.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
+  const tax = backendCatalog ? taxMinor/100 : subtotal * tenant.taxRate;
   const total = subtotal + tax;
   const tenderedNum = parseFloat(amountTendered) || 0;
   const changeDue = Math.max(0, tenderedNum - total);
@@ -255,6 +263,25 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     setTimeout(() => setFeedbackNotice(null), 3000);
   };
 
+  const recoverUnknownCommand = async () => {
+    if (!unknownCommandId) return;
+    try {
+      const status=await apiClient.checkCommandStatus(unknownCommandId);
+      const response=status.response as {status?:string;value?:Record<string,unknown>;message?:string};
+      if(response.status==='CONFIRMED'&&response.value) {
+        const value=response.value; const session=apiClient.getSession();
+        if(session&&pendingCommand.current&&serverShift) {
+          const sale:SaleOrder={id:String(value.saleId),idempotencyKey:unknownCommandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:session.user.name,tenantId:session.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
+          setCart([]);setIsTenderModalOpen(false);setIsMobileCartOpen(false);onOrderCompleted(sale);
+          if(typeof value.shiftVersion==='number')setServerShift({...serverShift,version:value.shiftVersion,expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor)});
+          void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:i.costPriceMinor/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))});
+        }
+        showNotice('Server confirmed the sale; the receipt is ready.');setUnknownCommandId(null);pendingCommand.current=null;
+      } else if(response.status==='REJECTED'||response.status==='CONFLICT') {showNotice(response.message??`Command ${response.status.toLowerCase()}.`);setUnknownCommandId(null);pendingCommand.current=null;}
+      else showNotice(`Command status: ${status.status}. Check again shortly.`);
+    } catch(error) { showNotice(error instanceof Error?error.message:'Unable to check command status.'); }
+  };
+
   // Handle Manager Security Override for Credit Overages
   const handleAuthorizeManagerOverride = () => {
     setOverrideError(null);
@@ -307,18 +334,20 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     if (backendSession && backendCatalog) {
       if (paymentMethod !== 'cash') { showNotice('Server checkout currently accepts verified cash tender only. Other tenders are blocked until their providers are connected.'); return; }
       if (!serverShift) { showNotice('Open a server shift before taking a sale.'); return; }
-      const toMinor = (value:number) => Math.round((value + Number.EPSILON) * 100);
+      let tenderMinor:number;
+      try { tenderMinor=moneyInputToMinor(amountTendered || total.toFixed(2)); }
+      catch(error) { showNotice(error instanceof Error?error.message:'Tender amount is invalid.');return; }
       const command = pendingCommand.current ?? {
         protocolVersion:1 as const, commandId:crypto.randomUUID(), tenantId:backendSession.tenant.id, deviceId:backendSession.deviceId,
         type:'sales.order.settle', occurredAt:new Date().toISOString(), expectedVersions:{[`shift:${serverShift.id}`]:serverShift.version},
-        payload:{shiftId:serverShift.id,lines:cart.map(item=>({productId:item.product.id,quantity:String(item.quantity)})),tenders:[{method:'CASH',amountMinor:toMinor(tenderedNum || total),currency:backendSession.tenant.currency}]},
+        payload:{shiftId:serverShift.id,lines:cart.map(item=>({productId:item.product.id,quantity:String(item.quantity)})),tenders:[{method:'CASH',amountMinor:tenderMinor,currency:backendSession.tenant.currency}]},
       };
       pendingCommand.current=command;
       try {
         const outcome=await apiClient.submitCommand(command);
         if(outcome.status==='CONFIRMED' && outcome.value) {
           const value=outcome.value; const saleOrder:SaleOrder={id:String(value.saleId),idempotencyKey:command.commandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:backendSession.user.name,tenantId:backendSession.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
-          pendingCommand.current=null; setUnknownCommandId(null); setCart([]); setIsTenderModalOpen(false); setIsMobileCartOpen(false); setServerShift({...serverShift,version:Number(value.shiftVersion),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor),expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor)}); onOrderCompleted(saleOrder); void apiClient.listCatalog().then(c=>setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:i.costPriceMinor/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})))); return;
+          pendingCommand.current=null; setUnknownCommandId(null); setCart([]); setIsTenderModalOpen(false); setIsMobileCartOpen(false); setServerShift({...serverShift,version:Number(value.shiftVersion),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor),expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor)}); onOrderCompleted(saleOrder); void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:i.costPriceMinor/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))}); return;
         }
         if(outcome.status==='CONFLICT'||outcome.status==='REJECTED') { pendingCommand.current=null; setUnknownCommandId(null); showNotice(outcome.message??`Sale ${outcome.status.toLowerCase()}: ${outcome.code??''}`); return; }
         setUnknownCommandId(command.commandId); showNotice('Sale outcome is not confirmed. Check command status before any retry.');
@@ -498,7 +527,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
           <div className="mb-2 p-2 rounded-lg bg-blue-950/80 border border-blue-800 text-xs text-blue-300 flex items-center gap-2 shrink-0 animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span className="truncate">{feedbackNotice}</span>
-            {unknownCommandId && <button type="button" className="ml-auto underline whitespace-nowrap" onClick={async()=>{try{const status=await apiClient.checkCommandStatus(unknownCommandId);const response=status.response as {status?:string;value?:Record<string,unknown>;message?:string};if(response.status==='CONFIRMED'){showNotice('Server confirms this command. Refresh server catalog and review the sale in sales history.');setUnknownCommandId(null);pendingCommand.current=null;setCart([]);}else if(response.status==='REJECTED'||response.status==='CONFLICT'){showNotice(response.message??`Command ${response.status.toLowerCase()}.`);setUnknownCommandId(null);pendingCommand.current=null;}else showNotice(`Command status: ${status.status}. Retry status check shortly.`)}catch(e){showNotice(e instanceof Error?e.message:'Unable to check command status.')}}}>Check status</button>}
+            {unknownCommandId && <button type="button" className="ml-auto underline whitespace-nowrap" onClick={()=>void recoverUnknownCommand()}>Check status</button>}
           </div>
         )}
 

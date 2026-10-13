@@ -29,6 +29,7 @@ export function buildApp() {
     }
   });
   app.setErrorHandler((error, request, reply) => {
+    if (error instanceof DomainError) return reply.code(error.statusCode).send({ error:{code:error.code,message:error.message,details:error.details} });
     request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'The request could not be completed.' } });
@@ -60,7 +61,7 @@ export function buildApp() {
   });
 
   app.addHook('preHandler', async (request, reply) => {
-    if (!request.url.startsWith('/api/v1/') || request.url === '/api/v1/auth/login') return;
+    if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
     const result = await pool.query(`SELECT s.id session_id,s.user_id,u.full_name,u.email,s.tenant_id,t.name tenant_name,t.currency,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash

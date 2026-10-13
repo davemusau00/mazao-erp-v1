@@ -2,7 +2,7 @@
 
 Mazao ERP is a task-first business workspace for retail, food service, and hospitality teams. The current repository contains a React/Vite local preview of the product UI.
 
-## Run locally
+## Run the UI preview
 
 **Prerequisite:** Node.js 20 or newer.
 
@@ -11,7 +11,11 @@ npm install --legacy-peer-deps
 npm run dev
 ```
 
-Open the Vite URL printed in the terminal. `npm run lint` runs the TypeScript check and `npm run build` creates the static PWA bundle.
+Open the Vite URL printed in the terminal. `npm run typecheck` checks both the UI and API TypeScript; `npm run test:api` runs API boundary tests; `npm run build` creates the static PWA bundle.
+
+## Run the backend integration slice
+
+The repository now includes a Fastify/PostgreSQL API for authenticated sessions, catalog reads, operator shifts, and cash sale/stock receipt/product commands. For database provisioning, environment variables, initial-tenant bootstrap and the explicit module-by-module integration status, follow [Backend integration register](docs/24-BACKEND-INTEGRATION.md). Start PostgreSQL, apply migrations, and bootstrap an initial operator before running `npm run api:dev`; the UI dev server proxies `/api/v1` to the API.
 
 ## Current UI
 
@@ -25,11 +29,11 @@ Open the Vite URL printed in the terminal. `npm run lint` runs the TypeScript ch
 
 The interface uses an OLED dark theme with blue and emerald semantic accents. Navigation and the main workflows adapt to role, enabled business type, and screen width.
 
-## Prototype boundary
+## Integration boundary
 
-This build uses seeded browser-local data and simulated operator profiles. It has no authenticated API, shared database, production tenant isolation, or server-enforced authorization. UI status labels therefore distinguish local preview data from server confirmation. Manage sections are informative and do not save configuration. Do not use this preview to record real business transactions.
+Most workspaces still use seeded browser-local data and simulated operator profiles. Signing in connects only the modules listed as connected in the integration register. Other local screens do not become server-authoritative by signing in. Do not use local preview flows to record real business transactions.
 
-The v1 service contracts are in `src/types/ui.ts`. They define typed boundaries for command outcomes, sales, stock counts, room stays, shift cash-up, repayments, and reports. They do not imply that backend implementations exist.
+The v1 UI service contracts are in `src/types/ui.ts`; the current HTTP adapter is `src/services/apiClient.ts`, and backend domain commands live in `apps/api/`. Contract types for modules without server endpoints remain design boundaries, not implemented services.
 
 ## Product specifications
 

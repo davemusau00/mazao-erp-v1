@@ -5,8 +5,9 @@ process.env.DATABASE_URL ??= 'postgres://test:test@127.0.0.1:1/unused';
 const [{ buildApp }, { hashCommand }, security, db] = await Promise.all([
   import('../src/app.js'), import('../src/commands.js'), import('../src/security.js'), import('../src/db.js'),
 ]);
+const { moneyInputToMinor } = await import('../../../src/utils/money.js');
 
-test('health endpoint distinguishes liveness from database readiness', async () => {
+test('liveness is public while tenant catalog requires authentication', async () => {
   const app=buildApp(); await app.ready();
   const live=await app.inject({url:'/api/v1/health/live'});
   assert.equal(live.statusCode,200); assert.deepEqual(live.json(),{status:'live'});
@@ -27,4 +28,10 @@ test('command hashing is order-independent for object keys and detects changed c
   const reordered={...base,payload:{metadata:{a:1,b:2},openingFloatMinor:5000}};
   assert.deepEqual(hashCommand(base),hashCommand(reordered));
   assert.notDeepEqual(hashCommand(base),hashCommand({...base,payload:{openingFloatMinor:5001}}));
+});
+
+test('UI money boundary parses decimal text into integer minor units',()=>{
+  assert.equal(moneyInputToMinor('1250.5'),125050);
+  assert.equal(moneyInputToMinor('0.01'),1);
+  assert.throws(()=>moneyInputToMinor('12.345'));
 });
