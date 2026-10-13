@@ -1,93 +1,95 @@
-# UI journey review and next implementation gates
+# UI journey review and implementation gates
 
-This review records the current local-preview UI against the v1 workflows in the PRD, commerce/inventory specification, hospitality specification, reporting specification, and acceptance matrix. It is a source inspection, not an operator research sign-off or production acceptance.
+This review compares the current hybrid UI with the v1 workflows in the product, commerce/inventory, hospitality, reporting and acceptance specifications. It is a source review, not operator research or production acceptance.
 
 ## Current environment boundary
 
-The repository contains a React/Vite PWA and a browser-local `StorageEngine` backed by `localStorage`. It has no authenticated HTTP API, shared database, server authorization, durable command status endpoint, or production provider integration. `src/types/ui.ts` defines intended application-service contracts, but no implementation is connected. The existing offline switch and sync queue are simulations. Local success therefore means only that the preview updated browser state.
+The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a partial Fastify/PostgreSQL API. Authenticated server workflows cover item setup, delivery receiving, cash sales/refunds, shifts, and an initial hotel room/reservation/stay lifecycle. Other modules remain local previews and are hidden while signed in. The IndexedDB command journal retains unknown command outcomes; it does not provide offline command execution or remote synchronization. There is no payment provider, outbox worker, or verified hardware authority.
 
-## Review findings addressed in the UI continuation
+## Findings addressed in the UI and integration continuation
 
-- Confirmed the decimal utility exists at `src/utils/decimal.ts`; all advertised routes are rendered from `App.tsx`, and `ManageWorkspace` receives its navigation callback. The reported routing/build defect does not reproduce in this checkout.
-- Folio checkout now requires entered settlement at least equal to the current local balance; zero tender cannot clear a nonzero guest balance. It remains a local preview and does not support approved remaining balances or provider confirmation.
-- Local network reconnect no longer marks outbox items as synchronized. New local changes remain pending, old browser records labelled synced are downgraded to pending on load, and the UI identifies the simulator and browser-local scope.
-- Browser storage write errors now throw and surface through the checkout/refund error path where handled. Since multi-key localStorage writes are not atomic and many legacy handlers are not yet adapted to unknown outcomes, this is not durable financial storage.
-- Full refund now rejects repeat attempts and missing reasons, creates separate revenue and VAT reversal entries, and queues a local refund record. This does not submit a provider refund or guarantee production journal integrity.
-- The ledger no longer claims trial-balance verification or injects a fabricated operating-bank fallback; absent accounts show no source data.
-- Receipt and Today status copy no longer presents local records as server-confirmed or synchronized.
+- `src/utils/decimal.ts` exists and the local prototype routes are rendered. `ManageWorkspace` receives its navigation callback.
+- Local folio checkout requires entered settlement to cover the balance. It remains a demo flow and does not support approved balances or provider confirmation.
+- Reconnecting the local network no longer marks outbox records synchronized. Local records are identified as browser-local.
+- Browser storage write failures are surfaced where handled, but localStorage writes are not atomic and do not provide durable financial storage.
+- Local full refunds reject repeated attempts and missing reasons and create separate revenue/VAT reversal records. They do not submit provider refunds or create a production-authoritative journal.
+- The ledger no longer claims trial-balance verification or invents operating-bank data.
+- Signed-in POS no longer falls through to local sale processing when the server catalog fails. Server checkout is disabled until catalog and shift state are loaded.
+- Server-mode navigation hides local-only customer, kitchen, stock-count, report, management and onboarding workflows.
 
 ## Role journey map
 
-| Role | Documented journey | Current UI coverage | Blocking gaps before operational use |
-| --- | --- | --- | --- |
-| Administrator | Business/outlet → capabilities/tax → item import → staff/device setup → first shift/sale → readiness | Onboarding checklist; Manage screens | Setup and import are not persisted/applied; no account provisioning, outlet/device authority, reviewed tax policy or go-live command. |
-| Cashier | Open shift → basket → split tender → recovery → receipt/history → refund → close shift | POS, sales history/return preview, shifts, receipt dialog | POS has one payment method per order; payment is a local synchronous write; retry/unknown outcome and split allocation are absent; shift and till are local demo state. |
-| Storekeeper | Delivery → package conversion → stock receipt → durable count → variance review → movement history | Stock, purchasing and count preview | Purchasing/count drafts are page-only; receiving preview does not create a movement; no location/version concurrency, unknown barcode resolution, package conversion or approved count command. |
-| Waiter / cook / bartender | Table → order → fire/routing → station progress → settlement | Table and kitchen interaction preview | Tickets and statuses remain in component memory; no durable order, exactly-once send, station routing, recipe consumption boundary or settlement link. |
-| Receptionist | Availability → reservation/walk-in → check-in → guest bill/deposit → checkout | Room operations and reservation preview | Reservation availability is a local snapshot; no hold/expiry or overlap lock; payment/deposit, charge posting, final settlement and checkout authority need services. |
-| Housekeeper | Dirty → cleaning → inspected → ready; maintenance block | Room operations status controls | Local state only; inspection actor/evidence, maintenance controls and durable task history are absent. |
-| Accountant / owner / manager | Cash-up → exception review → accurate reports → drill through to source | Shift audit, ledger and analytics screens | Ledger/report data is demo state; COGS is estimated from current catalog costs; there is no report query authority, source coverage API, period control or complete drill-through. |
+| Role | Intended journey | Current UI coverage | Blocking gaps before operational use |
+|---|---|---|---|
+| Administrator | Business/outlet setup, capabilities/tax, imports, staff/devices, first shift and readiness | Local setup preview; server item setup and connected commands | Server-mode setup and Manage are hidden. No account provisioning, outlet/device administration, tax-policy review, imports or go-live command. |
+| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale, unknown-command recovery, history and cash-up; local receipt preview | Only one cash tender is confirmed. No provider/split tender, immutable receipt document or complete drawer reconciliation. PostgreSQL/browser acceptance is pending. |
+| Storekeeper | Delivery, package conversion, receipt, count, variance review and movements | Server item setup, reviewed receipt and movement history; local count preview | No package conversion, barcode resolution, count session, blind count or approved variance command. |
+| Waiter/cook/bartender | Table, order, fire/routing, station progress and settlement | Local tables and kitchen preview | Hidden in server mode. No persistent table/order/ticket commands, station routing, recipe consumption or settlement link. |
+| Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in and booked-night cash checkout | No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. Database acceptance remains pending. |
+| Housekeeper | Dirty, cleaning, inspection, ready and maintenance hold | Server dirty-room list and mark-ready command | No cleaning-start/inspection workflow or maintenance controls. Event history is not yet reviewed in an operator workflow. |
+| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; report/ledger preview only when not signed in | Reports are hidden in server mode. No authoritative ledger/report query, completeness/freshness metadata, period controls or full drill-through. COGS still uses mutable catalog cost. |
 
 ## Critical slice acceptance criteria
 
 ### Cash sale and shift close
 
-- [ ] Build a basket, validate quantities and tenant/outlet tax policy, and preserve integer minor-unit totals.
-- [ ] Submit one stable command ID; a retry reuses that ID and returns the original outcome.
-- [ ] Support split tender allocations whose sum equals the amount due; distinguish cash, provider-confirmed payment, unverified manual reference, and customer/guest balance.
-- [ ] Keep the basket and command reference available on rejected, unknown, and conflict outcomes. Unknown outcome supports status check and activity review without generating a new payment.
-- [ ] Produce a receipt from confirmed sale data; printer/spool completion does not become payment authority.
-- [ ] Cash-up uses the authoritative shift version and records counted cash, variance, actor, time, and reason; exact replay cannot close twice.
-- [ ] Refund is a linked reversal with policy/permission checks and a source receipt.
+- [ ] Validate quantity and tax policy at the server and preserve integer minor-unit totals.
+- [ ] Submit one stable command ID; exact retry returns the same canonical response and does not repeat mutation.
+- [ ] Support split tenders that equal the due amount; distinguish cash, provider-confirmed payment, unverified references and customer/guest balance.
+- [ ] Keep basket and command reference available on rejection, unknown and conflict outcomes. Unknown outcomes support status and activity review without a new payment.
+- [ ] Create receipts from confirmed server data; printer completion does not become payment authority.
+- [ ] Cash-up records authoritative shift version, counted cash, variance, actor, time and reason; replay cannot close twice.
+- [ ] Refunds are linked reversals with policy/permission checks and a source receipt.
 
 ### Stock receiving and count
 
-- [ ] Enter package quantity and package unit cost, preview normalized base quantity and exact minor-unit extension, then approve a receipt command.
-- [ ] Count draft survives restart in a durable draft store; unknown barcodes enter a resolution queue.
-- [ ] Count review requires baseline revision, location, all quantities and reasons for variances.
-- [ ] One atomic command records immutable before/after movement evidence; concurrent sale/count returns a conflict with a recovery path.
+- [ ] Preview package conversion and exact minor-unit extension before posting a receipt.
+- [ ] Persist count drafts across restart and route unknown barcodes to resolution.
+- [ ] Count review captures baseline revision, location, quantities and variance reasons.
+- [ ] One atomic command records before/after movement evidence; concurrent sale/count returns a recoverable conflict.
 
 ### Hotel and restaurant
 
-- [ ] Availability and reservation creation are separate; reservation creation uses a time-bounded hold and overlap-safe server command.
-- [ ] Check-in creates a stay and guest bill atomically; deposits and charges remain distinguishable.
-- [ ] Checkout shows charges, payments, refunds, and outstanding balance, then records closure and cleaning status as one controlled workflow.
-- [ ] Table order submission and station ticket delivery are idempotent; item firing and stock consumption follow an explicit domain event.
-- [ ] Room or table preview never appears as a confirmed reservation, stay, or kitchen ticket before service confirmation.
+- [ ] Availability and reservation confirmation are separate; overlapping reservations are race-safe.
+- [ ] Check-in creates a stay and open folio atomically; deposits and earned charges remain distinct.
+- [ ] Checkout shows charges, payments, refunds and balance, then closes the folio/stay and marks cleaning state in one controlled workflow.
+- [ ] Table order and station ticket submission are idempotent; stock consumption follows an explicit domain event.
+- [ ] Local preview never appears as a confirmed reservation, stay or kitchen ticket before service confirmation.
 
-## Service integration contract gate
+## Service integration contract
 
-`src/types/ui.ts` contains the preliminary `V1ApplicationServices` interface. Before connecting financial, stock, reservation, or room actions, the contract package must define a validated versioned command envelope with tenant/outlet/operator/device context, stable command ID, expected entity versions, authorization, offline policy, structured rejection/conflict/unknown results, and status lookup. Money values must be integer minor units with safe-range validation; quantities remain decimal strings. Domain implementation, persistence, API authorization, idempotency, audit, and integration/negative tests are not present in this UI repository, so a local adapter must not masquerade as that service.
+`src/services/apiClient.ts` implements the authenticated HTTP boundary and IndexedDB command journal. `apps/api/src/contracts.ts` and the command dispatcher define protocol version 1, server-derived actor/tenant authority, role checks, expected versions, idempotent outcomes and status lookup for connected workflows. Contracts are not generated from a shared package; payloads are runtime-validated in domain code, permissions remain coarse role maps, and the server does not replay offline commands. Money crosses server boundaries as integer minor units and quantities as decimal strings. Local storage remains a distinct preview authority.
 
-## Reporting corrections and gates
+## Reporting and data coverage
 
-The reports view now scopes records to the selected active tenant, excludes refunded records from sales totals, and uses configured outlet time zone for calendar grouping. Cross-tenant consolidation is removed because the preview does not define currency conversion or tenant data coverage. Sales counts and stock rows remain local snapshot data. COGS and margin are estimates from stored item cost fields, not verified historical cost snapshots or posted accounting results.
+The local preview reports scope records to the selected tenant, exclude refunded records from sales totals, and use configured time zones for calendar grouping. These views are hidden in server mode because there are no authoritative report queries or coverage contracts. Local COGS and margin are estimates from mutable item cost fields, not historical cost snapshots or complete accounting statements.
 
-- [ ] Replace preview calculations with a permission-scoped report query and a reproducible calculation version.
-- [ ] Show half-open local-business-date range, outlet scope, `asOf`, source count, completeness/partial/unavailable status, exclusions, and currency.
-- [ ] Drill from each total to its source records and reconcile control totals before labeling financial statements complete.
-- [ ] Add refunds, tenders, shifts/variances, purchases, inventory valuation, room occupancy/balances, P&L and trial balance only when their source datasets exist.
+- [ ] Add permission-scoped report queries with a reproducible calculation version.
+- [ ] Show business-date range, outlet scope, `asOf`, source count, completeness/partial/unavailable state, exclusions and currency.
+- [ ] Drill every total through to source records and reconcile control totals before labeling financial statements complete.
+- [ ] Add refunds, tenders, shifts/variances, purchases, inventory valuation, room occupancy/balances, P&L and trial balance only when source datasets exist.
 
 ## Responsive and accessibility review record
 
-The stylesheet includes mobile navigation, a short-height desktop rule, 44px POS/dialog controls in key paths, reduced-motion handling, and a higher-contrast preference override. These are implementation observations, not a completed visual or assistive-technology review.
+The stylesheet includes mobile navigation, short-height desktop rules, 44px controls in key paths, reduced-motion handling and a higher-contrast preference override. These observations are not a completed viewport or assistive-technology review.
 
-| Viewport / input | Status | Required evidence |
-| --- | --- | --- |
-| 1024×600 | Not manually verified | POS basket/payment CTA, dialogs and shift close remain reachable without clipping. |
-| 1280×720, 1280×800 | Not manually verified | POS, service floor, tables and modal layouts. |
-| 800×1280 | Not manually verified | Tablet portrait navigation, forms, tables and action placement. |
-| 1366×768, 1920×1080 | Not manually verified | Management/report density, focus order and readable content width. |
-| 390×844 | Not manually verified | Bottom navigation, mobile checkout, dialogs, long labels and primary actions. |
-| Keyboard / screen reader | Not manually verified | Skip-to-main focus, labels, dialog focus/escape, chart descriptions, live outcome announcements. |
-| Touch / scanner | Not hardware verified | 44px hit targets, scan focus/recovery, duplicate/unknown scan behavior. |
-| Reduced motion / high contrast | CSS support present; not manually verified | Contrast measurements and motion preference review across critical states. |
+| Viewport/input | Status | Required evidence |
+|---|---|---|
+| 1024×600 | Not manually verified | POS basket/payment action, dialogs and shift close without clipping. |
+| 1280×720 and 1280×800 | Not manually verified | POS, service floor, table and modal layouts. |
+| 800×1280 | Not manually verified | Tablet navigation, forms, tables and actions. |
+| 1366×768 and 1920×1080 | Not manually verified | Management/report density, focus order and content width. |
+| 390×844 | Not manually verified | Mobile navigation, checkout, dialogs, long labels and primary actions. |
+| Keyboard/screen reader | Not manually verified | Focus, labels, dialog escape behavior, chart descriptions and live outcome announcements. |
+| Touch/scanner | Not hardware verified | 44px targets, scan focus/recovery and duplicate/unknown scan behavior. |
+| Reduced motion/high contrast | CSS support present; not manually verified | Contrast and motion checks across critical journeys. |
 
 ## Execution order
 
-1. Close the gaps in one end-to-end online cashier sale and shift-close slice, including split tender and unknown-outcome recovery.
-2. Add stock receiving and reviewed count as a separate vertical slice with concurrency and movement evidence.
-3. Add reservation/check-in/checkout and restaurant ticket slices against their domain services.
-4. Build reports from those authoritative records, then complete the viewport and accessibility review on the connected journeys.
+1. Keep the current P0 source fixes and PostgreSQL CI acceptance together: fresh migrations, authenticated catalog read, exact command replay and overlapping reservation contention.
+2. Complete cashier/shift acceptance for rejected and unknown outcomes, split/provider tenders, immutable receipts, refunds and drawer reconciliation.
+3. Add stock counts/transfers/cost layers, restaurant tickets and customer-account services as separate transactional slices.
+4. Complete hotel deposits, folio charges, payment and actual-night policy before calling the hotel lifecycle complete.
+5. Build reports from authoritative records, then review viewport, keyboard, touch/scanner and screen-reader behavior on connected journeys.
 
-No live tenant, physical device, provider, production database, or operator research was used for this review.
+No live tenant, production database, payment provider, physical device, production deployment or operator research was used for this review. See [Backend integration register](24-BACKEND-INTEGRATION.md) for route, command and module status.
