@@ -256,7 +256,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   for (const line of normalized) {
     const result = await client.query(
       `SELECT p.id,p.sku,p.name,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,b.quantity
-       FROM catalog.products p JOIN inventory.balances b USING(tenant_id,outlet_id,product_id)
+       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
        WHERE p.id=$1 AND p.tenant_id=$2 AND p.outlet_id=$3 AND p.active FOR UPDATE OF p,b`,
       [line.productId, session.tenantId, session.outletId],
     );
@@ -308,7 +308,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     await client.query(
       `INSERT INTO commerce.payments(id,tenant_id,outlet_id,order_id,method,amount_minor,currency,status)
        VALUES($1,$2,$3,$4,'CASH',$5,$6,'CONFIRMED')`,
-      [randomUUID(), session.tenantId, session.outletId, orderId, amount, currency],
+      [randomUUID(), session.tenantId, session.outletId, orderId, Math.min(amount, total), currency],
     );
   }
   const nextVersion = expectedShift + 1;

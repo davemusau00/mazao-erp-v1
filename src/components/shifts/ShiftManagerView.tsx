@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Shift, TenantProfile, ShiftAuditLog, ShiftAuditAction } from '../../types/erp';
 import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';

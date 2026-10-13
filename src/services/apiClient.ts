@@ -9,7 +9,7 @@ export interface BackendCommand { protocolVersion:1;commandId:string;tenantId?:s
 
 class ApiClient {
   private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();
-  subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>this.listeners.delete(listener)}
+  subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
   private async request<T>(path:string,init:RequestInit={}):Promise<T>{

@@ -6,7 +6,8 @@ import { pool, inTransaction } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
 import { executeCommand, hashCommand } from './commands.js';
-import { hashToken, randomToken, verifyPassword } from './security.js';
+import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
+import { ROLE_PERMISSIONS } from './contracts.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -73,7 +74,7 @@ export function buildApp() {
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
-      if (!csrfCookie || typeof csrfHeader !== 'string' || csrfCookie !== csrfHeader || !Buffer.from(hashToken(csrfHeader)).equals(Buffer.from(r.csrf_hash))) return reply.code(403).send({ error:{ code:'CSRF_FAILED',message:'Refresh the session before submitting this action.' } });
+      if (!csrfCookie || typeof csrfHeader !== 'string' || !safeEqual(csrfCookie,csrfHeader) || !safeEqual(hashToken(csrfHeader).toString('base64url'),Buffer.from(r.csrf_hash).toString('base64url'))) return reply.code(403).send({ error:{ code:'CSRF_FAILED',message:'Refresh the session before submitting this action.' } });
     }
   });
 
@@ -84,6 +85,7 @@ export function buildApp() {
   app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.timeZone },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
+    if (!ROLE_PERMISSIONS[operator.role].some(permission=>['commerce.sell','catalog.manage','inventory.receive'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b USING(tenant_id,outlet_id,product_id)
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId]);
@@ -91,6 +93,7 @@ export function buildApp() {
   });
   app.get('/api/v1/shifts/current', async request => {
     const s=request.operator!;
+    if (!ROLE_PERMISSIONS[s.role].some(permission=>permission==='shift.open'||permission==='shift.close')) throw new DomainError('FORBIDDEN','Your role cannot view till shifts.',403);
     const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,expected_cash_minor,version,opened_at FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
     const r=result.rows[0]; return { shift:r?{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at}:null };
   });
