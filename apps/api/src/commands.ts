@@ -300,16 +300,18 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
       [randomUUID(), session.tenantId, session.outletId, line.product.id, envelope.commandId, line.quantityText, Number(line.product.cost_price_minor), orderId],
     );
   }
+  let amountRemaining = total;
   for (const raw of tenders) {
     const tender = raw as Record<string, unknown>;
     const amount = asMinor(tender.amountMinor, 'tender.amountMinor');
-    if (amount === 0) continue;
+    if (amount === 0 || amountRemaining === 0) continue;
     if (tender.currency !== currency) throw new DomainError('VALIDATION_FAILED', 'Tender currency must match the tenant currency.');
     await client.query(
       `INSERT INTO commerce.payments(id,tenant_id,outlet_id,order_id,method,amount_minor,currency,status)
        VALUES($1,$2,$3,$4,'CASH',$5,$6,'CONFIRMED')`,
-      [randomUUID(), session.tenantId, session.outletId, orderId, Math.min(amount, total), currency],
+      [randomUUID(), session.tenantId, session.outletId, orderId, Math.min(amount, amountRemaining), currency],
     );
+    amountRemaining -= Math.min(amount, amountRemaining);
   }
   const nextVersion = expectedShift + 1;
   await client.query(
