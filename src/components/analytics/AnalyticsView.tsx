@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { TenantProfile, SaleOrder, ProductItem } from '../../types/erp';
-import { storage, INITIAL_TENANTS } from '../../services/storage';
+import { TenantProfile, ProductItem } from '../../types/erp';
+import { storage } from '../../services/storage';
+import { businessDateKey, formatBusinessDateLabel, shiftBusinessDate } from '../../utils/businessDate';
 import {
   TrendingUp,
   BarChart3,
   Calendar,
-  Building2,
   DollarSign,
   Package,
   Layers,
@@ -26,35 +26,20 @@ type DateRangeFilter = 'today' | 'yesterday' | 'last7' | 'month' | 'all';
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onOpenSales }) => {
   const [dateRange, setDateRange] = useState<DateRangeFilter>('last7');
-  const [selectedTenantFilter, setSelectedTenantFilter] = useState<string>(currentTenant.id);
-
   const orders = storage.getOrders();
   const products = storage.getProducts();
 
-  // Filter orders by Tenant
-  const tenantFilteredOrders = orders.filter(o => {
-    if (selectedTenantFilter === 'all_consolidated') return true;
-    return o.tenantId === selectedTenantFilter;
-  });
-
-  // Filter orders by Date Range
-  const now = new Date();
-  const filteredOrders = tenantFilteredOrders.filter(order => {
-    const orderDate = new Date(order.timestamp);
-    if (dateRange === 'today') {
-      return orderDate.toDateString() === now.toDateString();
-    }
-    if (dateRange === 'yesterday') {
-      const yesterday = new Date(now.getTime() - 86400000);
-      return orderDate.toDateString() === yesterday.toDateString();
-    }
-    if (dateRange === 'last7') {
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
-      return orderDate >= sevenDaysAgo;
-    }
-    if (dateRange === 'month') {
-      return orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
-    }
+  const timeZone = currentTenant.timeZone ?? 'Africa/Nairobi';
+  const todayKey = businessDateKey(new Date(), timeZone);
+  const yesterdayKey = shiftBusinessDate(todayKey, -1);
+  const monthPrefix = todayKey.slice(0, 7);
+  const filteredOrders = orders.filter(order => {
+    if (order.tenantId !== currentTenant.id || order.status === 'refunded') return false;
+    const key = businessDateKey(order.timestamp, timeZone);
+    if (dateRange === 'today') return key === todayKey;
+    if (dateRange === 'yesterday') return key === yesterdayKey;
+    if (dateRange === 'last7') return key >= shiftBusinessDate(todayKey, -6) && key <= todayKey;
+    if (dateRange === 'month') return key.startsWith(monthPrefix);
     return true;
   });
 
@@ -78,7 +63,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
   // Inventory Turnover Rate
   const totalStockValuationCost = products.reduce((acc, p) => acc + p.stockOnHand * p.costPrice, 0);
   // Annualized turnover = (COGS for period / Avg Inventory) * (365 / daysInPeriod)
-  const daysInPeriod = dateRange === 'today' ? 1 : dateRange === 'yesterday' ? 1 : dateRange === 'last7' ? 7 : 30;
+  const daysInPeriod = dateRange === 'today' || dateRange === 'yesterday' ? 1 : dateRange === 'last7' ? 7 : 30;
   const turnoverRatio = totalStockValuationCost > 0
     ? ((totalCogs / totalStockValuationCost) * (365 / daysInPeriod)).toFixed(1)
     : '0.0';
@@ -87,14 +72,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
   const salesByDay: Record<string, { label: string; total: number; orderCount: number }> = {};
   const dayBuckets = 7;
   for (let i = dayBuckets - 1; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 86400000);
-    const key = d.toISOString().slice(0, 10);
-    const label = d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+    const key = shiftBusinessDate(todayKey, -i);
+    const label = formatBusinessDateLabel(key, timeZone);
     salesByDay[key] = { label, total: 0, orderCount: 0 };
   }
 
   filteredOrders.forEach(o => {
-    const key = o.timestamp.slice(0, 10);
+    const key = businessDateKey(o.timestamp, timeZone);
     if (salesByDay[key]) {
       salesByDay[key].total += o.total;
       salesByDay[key].orderCount += 1;
@@ -146,23 +130,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
 
         {/* Global Filters */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Business Unit Selector */}
-          <div className="flex items-center gap-2">
-            <Building2 className="w-3.5 h-3.5 text-zinc-500" />
-            <select
-              value={selectedTenantFilter}
-              onChange={e => setSelectedTenantFilter(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
-            >
-              <option value="all_consolidated">All Business Units (Consolidated)</option>
-              {INITIAL_TENANTS.map(t => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Date Range Selector */}
           <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1 text-xs">
             {[
@@ -175,7 +142,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ currentTenant, onO
               <button
                 key={r.id}
                 onClick={() => setDateRange(r.id as any)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-h-11 ${
                   dateRange === r.id
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
