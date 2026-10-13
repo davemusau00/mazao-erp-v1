@@ -25,12 +25,15 @@ import { FoodServiceWorkspace } from './components/service/FoodServiceWorkspace'
 import { ProcurementWorkspace } from './components/procurement/ProcurementWorkspace';
 import { OnboardingWorkspace } from './components/onboarding/OnboardingWorkspace';
 import { ReservationWorkspace } from './components/hospitality/ReservationWorkspace';
+import { BackendHotelWorkspace } from './components/hospitality/BackendHotelWorkspace';
+import { BackendTodayWorkspace } from './components/home/BackendTodayWorkspace';
 import { StockCountWorkspace } from './components/inventory/StockCountWorkspace';
 import { apiClient } from './services/apiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
   const [activeTenant, setActiveTenant] = useState(storage.getActiveTenant());
+  const [backendSession, setBackendSession] = useState(apiClient.getSession());
   const [tenants] = useState(storage.getTenants());
   const [, setIsOnline] = useState(storage.isOnline());
   const [, setOutboxCount] = useState(storage.getOutboxCount());
@@ -47,6 +50,7 @@ export default function App() {
 
   // Subscribe to reactive storage changes
   useEffect(() => {
+    const unsubscribeBackend = apiClient.subscribe(setBackendSession);
     void apiClient.restore();
     const unsubscribe = storage.subscribe(() => {
       setActiveTenant(storage.getActiveTenant());
@@ -55,6 +59,7 @@ export default function App() {
     });
     return () => {
       unsubscribe();
+      unsubscribeBackend();
     };
   }, []);
 
@@ -83,7 +88,9 @@ export default function App() {
         onOpenSyncCenter={() => setIsSyncCenterOpen(true)}
         onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       >
-        {activeTab === 'today' && <TodayWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}
+        {activeTab === 'today' && (backendSession
+          ? <BackendTodayWorkspace onNavigate={setActiveTab} />
+          : <TodayWorkspace tenant={activeTenant} onNavigate={setActiveTab} />)}
 
         {activeTab === 'sell' && (
           <PointOfSaleView
@@ -100,11 +107,13 @@ export default function App() {
 
         {activeTab === 'service' && <FoodServiceWorkspace />}
 
-        {activeTab === 'hotel' && (
-          <HospitalityView tenant={activeTenant} />
-        )}
+        {activeTab === 'hotel' && (backendSession
+          ? <BackendHotelWorkspace />
+          : <HospitalityView tenant={activeTenant} />)}
 
-        {activeTab === 'reservations' && <ReservationWorkspace tenant={activeTenant} />}
+        {activeTab === 'reservations' && (backendSession
+          ? <BackendHotelWorkspace initialView="reservations" />
+          : <ReservationWorkspace tenant={activeTenant} />)}
 
         {activeTab === 'stock' && (
           <InventoryView tenant={activeTenant} />

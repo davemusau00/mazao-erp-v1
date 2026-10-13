@@ -93,6 +93,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     const load = async () => {
       const session = apiClient.getSession();
       if (!session) { if (alive) { setBackendCatalog(false); setServerShift(null); setProducts(storage.getProducts()); } return; }
+      if (alive) { setBackendCatalog(false); setServerShift(null); setProducts([]); }
       try {
         const [catalog, shift] = await Promise.all([apiClient.listCatalog(), apiClient.getCurrentShift()]);
         if (!alive) return;
@@ -106,7 +107,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
           const stored=recoverable.find(record=>record.command.type==='sales.order.settle');
           if(stored&&alive){pendingCommand.current=stored.command;setUnknownCommandId(stored.command.commandId);const requested=stored.command.payload.lines as Array<{productId:string;quantity:string}>;setCart(requested.flatMap(line=>{const product=serverItems.find(item=>item.id===line.productId);return product?[{product,quantity:Number(line.quantity),unitPrice:product.sellingPrice}]:[]}));setFeedbackNotice('A sale from this device has an unresolved server outcome. Check its command status before starting another sale.')}
         }
-      } catch (error) { if (alive) showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); }
+      } catch (error) { if (alive) { setBackendCatalog(false); setServerShift(null); setProducts([]); showNotice(error instanceof Error ? error.message : 'Server catalog unavailable.'); } }
     };
     void load();
     return apiClient.subscribe(() => { void load(); });
@@ -341,7 +342,11 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     if (cart.length === 0) return;
 
     const backendSession = apiClient.getSession();
-    if (backendSession && backendCatalog) {
+    if (backendSession) {
+      if (!backendCatalog) {
+        showNotice('Server catalog is unavailable. Reconnect or refresh before accepting payment; demo checkout is disabled while signed in.');
+        return;
+      }
       if (paymentMethod !== 'cash') { showNotice('Server checkout currently accepts verified cash tender only. Other tenders are blocked until their providers are connected.'); return; }
       if (!serverShift) { showNotice('Open a server shift before taking a sale.'); return; }
       let tenderMinor:number;

@@ -90,7 +90,7 @@ export function buildApp() {
     const operator=request.operator!;
     if (!ROLE_PERMISSIONS[operator.role].some(permission=>['commerce.sell','catalog.manage','inventory.receive'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,b.quantity,b.version
-      FROM catalog.products p JOIN inventory.balances b USING(tenant_id,outlet_id,product_id)
+      FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId]);
     return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),costPriceMinor:Number(r.cost_price_minor),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
@@ -156,7 +156,9 @@ export function buildApp() {
       if (!inserted.rowCount) {
         const old=await client.query('SELECT request_hash,status,response FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
-        return {status:old.rows[0].status,response:old.rows[0].response};
+        const stored=old.rows[0].response;
+        if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
+        return {status:old.rows[0].status};
       }
       await client.query('SAVEPOINT business_command');
       try {
