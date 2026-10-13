@@ -1,0 +1,2 @@
+# ADR 0002: Modular monolith, TypeScript, PostgreSQL
+**Status:** Accepted. React/TS PWA plus Fastify TS modular monolith and worker; PostgreSQL single shared authority. **Alternatives:** microservices (higher coordination burden), BaaS direct RPC (weak boundary), Go/.NET backend (viable later). **Consequence:** tight boundaries, integration tests, no arbitrary cross-module DB writes. **Trigger to reconsider:** independently measured scaling/deployment constraints.

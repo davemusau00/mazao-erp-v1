@@ -1,0 +1,2 @@
+# ADR 0003: Bounded offline operations
+**Status:** Accepted. Cache and drafts allowed broadly, but financial offline commit only within signed device/operator grants and allocation limits. Durable client command journal and server idempotency. **Rejected:** unlimited multi-device local writes and later last-write-wins merging. **Consequence:** occasional online requirement for contentious/high-risk operations; explicit UX explanation.

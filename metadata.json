@@ -1,0 +1,6 @@
+{
+  "name": "Mazao ERP",
+  "description": "Unified multi-tenant, PWA-first business operating system for retail, hospitality, farm estate, and dining with offline-first synchronization and thermal printing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,2 @@
+# ADR 0001: Independent Mazao ERP greenfield
+**Status:** Accepted. **Decision:** new repo, new databases, domain, secrets, systems, tests and infrastructure; no dependency on SERVEOS source or deployments. Concepts from experience can inform requirements but no code import is assumed. **Why:** remove drift and incompatible historical authority models. **Consequence:** build foundational modules and onboarding from scratch, accept up-front investment. **Revisit if:** explicit separate legal/data migration project is authorized in future.
