@@ -435,15 +435,17 @@ async function createReservation(client:PoolClient,session:ApiSession,envelope:C
   const room=await roomForUpdate(client,session,roomId);if(room.status==='MAINTENANCE')throw new DomainError('ROOM_UNAVAILABLE','Room is unavailable for maintenance.',409);if(Number(room.version)!==expected)throw new DomainError('VERSION_CONFLICT','Room availability changed. Refresh and select a room again.',409,{currentVersion:Number(room.version)});
   await assertRoomAvailable(client,session,roomId,checkIn,checkOut);
   const reservationId=randomUUID();await client.query(`INSERT INTO hospitality.reservations(id,tenant_id,outlet_id,room_id,guest_name,guest_contact,check_in_date,check_out_date,nightly_rate_minor,tax_rate_bps,currency,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9,$10,$11,'CONFIRMED',$12)`,[reservationId,session.tenantId,session.outletId,roomId,guestName.trim(),typeof guestContact==='string'?guestContact.trim()||null:null,checkIn,checkOut,room.nightly_rate_minor,room.tax_rate_bps,room.currency,session.userId]);
-  const result={reservationId,roomId,checkInDate:checkIn,checkOutDate:checkOut,status:'CONFIRMED'};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
+  const bumped=await client.query<{version:string}>('UPDATE hospitality.rooms SET version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND version=$4 RETURNING version',[roomId,session.tenantId,session.outletId,expected]);if(!bumped.rowCount)throw new DomainError('VERSION_CONFLICT','Room availability changed while creating the reservation.',409);
+  const result={reservationId,roomId,roomVersion:Number(bumped.rows[0].version),checkInDate:checkIn,checkOutDate:checkOut,status:'CONFIRMED'};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }
 
 async function cancelReservation(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
   requireCapability(session,'hospitality');requirePermission(session,'hotel.frontdesk');const reservationId=envelope.payload.reservationId;
   if(typeof reservationId!=='string')throw new DomainError('VALIDATION_FAILED','reservationId is required.');const expected=versionFor(envelope,`reservation:${reservationId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected reservation version is required.');
-  const result=await client.query<{version:string}>(`UPDATE hospitality.reservations SET status='CANCELLED',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' AND version=$4 RETURNING version`,[reservationId,session.tenantId,session.outletId,expected]);
+  const result=await client.query<{version:string;room_id:string}>(`UPDATE hospitality.reservations SET status='CANCELLED',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' AND version=$4 RETURNING version,room_id`,[reservationId,session.tenantId,session.outletId,expected]);
   if(!result.rowCount)throw new DomainError('VERSION_CONFLICT','Reservation was changed, cancelled, or checked in already.',409);
-  const value={reservationId,status:'CANCELLED',version:Number(result.rows[0].version)};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
+  const room=await client.query<{version:string}>(`UPDATE hospitality.rooms SET version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 RETURNING version`,[result.rows[0].room_id,session.tenantId,session.outletId]);
+  const value={reservationId,status:'CANCELLED',version:Number(result.rows[0].version),roomVersion:Number(room.rows[0].version)};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
 }
 
 async function checkInGuest(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){

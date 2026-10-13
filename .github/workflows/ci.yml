@@ -12,12 +12,34 @@ jobs:
   typecheck-and-build:
     name: TypeScript and production build
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test
+      APP_ORIGINS: http://localhost:3000
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mazao_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mazao_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      - name: Apply fresh database migrations
+        run: bun run db:migrate
+      - name: Verify migration rerun is checksum-safe
+        run: bun run db:migrate
       - run: bun run typecheck
       - run: bun run test:api
       - run: bun run build

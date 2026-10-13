@@ -831,6 +831,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
             <button
               onClick={handleFinalizeSale}
               disabled={
+                (apiClient.getSession() !== null && (!backendCatalog || !serverShift || !!unknownCommandId || paymentMethod !== 'cash')) ||
                 (paymentMethod === 'cash' && tenderedNum < total) ||
                 (paymentMethod === 'room_folio' && occupiedRooms.length === 0) ||
                 (paymentMethod === 'customer_credit' &&
