@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Building2, ChefHat, ChevronDown, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, UserPlus, Users, Wifi, WifiOff, Wrench, X, CalendarDays } from 'lucide-react';
 import { TenantProfile, Permission, ROLE_PERMISSIONS } from '../../types/erp';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
@@ -47,8 +47,11 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, activeTenant, tenants, onTenantChange, onOpenSyncCenter, onOpenDiagnostics, children }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [operatorOpen, setOperatorOpen] = useState(false);
+  const [, setStorageRevision] = useState(0);
+  useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
   const isOnline = storage.isOnline();
   const pendingOutbox = storage.getOutboxCount();
+  const persistenceError = storage.getPersistenceError();
   const staffUsers = storage.getStaffUsers();
   const activeStaff = storage.getActiveStaff();
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -115,7 +118,10 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
           {storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}
         </div>
       </header>
-      <main className="workspace-content" id="main-content" tabIndex={-1}>{children}</main>
+      <main className="workspace-content" id="main-content" tabIndex={-1}>
+        {persistenceError && <div role="alert" className="persistence-error-banner"><strong>Local save failed.</strong> {persistenceError}</div>}
+        <div className="workspace-interaction-boundary" inert={persistenceError ? true : undefined}>{children}</div>
+      </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
         {(['today', 'sell', 'stock'] as WorkspaceId[]).map(id => {
           const item = workspaceItems.find(entry => entry.id === id)!;

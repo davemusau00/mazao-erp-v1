@@ -515,6 +515,7 @@ class StorageEngine {
   private customers: CustomerAccount[] = INITIAL_CUSTOMERS;
   private customerTransactions: CustomerTransaction[] = INITIAL_CUSTOMER_TX;
   private listeners: Set<() => void> = new Set();
+  private persistenceError: string | null = null;
 
   constructor() {
     this.init();
@@ -595,6 +596,7 @@ class StorageEngine {
   }
 
   private persist() {
+    if (this.persistenceError) throw new Error(this.persistenceError);
     try {
       localStorage.setItem('mazao_active_tenant', this.tenantId);
       localStorage.setItem('mazao_sim_online', String(this.isSimulatedOnline));
@@ -618,7 +620,9 @@ class StorageEngine {
       localStorage.setItem('mazao_shift_audit', JSON.stringify(this.auditLogs));
       localStorage.setItem('mazao_sync_conflicts', JSON.stringify(this.conflicts));
     } catch (error) {
-      throw new Error('Local demo data could not be persisted. The requested change may not be durable; stop and reload only after checking browser storage.', { cause: error });
+      this.persistenceError = 'Local demo data could not be persisted. Changes may not be durable; stop operating and check browser storage.';
+      this.notify();
+      throw new Error(this.persistenceError, { cause: error });
     }
     this.notify();
   }
@@ -628,6 +632,10 @@ class StorageEngine {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  public getPersistenceError(): string | null {
+    return this.persistenceError;
   }
 
   private notify() {
