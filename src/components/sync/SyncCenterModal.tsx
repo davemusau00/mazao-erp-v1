@@ -4,7 +4,6 @@ import { SyncConflict } from '../../types/erp';
 import {
   Wifi,
   WifiOff,
-  RefreshCw,
   X,
   Database,
   ArrowRight,
@@ -36,16 +35,6 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
 
   const handleToggleOnline = () => {
     storage.toggleNetworkSimulation();
-    setTick(t => t + 1);
-  };
-
-  const handleManualFlush = () => {
-    storage.flushOutboxQueue();
-    setTick(t => t + 1);
-  };
-
-  const handleClearSynced = () => {
-    storage.clearSyncedOutbox();
     setTick(t => t + 1);
   };
 
@@ -118,6 +107,9 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
 
         {/* Modal Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div role="status" className="rounded-lg border border-amber-800/70 bg-amber-950/40 p-3 text-xs text-amber-100">
+            This is a local network simulator. No server transport or acknowledgement service is configured; queue items remain local and are never confirmed as synchronized here.
+          </div>
           {/* TAB 1: OUTBOX QUEUE */}
           {activeTab === 'queue' && (
             <div className="space-y-6">
@@ -128,11 +120,11 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                   <div className="flex items-center gap-2">
                     <span className={`inline-block w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                     <span className="text-sm font-semibold text-zinc-100">
-                      {isOnline ? 'Authoritative Online' : 'Offline / Isolated'}
+                      {isOnline ? 'Demo connected' : 'Demo disconnected'}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500 mt-2">
-                    {isOnline ? 'Direct synchrony to central PostgreSQL' : 'Operating on durable IndexedDB queue'}
+                    {isOnline ? 'This toggle changes only the local preview state.' : 'Local preview mode; durability is limited to browser storage.'}
                   </p>
                 </div>
 
@@ -142,7 +134,7 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                     {pendingCount}
                   </div>
                   <p className="text-[11px] text-zinc-500 mt-2">
-                    {pendingCount > 0 ? 'Awaiting reconnection flush' : 'All transactions reconciled'}
+                    {pendingCount > 0 ? 'No remote acknowledgement received' : 'No pending local items'}
                   </p>
                 </div>
 
@@ -152,7 +144,7 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                     Deterministic Idempotency
                   </div>
                   <p className="text-[11px] text-zinc-500 mt-2">
-                    Monotonic UUID keys prevent double billing
+                    Preview identifiers only; server idempotency is not implemented
                   </p>
                 </div>
               </div>
@@ -160,9 +152,9 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
               {/* Network Toggle Simulator */}
               <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-zinc-950/60 border border-zinc-850 rounded-lg">
                 <div className="space-y-0.5">
-                  <div className="text-xs font-semibold text-zinc-200">Simulate Network Failure Condition</div>
+                  <div className="text-xs font-semibold text-zinc-200">Preview network indicator</div>
                   <div className="text-xs text-zinc-400">
-                    Toggle connection drop to test cashiering, local queueing, and automatic replay upon reconnection.
+                    Toggle the local online/offline label. This does not simulate server delivery or replay.
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -177,23 +169,24 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                     {isOnline ? (
                       <>
                         <WifiOff className="w-3.5 h-3.5" />
-                        Drop WAN (Go Offline)
+                        Set demo offline
                       </>
                     ) : (
                       <>
                         <Wifi className="w-3.5 h-3.5" />
-                        Restore WAN (Go Online)
+                        Set demo online
                       </>
                     )}
                   </button>
 
                   {isOnline && pendingCount > 0 && (
                     <button
-                      onClick={handleManualFlush}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+                      type="button"
+                      disabled
+                      title="No authenticated server transport is configured"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-500 bg-zinc-900 border border-zinc-800 rounded-lg cursor-not-allowed"
                     >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Sync Outbox Now
+                      No server sync configured
                     </button>
                   )}
                 </div>
@@ -205,14 +198,6 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                     Outbox Journal ({queue.length} events)
                   </h4>
-                  {queue.some(q => q.status === 'synced') && (
-                    <button
-                      onClick={handleClearSynced}
-                      className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      Clear Reconciled Records
-                    </button>
-                  )}
                 </div>
 
                 <div className="border border-zinc-800 rounded-lg bg-zinc-950 overflow-hidden max-h-56 overflow-y-auto">
@@ -228,10 +213,10 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                           <div className="flex items-center gap-3">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-medium uppercase ${
                               item.status === 'synced'
-                                ? 'bg-emerald-950 text-emerald-400 border border-emerald-900'
+                                ? 'bg-zinc-900 text-zinc-400 border border-zinc-700'
                                 : 'bg-amber-950 text-amber-400 border border-amber-900'
                             }`}>
-                              {item.status}
+                              {item.status === 'synced' ? 'legacy demo label' : 'local only'}
                             </span>
                             <div>
                               <span className="font-semibold text-zinc-200 uppercase">{item.entityType}</span>
@@ -242,7 +227,7 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({ isOpen, onClos
                             <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
                             <ArrowRight className="w-3.5 h-3.5 text-zinc-600" />
                             <span className="text-zinc-300 font-sans">
-                              {item.entityType === 'sale' ? `Order #${item.payload.orderNumber}` :
+                              {item.entityType === 'sale' ? `${item.payload.type === 'refund' ? 'Refund for' : 'Order'} #${item.payload.orderNumber ?? item.payload.orderId ?? 'local record'}` :
                                item.entityType === 'room_folio' ? 'Folio Charge' :
                                item.entityType === 'stock' ? `Stock Adjustment` : 'Shift Update'}
                             </span>

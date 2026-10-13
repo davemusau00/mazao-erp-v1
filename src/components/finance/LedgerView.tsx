@@ -5,7 +5,7 @@ import {
   Scale,
   Download,
   Filter,
-  CheckCircle2,
+  AlertTriangle,
   DollarSign,
   TrendingUp,
   Landmark,
@@ -21,6 +21,10 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   const categories = ['all', ...Array.from(new Set(entries.map(e => e.category)))];
+  const accountDisplay = (account: string, alternate?: string) => {
+    const value = accountTotals[account] ?? (alternate ? accountTotals[alternate] : undefined);
+    return value === undefined ? 'No source data' : `${tenant.currencySymbol} ${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   const filteredEntries = entries.filter(e => {
     if (categoryFilter === 'all') return true;
@@ -59,17 +63,17 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
         <div>
           <div className="flex items-center gap-2">
             <Scale className="w-5 h-5 text-blue-400" />
-            <h2 className="text-base font-bold text-zinc-100">Double-Entry Financial Ledger</h2>
+            <h2 className="text-base font-bold text-zinc-100">Ledger Preview</h2>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
-            Authoritative source of financial truth reconciling POS cashiering, room folios, and inventory
+            Browser-local sample entries. No accounting authority or trial balance validation is connected.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-emerald-400 text-xs font-mono">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>Trial Balance Verified</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-950/50 border border-amber-800/50 text-amber-200 text-xs font-mono">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>Not reconciled</span>
           </div>
 
           <button
@@ -90,7 +94,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
             <Landmark className="w-3.5 h-3.5 text-blue-400" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-zinc-100 tabular-nums truncate">
-            {tenant.currencySymbol} {Math.max(0, accountTotals['Operating Bank Account'] || 315000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {accountDisplay('Operating Bank Account')}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Liquid operational balance</div>
         </div>
@@ -101,7 +105,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
             <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-emerald-400 tabular-nums truncate">
-            {tenant.currencySymbol} {Math.max(0, accountTotals['Cash in Till (Drawer)'] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {accountDisplay('Cash in Till (Drawer)')}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Cashier drawer holdings</div>
         </div>
@@ -112,7 +116,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
             <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-amber-400 tabular-nums truncate">
-            {tenant.currencySymbol} {Math.max(0, accountTotals['Accounts Receivable - Guest Ledger'] || accountTotals['Accounts Receivable - Guest Folios'] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {accountDisplay('Accounts Receivable - Guest Ledger', 'Accounts Receivable - Guest Folios')}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Unsettled guest balances</div>
         </div>
@@ -123,7 +127,7 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ tenant }) => {
             <Scale className="w-3.5 h-3.5 text-purple-400" />
           </div>
           <div className="text-lg sm:text-xl font-bold font-mono text-purple-400 tabular-nums truncate">
-            {tenant.currencySymbol} {Math.max(0, Math.abs(accountTotals['VAT Payable'] || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {accountDisplay('VAT Payable')}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 mt-1">Statutory tax liability</div>
         </div>

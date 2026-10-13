@@ -6,6 +6,16 @@ This review records the current local-preview UI against the v1 workflows in the
 
 The repository contains a React/Vite PWA and a browser-local `StorageEngine` backed by `localStorage`. It has no authenticated HTTP API, shared database, server authorization, durable command status endpoint, or production provider integration. `src/types/ui.ts` defines intended application-service contracts, but no implementation is connected. The existing offline switch and sync queue are simulations. Local success therefore means only that the preview updated browser state.
 
+## Review findings addressed in the UI continuation
+
+- Confirmed the decimal utility exists at `src/utils/decimal.ts`; all advertised routes are rendered from `App.tsx`, and `ManageWorkspace` receives its navigation callback. The reported routing/build defect does not reproduce in this checkout.
+- Folio checkout now requires entered settlement at least equal to the current local balance; zero tender cannot clear a nonzero guest balance. It remains a local preview and does not support approved remaining balances or provider confirmation.
+- Local network reconnect no longer marks outbox items as synchronized. New local changes remain pending, old browser records labelled synced are downgraded to pending on load, and the UI identifies the simulator and browser-local scope.
+- Browser storage write errors now throw and surface through the checkout/refund error path where handled. Since multi-key localStorage writes are not atomic and many legacy handlers are not yet adapted to unknown outcomes, this is not durable financial storage.
+- Full refund now rejects repeat attempts and missing reasons, creates separate revenue and VAT reversal entries, and queues a local refund record. This does not submit a provider refund or guarantee production journal integrity.
+- The ledger no longer claims trial-balance verification or injects a fabricated operating-bank fallback; absent accounts show no source data.
+- Receipt and Today status copy no longer presents local records as server-confirmed or synchronized.
+
 ## Role journey map
 
 | Role | Documented journey | Current UI coverage | Blocking gaps before operational use |

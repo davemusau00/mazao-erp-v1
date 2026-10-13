@@ -1,6 +1,6 @@
 /**
  * Mazao ERP Authoritative Storage & Offline Synchronization Engine
- * Local-First architecture using IndexedDB / LocalStorage with Outbox Queue,
+ * Browser-local demo storage using localStorage with a simulated outbox,
  * Granular Audit Logging, Role-Based Access Control, and Conflict Resolution.
  */
 
@@ -546,7 +546,9 @@ class StorageEngine {
     this.rooms = savedRooms ? JSON.parse(savedRooms) : INITIAL_ROOMS;
 
     const savedOrders = localStorage.getItem('mazao_orders');
-    this.orders = savedOrders ? JSON.parse(savedOrders) : this.seedInitialOrders();
+    this.orders = savedOrders
+      ? (JSON.parse(savedOrders) as SaleOrder[]).map(order => ({ ...order, syncStatus: 'pending_outbox' }))
+      : this.seedInitialOrders().map(order => ({ ...order, syncStatus: 'pending_outbox' }));
 
     const savedActiveShift = localStorage.getItem('mazao_active_shift');
     if (savedActiveShift) {
@@ -578,7 +580,9 @@ class StorageEngine {
     this.ledgerEntries = savedLedger ? JSON.parse(savedLedger) : this.seedInitialLedger();
 
     const savedOutbox = localStorage.getItem('mazao_outbox');
-    this.outboxQueue = savedOutbox ? JSON.parse(savedOutbox) : [];
+    this.outboxQueue = savedOutbox
+      ? (JSON.parse(savedOutbox) as OutboxItem[]).map(item => item.status === 'synced' ? { ...item, status: 'pending' } : item)
+      : [];
 
     const savedStaffId = localStorage.getItem('mazao_active_staff_id');
     if (savedStaffId) this.activeStaffId = savedStaffId;
@@ -613,8 +617,8 @@ class StorageEngine {
       localStorage.setItem('mazao_active_staff_id', this.activeStaffId);
       localStorage.setItem('mazao_shift_audit', JSON.stringify(this.auditLogs));
       localStorage.setItem('mazao_sync_conflicts', JSON.stringify(this.conflicts));
-    } catch {
-      // storage quota fallback
+    } catch (error) {
+      throw new Error('Local demo data could not be persisted. The requested change may not be durable; stop and reload only after checking browser storage.', { cause: error });
     }
     this.notify();
   }
@@ -998,26 +1002,14 @@ class StorageEngine {
   }
 
   public flushOutboxQueue(): void {
-    if (!this.isSimulatedOnline) return;
-
-    this.outboxQueue = this.outboxQueue.map(item => {
-      if (item.status === 'pending') {
-        return { ...item, status: 'synced', attempts: item.attempts + 1 };
-      }
-      return item;
-    });
-
-    this.orders = this.orders.map(o => ({
-      ...o,
-      syncStatus: 'synced',
-    }));
-
-    this.persist();
+    // There is no server transport in this preview. Keep local items pending;
+    // connectivity simulation must never be presented as server acknowledgement.
+    this.notify();
   }
 
   public clearSyncedOutbox(): void {
-    this.outboxQueue = this.outboxQueue.filter(item => item.status === 'pending');
-    this.persist();
+    // A local preview cannot verify that any queued item was remotely acknowledged.
+    throw new Error('Outbox records cannot be cleared: no server acknowledgement service is configured.');
   }
 
   // --- Products & Inventory ---
@@ -1051,7 +1043,7 @@ class StorageEngine {
       payload: movement,
       createdAt: new Date().toISOString(),
       attempts: 0,
-      status: this.isSimulatedOnline ? 'synced' : 'pending',
+      status: 'pending',
     });
 
     this.persist();
@@ -1107,7 +1099,7 @@ class StorageEngine {
       payload: { roomId, guestName, nights, charge: roomCharge },
       createdAt: new Date().toISOString(),
       attempts: 0,
-      status: this.isSimulatedOnline ? 'synced' : 'pending',
+      status: 'pending',
     });
 
     this.persist();
@@ -1131,7 +1123,7 @@ class StorageEngine {
       payload: { roomId, charge: fullCharge },
       createdAt: new Date().toISOString(),
       attempts: 0,
-      status: this.isSimulatedOnline ? 'synced' : 'pending',
+      status: 'pending',
     });
 
     this.persist();
@@ -1145,9 +1137,13 @@ class StorageEngine {
   ): { room: Room; charges: FolioCharge[]; changeDue: number; totalPaid: number } {
     const rm = this.rooms.find(r => r.id === roomId);
     if (!rm) throw new Error('Room not found');
+    if (rm.status !== 'occupied') throw new Error('Only an occupied room can be checked out.');
 
     const finalizedCharges = [...rm.folioCharges];
     const totalDue = finalizedCharges.reduce((acc, c) => acc + c.amount, 0);
+    if (!Number.isFinite(amountTendered) || amountTendered < totalDue) {
+      throw new Error(`Settlement is incomplete. Outstanding balance: ${Math.max(0, totalDue - amountTendered).toFixed(2)}.`);
+    }
     const changeDue = Math.max(0, amountTendered - totalDue);
 
     if (totalDue > 0) {
@@ -1192,11 +1188,6 @@ class StorageEngine {
     return { room: rm, charges: finalizedCharges, changeDue, totalPaid: totalDue };
   }
 
-  public checkOutGuest(roomId: string): FolioCharge[] {
-    const result = this.settleRoomFolio(roomId, 'cash', 0);
-    return result.charges;
-  }
-
   public updateRoomHousekeeping(roomId: string, status: Room['status']): void {
     const rm = this.rooms.find(r => r.id === roomId);
     if (rm) {
@@ -1217,20 +1208,8 @@ class StorageEngine {
   public refundOrder(orderId: string, reason: string, refundMethod: PaymentMethod): SaleOrder {
     const order = this.orders.find(o => o.id === orderId);
     if (!order) throw new Error('Order not found');
-
-    order.status = 'refunded';
-    order.refundReason = reason;
-    order.refundTimestamp = new Date().toISOString();
-
-    // Restock items
-    for (const item of order.items) {
-      this.adjustStock(
-        item.product.id,
-        item.quantity,
-        'adjustment',
-        `Return/Refund on #${order.orderNumber}: ${reason}`
-      );
-    }
+    if (order.status === 'refunded') throw new Error(`Order ${order.orderNumber} has already been refunded.`);
+    if (!reason.trim()) throw new Error('A refund reason is required.');
 
     // Ledger reversal
     const creditAccount =
@@ -1246,14 +1225,41 @@ class StorageEngine {
       'Returns',
       'Sales Revenue Reversal',
       creditAccount,
-      order.total
+      order.subtotal
     );
+    if (order.tax > 0) {
+      this.recordLedgerEntry(
+        `REFUND-VAT-${order.orderNumber}`,
+        `VAT reversal for refund #${order.orderNumber}`,
+        'Taxation',
+        'VAT Payable',
+        creditAccount,
+        order.tax
+      );
+    }
+
+    // Keep an explicit refund movement after all ledger validations succeed.
+    for (const item of order.items) {
+      this.adjustStock(item.product.id, item.quantity, 'adjustment', `Return/Refund on #${order.orderNumber}: ${reason}`);
+    }
+    order.status = 'refunded';
+    order.refundReason = reason;
+    order.refundTimestamp = new Date().toISOString();
 
     this.recordAuditLog({
       action: 'void_line_item',
       details: `Full order refund executed for #${order.orderNumber}: ${order.total} (${reason}) via ${refundMethod}`,
       amount: order.total,
       flagSeverity: 'warning',
+    });
+
+    this.outboxQueue.unshift({
+      id: `outbox-refund-${order.id}`,
+      entityType: 'sale',
+      payload: { type: 'refund', orderId: order.id, reason, refundMethod, amount: order.total },
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+      status: 'pending',
     });
 
     this.persist();
@@ -1268,7 +1274,7 @@ class StorageEngine {
       id: 'ord-' + Date.now(),
       idempotencyKey,
       timestamp: now.toISOString(),
-      syncStatus: this.isSimulatedOnline ? 'synced' : 'pending_outbox',
+      syncStatus: 'pending_outbox',
       printed: false,
       status: 'completed',
     };
@@ -1354,7 +1360,7 @@ class StorageEngine {
       payload: order,
       createdAt: now.toISOString(),
       attempts: 0,
-      status: this.isSimulatedOnline ? 'synced' : 'pending',
+      status: 'pending',
     });
 
     this.persist();
@@ -1565,7 +1571,7 @@ class StorageEngine {
       payload: closedShift,
       createdAt: new Date().toISOString(),
       attempts: 0,
-      status: this.isSimulatedOnline ? 'synced' : 'pending',
+      status: 'pending',
     });
 
     this.persist();
@@ -1668,7 +1674,7 @@ class StorageEngine {
           amountTendered: total,
           changeDue: 0,
           timestamp: new Date(now - day.daysAgo * 86400000 - i * 3600000).toISOString(),
-          syncStatus: 'synced',
+          syncStatus: 'pending_outbox',
           printed: true,
         });
       }

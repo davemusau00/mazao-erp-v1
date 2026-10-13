@@ -89,8 +89,8 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
       showToast(`Order #${refundOrderTarget.orderNumber} successfully refunded & inventory restored.`);
       setRefundOrderTarget(null);
       refreshData();
-    } catch {
-      showToast('Failed to process refund.');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Refund was not completed. Check the local record before retrying.');
     }
   };
 
@@ -482,7 +482,7 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
       >
         <form id="refund-form" onSubmit={handleConfirmRefund} className="space-y-4">
           <div className="p-3.5 rounded-lg bg-rose-950/40 border border-rose-900/60 text-xs text-rose-300 leading-relaxed">
-            Executing this refund will immediately reverse the sales revenue in the General Ledger, restock the {refundOrderTarget?.items.length} item line(s) back into active catalogue inventory, and log a supervisor audit trail entry.
+            Local preview only: this records a full refund, separates the revenue and VAT reversals, restores stock, and adds a local audit entry. It is not an authoritative payment refund.
           </div>
 
           <div className="space-y-1">

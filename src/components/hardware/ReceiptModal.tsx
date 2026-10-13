@@ -186,7 +186,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ order, tenant, onClo
             {/* Offline sync note if needed */}
             {order.syncStatus === 'pending_outbox' && (
               <div className="mt-2 p-1 bg-amber-100 border border-amber-300 rounded text-amber-900 text-[9px] text-center font-sans font-medium">
-                Offline Transaction · Saved in Local Outbox
+                Local preview record · not server-confirmed
               </div>
             )}
           </div>

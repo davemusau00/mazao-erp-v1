@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Room, RoomStatus, TenantProfile, FolioCharge } from '../../types/erp';
+import { Room, RoomStatus, TenantProfile, FolioCharge, PaymentMethod } from '../../types/erp';
 import { storage } from '../../services/storage';
 import {
   Hotel,
@@ -38,6 +38,9 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
   const [chargeDescription, setChargeDescription] = useState('');
   const [chargeAmount, setChargeAmount] = useState('');
   const [chargeCategory, setChargeCategory] = useState<FolioCharge['category']>('dining');
+  const [settlementAmount, setSettlementAmount] = useState('');
+  const [settlementMethod, setSettlementMethod] = useState<PaymentMethod>('cash');
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Checkout invoice preview state
   const [checkoutSlip, setCheckoutSlip] = useState<{ room: Room; charges: FolioCharge[]; total: number } | null>(null);
@@ -106,10 +109,21 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
   const handleCheckout = (room: Room) => {
     if (!canCheckout) return;
     const total = room.folioCharges.reduce((acc, c) => acc + c.amount, 0);
-    const charges = storage.checkOutGuest(room.id);
-    setCheckoutSlip({ room, charges, total });
-    setSelectedRoom(null);
-    refreshRooms();
+    const tendered = settlementAmount.trim() ? Number(settlementAmount) : 0;
+    if (!Number.isFinite(tendered) || tendered < total) {
+      setCheckoutError(`Enter at least ${tenant.currencySymbol} ${total.toFixed(2)} received before checkout.`);
+      return;
+    }
+    try {
+      const result = storage.settleRoomFolio(room.id, settlementMethod, Number.isFinite(tendered) ? tendered : 0);
+      setCheckoutSlip({ room, charges: result.charges, total: result.totalPaid });
+      setSelectedRoom(null);
+      setSettlementAmount('');
+      setCheckoutError(null);
+      refreshRooms();
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : 'Checkout could not be completed.');
+    }
   };
 
   // Quick Housekeeping status toggle
@@ -502,6 +516,20 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                   ${selectedRoom.folioCharges.reduce((a, b) => a + b.amount, 0).toFixed(2)}
                 </span>
               </div>
+              {canCheckout && <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+                <p className="text-xs text-amber-200">Local demo checkout requires full payment. This does not verify a provider payment or create a production guest settlement.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block text-xs text-zinc-300">Amount received ({tenant.currency})<input aria-label="Amount received" type="number" min="0" step="0.01" inputMode="decimal" value={settlementAmount} onChange={event => { setSettlementAmount(event.target.value); setCheckoutError(null); }} className="mt-1 w-full min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-3 font-mono text-zinc-100" placeholder="Enter amount received" /></label>
+                  <label className="block text-xs text-zinc-300">Method<select value={settlementMethod} onChange={event => setSettlementMethod(event.target.value as PaymentMethod)} className="mt-1 w-full min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-zinc-100"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
+                </div>
+                {checkoutError && <p className="text-xs text-rose-300" role="alert">{checkoutError}</p>}
+              </div>}
+              {canCheckout && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+                <label className="block text-xs text-zinc-300">Payment received ({tenant.currency})<input aria-label="Payment received" type="number" min="0" step="0.01" inputMode="decimal" value={settlementAmount} onChange={event => { setSettlementAmount(event.target.value); setCheckoutError(null); }} className="mt-1 w-full min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-3 font-mono text-zinc-100" placeholder="Enter amount received" /></label>
+                <label className="block text-xs text-zinc-300">Payment method<select value={settlementMethod} onChange={event => setSettlementMethod(event.target.value as PaymentMethod)} className="mt-1 w-full min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-zinc-100"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile_money">Mobile money</option></select></label>
+                <p className="sm:col-span-2 text-xs text-amber-200">Local demo only: enter the amount actually received. Guest balance approval and provider confirmation are not supported.</p>
+                {checkoutError && <p className="sm:col-span-2 text-xs text-rose-300" role="alert">{checkoutError}</p>}
+              </div>}
             </div>
 
             {/* Footer Actions */}
@@ -518,7 +546,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-sm transition-all"
               >
                 <CreditCard className="w-4 h-4" />
-                <span>Settle Folio & Check Out</span>
+                <span>Record demo payment & check out</span>
               </button>}
             </div>
           </div>
@@ -531,7 +559,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div>
-                <h3 className="text-sm font-semibold text-zinc-100">Folio Settled & Room Checked Out</h3>
+                <h3 className="text-sm font-semibold text-zinc-100">Local folio preview completed</h3>
                 <p className="text-xs text-zinc-400 font-mono">Room {checkoutSlip.room.number} marked Vacant Dirty for housekeeping</p>
               </div>
               <button onClick={() => setCheckoutSlip(null)} className="p-1 text-zinc-400">
@@ -553,7 +581,7 @@ export const HospitalityView: React.FC<HospitalityViewProps> = ({ tenant }) => {
                 </div>
               ))}
               <div className="border-t border-zinc-800 pt-1 flex justify-between font-bold text-sm">
-                <span>TOTAL SETTLED:</span>
+                <span>TOTAL FOLIO CHARGES:</span>
                 <span className="tabular-nums">${checkoutSlip.total.toFixed(2)}</span>
               </div>
             </div>
