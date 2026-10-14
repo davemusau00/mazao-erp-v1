@@ -36,9 +36,10 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       outlet_time_zone_snapshot: string; currency: string; created_at: Date; operator_name: string;
       subtotal_minor: string; tax_minor: string; total_minor: string; status: string;
       cash_tendered_minor: string | null; change_minor: string | null;
+      customer_account_id: string | null; customer_name_snapshot: string | null; customer_amount_due_minor: string;
     }>(`SELECT o.id,o.receipt_number,o.tenant_name_snapshot,o.outlet_name_snapshot,o.outlet_time_zone_snapshot,
         o.currency,o.created_at,o.subtotal_minor::text,o.tax_minor::text,o.total_minor::text,o.status,
-        o.cash_tendered_minor::text,o.change_minor::text,u.full_name operator_name
+        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,u.full_name operator_name
       FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
       WHERE o.id=$1 AND o.tenant_id=$2 AND o.outlet_id=$3`, [orderIdValue, session.tenantId, session.outletId]);
     if (!orderResult.rowCount) throw new DomainError('NOT_FOUND', 'Sale receipt was not found for this outlet.', 404);
@@ -58,11 +59,12 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
     const subtotal = BigInt(order.subtotal_minor);
     const tax = BigInt(order.tax_minor);
     const total = BigInt(order.total_minor);
+    const amountDue = BigInt(order.customer_amount_due_minor);
     const lineSubtotal = lineResult.rows.reduce((sum, line) => sum + BigInt(line.line_subtotal_minor), 0n);
     const lineTax = lineResult.rows.reduce((sum, line) => sum + BigInt(line.line_tax_minor), 0n);
     const paid = paymentResult.rows.reduce((sum, payment) => sum + BigInt(payment.amount_minor), 0n);
-    if (lineSubtotal !== subtotal || lineTax !== tax || subtotal + tax !== total || paid !== total) {
-      throw new DomainError('RECEIPT_INTEGRITY_FAILED', 'Stored sale lines or payment evidence do not reconcile to the confirmed order.', 500);
+    if (lineSubtotal !== subtotal || lineTax !== tax || subtotal + tax !== total || paid + amountDue !== total || (amountDue > 0n) !== (order.customer_account_id !== null) || ((order.customer_account_id === null) !== (order.customer_name_snapshot === null))) {
+      throw new DomainError('RECEIPT_INTEGRITY_FAILED', 'Stored sale lines, payment or customer charge evidence do not reconcile to the confirmed order.', 500);
     }
     if ((order.cash_tendered_minor === null) !== (order.change_minor === null)) {
       throw new DomainError('RECEIPT_INTEGRITY_FAILED', 'Stored cash tender evidence is incomplete.', 500);
@@ -96,6 +98,11 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       taxMinor: order.tax_minor,
       totalMinor: order.total_minor,
       amountPaidMinor: paid.toString(),
+      customerAccountCharge: order.customer_account_id ? {
+        customerId: order.customer_account_id,
+        customerName: order.customer_name_snapshot,
+        amountDueMinor: amountDue.toString(),
+      } : null,
       cashTenderedMinor: order.cash_tendered_minor,
       changeMinor: order.change_minor,
     };

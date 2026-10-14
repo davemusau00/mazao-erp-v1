@@ -26,14 +26,20 @@ export function parseMoneyToMinor(value: string, currency: string): number | nul
 }
 
 export function formatMinorMoney(amountMinor: number, currency: string, locale?: string): string {
+  return formatMinorMoneyText(BigInt(Math.trunc(amountMinor)), currency, locale);
+}
+
+/** Format a decimal-safe integer minor-unit value that arrived as a string or bigint. */
+export function formatMinorMoneyText(amountMinor: string | bigint, currency: string, locale?: string): string {
   const digits = currencyMinorDigits(currency, locale);
-  const amount = BigInt(Math.trunc(amountMinor));
+  const amount = typeof amountMinor === 'bigint' ? amountMinor : BigInt(amountMinor);
   const scale = 10n ** BigInt(digits);
-  const whole = amount / scale;
-  const fraction = (amount % scale).toString().padStart(digits, '0');
-  const numeric = digits ? `${whole}.${fraction}` : whole.toString();
-  const [integer, decimal] = numeric.split('.');
-  const grouped = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Number(integer));
+  const absolute = amount < 0n ? -amount : amount;
+  const whole = absolute / scale;
+  const fraction = (absolute % scale).toString().padStart(digits, '0');
+  const grouped = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(whole);
   const symbol = new Intl.NumberFormat(locale, { style: 'currency', currency }).formatToParts(0).find(part => part.type === 'currency')?.value ?? currency;
-  return digits ? `${symbol}\u00a0${grouped}${new Intl.NumberFormat(locale).formatToParts(1.1).find(part => part.type === 'decimal')?.value ?? '.'}${decimal}` : `${symbol}\u00a0${grouped}`;
+  const sign = amount < 0n ? '-' : '';
+  const decimal = new Intl.NumberFormat(locale).formatToParts(1.1).find(part => part.type === 'decimal')?.value ?? '.';
+  return digits ? `${sign}${symbol}\u00a0${grouped}${decimal}${fraction}` : `${sign}${symbol}\u00a0${grouped}`;
 }

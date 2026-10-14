@@ -122,6 +122,9 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'shift.close': return closeShift(client, session, envelope);
     case 'sales.order.settle': return settleSale(client, session, envelope);
     case 'sales.order.refund': return refundSale(client, session, envelope);
+    case 'customers.account.create': return createCustomerAccount(client, session, envelope);
+    case 'customers.account.update': return updateCustomerAccount(client, session, envelope);
+    case 'customers.repayment': return recordCustomerRepayment(client, session, envelope);
     case 'hotel.room.create': return createHotelRoom(client,session,envelope);
     case 'hotel.reservation.create': return createReservation(client,session,envelope);
     case 'hotel.reservation.cancel': return cancelReservation(client,session,envelope);
@@ -130,6 +133,117 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'hotel.room.mark_ready': return markRoomReady(client,session,envelope);
     default: throw new DomainError('VALIDATION_FAILED', `Unsupported command type: ${envelope.type}`);
   }
+}
+
+async function createCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'customers.manage');
+  const name = envelope.payload.name;
+  const phone = envelope.payload.phone;
+  const email = envelope.payload.email;
+  const creditLimitMinor = asMinor(envelope.payload.creditLimitMinor, 'creditLimitMinor');
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 160) throw new DomainError('VALIDATION_FAILED', 'Customer name is required and must be 160 characters or fewer.');
+  if (typeof phone !== 'string' || phone.trim().length < 3 || phone.trim().length > 40) throw new DomainError('VALIDATION_FAILED', 'A customer phone number of 3 to 40 characters is required.');
+  if (email !== undefined && email !== null && (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new DomainError('VALIDATION_FAILED', 'Customer email is invalid.');
+  const id = randomUUID();
+  await client.query(`INSERT INTO finance.customer_accounts(id,tenant_id,display_name,phone,email,credit_limit_minor)
+    VALUES($1,$2,$3,$4,$5,$6)`, [id, session.tenantId, name.trim(), phone.trim(), typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null, creditLimitMinor]);
+  const result = { customerId: id, name: name.trim(), phone: phone.trim(), creditLimitMinor: String(creditLimitMinor), balanceMinor: '0', status: 'ACTIVE', version: 1 };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function updateCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'customers.manage');
+  const id = envelope.payload.customerId;
+  if (typeof id !== 'string') throw new DomainError('VALIDATION_FAILED', 'customerId is required.');
+  const expectedVersion = versionFor(envelope, `customer:${id}`);
+  if (!expectedVersion) throw new DomainError('VALIDATION_FAILED', 'Expected customer account version is required.');
+  const name = envelope.payload.name;
+  const phone = envelope.payload.phone;
+  const email = envelope.payload.email;
+  const creditLimitMinor = asMinor(envelope.payload.creditLimitMinor, 'creditLimitMinor');
+  const status = envelope.payload.status;
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 160) throw new DomainError('VALIDATION_FAILED', 'Customer name is required and must be 160 characters or fewer.');
+  if (typeof phone !== 'string' || phone.trim().length < 3 || phone.trim().length > 40) throw new DomainError('VALIDATION_FAILED', 'A customer phone number of 3 to 40 characters is required.');
+  if (email !== undefined && email !== null && (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new DomainError('VALIDATION_FAILED', 'Customer email is invalid.');
+  if (status !== 'ACTIVE' && status !== 'SUSPENDED') throw new DomainError('VALIDATION_FAILED', 'Customer status must be ACTIVE or SUSPENDED.');
+  const current = await client.query<{ balance_minor: string; version: string }>(`SELECT balance_minor::text,version::text FROM finance.customer_accounts
+    WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, [id, session.tenantId]);
+  if (!current.rowCount) throw new DomainError('NOT_FOUND', 'Customer account was not found.', 404);
+  if (Number(current.rows[0].version) !== expectedVersion) throw new DomainError('VERSION_CONFLICT', 'The customer account changed. Reload it before saving.', 409, { currentVersion: Number(current.rows[0].version) });
+  await client.query(`UPDATE finance.customer_accounts SET display_name=$3,phone=$4,email=$5,credit_limit_minor=$6,status=$7,version=version+1,updated_at=now()
+    WHERE id=$1 AND tenant_id=$2`, [id, session.tenantId, name.trim(), phone.trim(), typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null, creditLimitMinor, status]);
+  const result = { customerId: id, balanceMinor: current.rows[0].balance_minor, creditLimitMinor: String(creditLimitMinor), status, version: expectedVersion + 1 };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function recordCustomerRepayment(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'customers.settle');
+  const customerId = envelope.payload.customerId;
+  const shiftId = envelope.payload.shiftId;
+  const amountMinor = asMinor(envelope.payload.amountMinor, 'amountMinor');
+  const reference = envelope.payload.reference;
+  if (typeof customerId !== 'string' || typeof shiftId !== 'string' || amountMinor <= 0) throw new DomainError('VALIDATION_FAILED', 'Customer, open shift and a positive cash amount are required.');
+  if (reference !== undefined && reference !== null && (typeof reference !== 'string' || reference.trim().length > 120)) throw new DomainError('VALIDATION_FAILED', 'Payment reference must be 120 characters or fewer.');
+  const expectedShift = versionFor(envelope, `shift:${shiftId}`);
+  if (!expectedShift) throw new DomainError('VALIDATION_FAILED', 'Expected shift version is required.');
+
+  const shift = await client.query<{ version: string }>(`SELECT version::text FROM commerce.shifts
+    WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,
+  [shiftId, session.tenantId, session.outletId, session.userId]);
+  if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
+  if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh before recording this repayment.', 409, { currentVersion: Number(shift.rows[0].version) });
+
+  const account = await client.query<{ balance_minor: string; version: string }>(`SELECT balance_minor::text,version::text FROM finance.customer_accounts
+    WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, [customerId, session.tenantId]);
+  if (!account.rowCount) throw new DomainError('NOT_FOUND', 'Customer account was not found.', 404);
+  const currentBalance = BigInt(account.rows[0].balance_minor);
+  if (BigInt(amountMinor) > currentBalance) throw new DomainError('VALIDATION_FAILED', 'Repayment cannot exceed the customer balance.', 409, { balanceMinor: currentBalance.toString() });
+
+  const charges = await client.query<{ id: string; amount_minor: string; allocated_minor: string }>(`SELECT c.id,c.amount_minor::text,
+      COALESCE(sum(a.amount_minor),0)::text allocated_minor
+    FROM finance.customer_charges c LEFT JOIN finance.customer_repayment_allocations a
+      ON a.tenant_id=c.tenant_id AND a.charge_id=c.id
+    WHERE c.tenant_id=$1 AND c.customer_account_id=$2
+    GROUP BY c.id,c.amount_minor,c.created_at ORDER BY c.created_at,c.id`, [session.tenantId, customerId]);
+  const outstanding = charges.map(charge => ({ id: charge.id, amount: BigInt(charge.amount_minor) - BigInt(charge.allocated_minor) }));
+  const ledgerBalance = outstanding.reduce((sum, charge) => sum + charge.amount, 0n);
+  if (ledgerBalance !== currentBalance) throw new DomainError('CUSTOMER_LEDGER_INTEGRITY_FAILED', 'Customer charges do not reconcile to the account balance.', 500);
+
+  const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
+  const repaymentId = randomUUID();
+  await client.query(`INSERT INTO finance.customer_repayments(id,tenant_id,outlet_id,customer_account_id,shift_id,command_id,actor_id,amount_minor,currency,reference)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [repaymentId, session.tenantId, session.outletId, customerId, shiftId, envelope.commandId, session.userId, amountMinor, tenant.rows[0].currency, typeof reference === 'string' ? reference.trim() || null : null]);
+  let amountRemaining = BigInt(amountMinor);
+  const allocations: Array<{ chargeId: string; amountMinor: string }> = [];
+  for (const charge of outstanding) {
+    if (amountRemaining === 0n) break;
+    if (charge.amount <= 0n) continue;
+    const allocation = charge.amount < amountRemaining ? charge.amount : amountRemaining;
+    await client.query(`INSERT INTO finance.customer_repayment_allocations(id,tenant_id,repayment_id,charge_id,amount_minor)
+      VALUES($1,$2,$3,$4,$5)`, [randomUUID(), session.tenantId, repaymentId, charge.id, allocation.toString()]);
+    allocations.push({ chargeId: charge.id, amountMinor: allocation.toString() });
+    amountRemaining -= allocation;
+  }
+  if (amountRemaining !== 0n) throw new DomainError('CUSTOMER_LEDGER_INTEGRITY_FAILED', 'Repayment could not be allocated to open customer charges.', 500);
+  const newBalance = currentBalance - BigInt(amountMinor);
+  await client.query(`UPDATE finance.customer_accounts SET balance_minor=$3,version=version+1,updated_at=now() WHERE id=$1 AND tenant_id=$2`,
+    [customerId, session.tenantId, newBalance.toString()]);
+  const nextShiftVersion = expectedShift + 1;
+  await client.query(`UPDATE commerce.shifts SET customer_collections_minor=customer_collections_minor+$5,
+      expected_cash_minor=expected_cash_minor+$5,version=version+1
+    WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4`, [shiftId, session.tenantId, session.outletId, session.userId, amountMinor]);
+  await journal(client, session, envelope.commandId, 'CUSTOMER_REPAYMENT', tenant.rows[0].currency, [
+    { account: 'CASH_TILL', debit: amountMinor, credit: 0 },
+    { account: 'ACCOUNTS_RECEIVABLE', debit: 0, credit: amountMinor },
+  ]);
+  const result = { repaymentId, customerId, amountMinor: String(amountMinor), currency: tenant.rows[0].currency, previousBalanceMinor: currentBalance.toString(), balanceMinor: newBalance.toString(), allocationCount: allocations.length, allocations, shiftVersion: nextShiftVersion, tenderMethod: 'CASH' };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
 }
 
 async function createProduct(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
@@ -541,8 +655,14 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   requirePermission(session, 'commerce.sell');
   const lines = envelope.payload.lines;
   const tenders = envelope.payload.tenders;
+  const customerIdValue = envelope.payload.customerId;
+  const customerId = typeof customerIdValue === 'string' ? customerIdValue : null;
+  if (customerIdValue !== undefined && customerId === null) throw new DomainError('VALIDATION_FAILED', 'customerId must be a valid customer account identifier.');
+  if (customerId) requirePermission(session, 'customers.charge');
   if (!Array.isArray(lines) || lines.length < 1 || lines.length > 100) throw new DomainError('VALIDATION_FAILED', 'Sale must contain between 1 and 100 lines.');
-  if (!Array.isArray(tenders) || tenders.length < 1 || tenders.length > 10) throw new DomainError('VALIDATION_FAILED', 'Provide between 1 and 10 tender allocations.');
+  if (!Array.isArray(tenders) || tenders.length > 10 || (!customerId && tenders.length < 1) || (customerId && tenders.length !== 0)) {
+    throw new DomainError('VALIDATION_FAILED', customerId ? 'This account-charge checkout must not include cash tender.' : 'Provide between 1 and 10 cash tender allocations.');
+  }
   const tenderTotal = tenders.reduce((sum: number, raw: unknown) => {
     if (!raw || typeof raw !== 'object') throw new DomainError('VALIDATION_FAILED', 'Tender allocation is invalid.');
     const tender = raw as Record<string, unknown>;
@@ -550,7 +670,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     if (tender.currency !== undefined && tender.currency !== (tenders[0] as Record<string, unknown>).currency) throw new DomainError('VALIDATION_FAILED', 'Tender currencies must match.');
     return sum + asMinor(tender.amountMinor, 'tender.amountMinor');
   }, 0);
-  if (!Number.isSafeInteger(tenderTotal) || tenderTotal <= 0) throw new DomainError('VALIDATION_FAILED', 'Cash tender total must be a positive safe integer.');
+  if (!Number.isSafeInteger(tenderTotal) || (customerId ? tenderTotal !== 0 : tenderTotal <= 0)) throw new DomainError('VALIDATION_FAILED', customerId ? 'Account charge cannot include cash tender.' : 'Cash tender total must be a positive safe integer.');
 
   const normalized = lines.map((raw, index) => {
     if (!raw || typeof raw !== 'object') throw new DomainError('VALIDATION_FAILED', `Sale line ${index + 1} is invalid.`);
@@ -602,16 +722,30 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   const cogs = computed.reduce((sum, line) => sum + line.cogs, 0);
   const total = subtotal + tax;
   if (![subtotal, tax, cogs, total].every(Number.isSafeInteger) || total < 1) throw new DomainError('VALIDATION_FAILED', 'Sale total is invalid or exceeds the safe integer range.');
-  if (tenderTotal < total) throw new DomainError('VALIDATION_FAILED', 'Cash tender allocations do not cover the sale total.', 400, { amountDueMinor: total, tenderedMinor: tenderTotal });
+  if (!customerId && tenderTotal < total) throw new DomainError('VALIDATION_FAILED', 'Cash tender allocations do not cover the sale total.', 400, { amountDueMinor: total, tenderedMinor: tenderTotal });
+
+  let customer: { name: string; balanceMinor: bigint; nextBalanceMinor: bigint } | null = null;
+  if (customerId) {
+    const account = await client.query<{ display_name: string; balance_minor: string; credit_limit_minor: string; status: string }>(`SELECT display_name,balance_minor::text,credit_limit_minor::text,status
+      FROM finance.customer_accounts WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, [customerId, session.tenantId]);
+    if (!account.rowCount) throw new DomainError('NOT_FOUND', 'Customer account was not found.', 404);
+    if (account.rows[0].status !== 'ACTIVE') throw new DomainError('CUSTOMER_ACCOUNT_SUSPENDED', 'This customer account is suspended. Contact a manager.', 409);
+    const balanceMinor = BigInt(account.rows[0].balance_minor);
+    const nextBalanceMinor = balanceMinor + BigInt(total);
+    if (nextBalanceMinor > BigInt(account.rows[0].credit_limit_minor)) throw new DomainError('CUSTOMER_CREDIT_LIMIT_EXCEEDED', 'This sale exceeds the customer account credit limit.', 409, { balanceMinor: balanceMinor.toString(), creditLimitMinor: account.rows[0].credit_limit_minor, saleTotalMinor: String(total) });
+    customer = { name: account.rows[0].display_name, balanceMinor, nextBalanceMinor };
+  }
 
   const orderId = randomUUID();
   const receiptNumber = `MZ-${orderId.replaceAll('-', '').toUpperCase()}`;
   await client.query(
     `INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,
-       receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot,cash_tendered_minor,change_minor)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15)`,
+       receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot,cash_tendered_minor,change_minor,
+       customer_account_id,customer_name_snapshot,customer_amount_due_minor)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
     [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
-      tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone, tenderTotal, tenderTotal - total],
+      tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone,
+      customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0],
   );
   for (const line of computed) {
     await client.query(
@@ -641,13 +775,22 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     amountRemaining -= Math.min(amount, amountRemaining);
   }
   const nextVersion = expectedShift + 1;
-  await client.query(
-    `UPDATE commerce.shifts SET cash_sales_minor=cash_sales_minor+$5,expected_cash_minor=expected_cash_minor+$5,version=version+1
-     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4`,
-    [shiftId, session.tenantId, session.outletId, session.userId, total],
-  );
+  if (customerId) {
+    await client.query(`UPDATE commerce.shifts SET version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4`,
+      [shiftId, session.tenantId, session.outletId, session.userId]);
+    await client.query(`UPDATE finance.customer_accounts SET balance_minor=$3,version=version+1,updated_at=now() WHERE id=$1 AND tenant_id=$2`,
+      [customerId, session.tenantId, customer!.nextBalanceMinor.toString()]);
+    await client.query(`INSERT INTO finance.customer_charges(id,tenant_id,outlet_id,customer_account_id,order_id,amount_minor,currency)
+      VALUES($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), session.tenantId, session.outletId, customerId, orderId, total, currency]);
+  } else {
+    await client.query(
+      `UPDATE commerce.shifts SET cash_sales_minor=cash_sales_minor+$5,expected_cash_minor=expected_cash_minor+$5,version=version+1
+       WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4`,
+      [shiftId, session.tenantId, session.outletId, session.userId, total],
+    );
+  }
   const salesLines = [
-    { account: 'CASH_TILL', debit: total, credit: 0 },
+    { account: customerId ? 'ACCOUNTS_RECEIVABLE' : 'CASH_TILL', debit: total, credit: 0 },
     { account: 'SALES_REVENUE', debit: 0, credit: subtotal },
     { account: 'VAT_PAYABLE', debit: 0, credit: tax },
   ];
@@ -656,7 +799,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     { account: 'COST_OF_GOODS_SOLD', debit: cogs, credit: 0 },
     { account: 'INVENTORY', debit: 0, credit: cogs },
   ]);
-  const result = { saleId: orderId, receiptId: orderId, receiptNumber, currency, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, tenderedMinor: tenderTotal, changeMinor: tenderTotal - total, shiftVersion: nextVersion, status: 'CONFIRMED' };
+  const result = { saleId: orderId, receiptId: orderId, receiptNumber, currency, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, tenderedMinor: tenderTotal, changeMinor: tenderTotal - total, ...(customerId ? { customerId, customerBalanceMinor: customer!.nextBalanceMinor.toString() } : {}), shiftVersion: nextVersion, status: 'CONFIRMED' };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;
@@ -681,8 +824,9 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
   const shift=await client.query<{version:string;expected_cash_minor:string}>(`SELECT version,expected_cash_minor FROM commerce.shifts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,[shiftId,session.tenantId,session.outletId,session.userId]);
   if(!shift.rowCount)throw new DomainError('NOT_FOUND','Open refund shift was not found for this operator.',404);
   if(Number(shift.rows[0].version)!==expectedShift)throw new DomainError('VERSION_CONFLICT','The shift changed. Reload before issuing the refund.',409,{currentVersion:Number(shift.rows[0].version)});
-  const order=await client.query<{currency:string;status:string;subtotal_minor:string;tax_minor:string;total_minor:string}>(`SELECT currency,status,subtotal_minor,total_minor FROM commerce.orders WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE`,[orderId,session.tenantId,session.outletId]);
+  const order=await client.query<{currency:string;status:string;subtotal_minor:string;tax_minor:string;total_minor:string;customer_account_id:string|null}>(`SELECT currency,status,subtotal_minor,tax_minor,total_minor,customer_account_id FROM commerce.orders WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE`,[orderId,session.tenantId,session.outletId]);
   if(!order.rowCount)throw new DomainError('NOT_FOUND','Sale was not found at this outlet.',404);
+  if(order.rows[0].customer_account_id)throw new DomainError('CUSTOMER_CREDIT_REFUND_UNAVAILABLE','Customer credit refunds are blocked until account credits and tax-aware reversal workflow is implemented.',409);
   const tenantCurrency=await client.query<{currency:string}>('SELECT currency FROM core.tenants WHERE id=$1',[session.tenantId]);
   if(order.rows[0].currency!==tenantCurrency.rows[0].currency)throw new DomainError('VALIDATION_FAILED','Sale currency differs from the active tenant currency.');
   const refundId=randomUUID();let subtotal=0,tax=0,cogs=0,restockedCogs=0,total=0;const normalized=[] as Array<{orderLineId:string;productId:string;quantity:bigint;restock:boolean;subtotal:number;tax:number;cogs:number;unitCost:number}>;

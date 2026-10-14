@@ -10,6 +10,7 @@ import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
 import { getSaleReceipt } from './receipts.js';
+import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -161,13 +162,13 @@ export function buildApp() {
   app.get('/api/v1/shifts/current', async request => {
     const s=request.operator!;
     if (!ROLE_PERMISSIONS[s.role].some(permission=>permission==='shift.open'||permission==='shift.close'||permission==='shift.payout')) throw new DomainError('FORBIDDEN','Your role cannot view till shifts.',403);
-    const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,expected_cash_minor,version,opened_at FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
+    const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,customer_collections_minor,expected_cash_minor,version,opened_at FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
     const r=result.rows[0];
     if(!r)return {shift:null};
     const movements=await pool.query(`SELECT m.id,m.movement_type,m.amount_minor,m.reason,m.reference,m.created_at,u.full_name actor_name
       FROM commerce.shift_cash_movements m JOIN identity.users u ON u.id=m.actor_id
       WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.shift_id=$3 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`,[s.tenantId,s.outletId,r.id]);
-    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
+    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
   });
   app.get('/api/v1/sales/orders', async request => {
     const operator=request.operator!;
@@ -185,6 +186,9 @@ export function buildApp() {
   });
   app.get<{ Params: { orderId: string } }>('/api/v1/sales/orders/:orderId/receipt', async request =>
     getSaleReceipt(request.operator!, request.params.orderId));
+  app.get('/api/v1/customers', async request => listCustomerAccounts(request.operator!));
+  app.get<{ Params: { customerId: string } }>('/api/v1/customers/:customerId/statement', async request =>
+    getCustomerStatement(request.operator!, request.params.customerId));
   app.get<{ Querystring: { asOf?: string } }>('/api/v1/reports/trial-balance', async request =>
     getTrialBalance(request.operator!, request.query.asOf));
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/profit-loss', async request =>
