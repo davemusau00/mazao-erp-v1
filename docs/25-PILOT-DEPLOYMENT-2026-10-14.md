@@ -24,7 +24,11 @@ The Windows PC has a daily encrypted backup task at 02:15 Nairobi time and a Sun
 
 ## Authentication correction
 
+The active API and PWA release is **15aaa9b64690e28d48e32db7ca3290434a61f5a2**. [Release CI](https://github.com/davemusau00/mazao-erp-v1/actions/runs/38573179076) passed 10 API tests, 5 browser tests, TypeScript and production-container checks. Its GHCR image digest is sha256:f5e6821a226bd96d15a05a16b73705dc07fe5fa3f569231a1e5d0dfa682db44a. The artifact digest was verified before loading on the VPS, migrations replayed with unchanged checksums, and API readiness passed after the update.
+
 The initial frontend showed its prototype preview after an unauthenticated session response. The production build now requires server sign-in and provides no demo fallback. The shared sign-in form submits actual input values, including password-manager autofill. Tests cover rejected credentials, sign-out and the production session boundary.
+
+The public origin was checked at 1280×720 and 390×844 after this update: sign-in was visible, Apex/demo workspaces were absent, the primary action was fully in view with a 44px minimum height, and no uncaught JavaScript errors occurred. This verifies the signed-out boundary, not a complete live transaction journey. The owner uses a local password prompt for account verification; no password is available to the deployment agent.
 
 The initial local setup helper created the owner-supplied tenant and administrator. Its subsequent report probe failed because the request omitted the required asOf date; the helper was corrected. The live administrator has one active membership/device/outlet assignment. No duplicate tenant or demonstration transactions were created. Passwords remain in local interactive prompts and are never recorded in this evidence.
 
