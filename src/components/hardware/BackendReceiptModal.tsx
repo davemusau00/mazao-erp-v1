@@ -112,7 +112,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
           </dl>
           <div className="my-3 border-t border-dashed border-zinc-400" />
           {profile.receiptFooter && <div className="mb-2 whitespace-pre-line text-center text-[10px]">{profile.receiptFooter}</div>}
-          <div className="text-center text-[9px] text-zinc-600">SALE RECEIPT · ELECTRONIC TAX INVOICE INTEGRATION IS NOT CONNECTED</div>
+          <div className="text-center text-[9px] text-zinc-600">DEVELOPED BY KINGS FORGE 0746157440</div>
           <div className="mt-2 break-all text-center text-[8px] text-zinc-400">Sale reference: {receipt.receiptId}</div>
         </article>}
       </div>
