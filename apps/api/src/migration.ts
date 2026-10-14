@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { pool } from './db.js';
 
-const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality'];
+const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality','005_shift_cash_movements','006_inventory_counts'];
 const client=await pool.connect();
 
 /**

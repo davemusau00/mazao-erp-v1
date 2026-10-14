@@ -21,6 +21,22 @@ function databaseQuantityMicros(value: string): bigint {
   const [whole, fraction = ''] = value.split('.');
   return BigInt(whole) * quantityScale + BigInt((fraction + '000000').slice(0, 6));
 }
+function countQuantityText(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !/^\d+(?:\.\d{1,6})?$/.test(value)) throw new DomainError('VALIDATION_FAILED', 'Counted quantity must be a non-negative decimal string with at most 6 decimal places.');
+  const [whole, fraction = ''] = value.split('.');
+  const wholeValue = BigInt(whole);
+  if (wholeValue > 99_999_999_999_999n) throw new DomainError('VALIDATION_FAILED', 'Counted quantity exceeds the supported range.');
+  return quantityText(wholeValue * quantityScale + BigInt((fraction + '000000').slice(0, 6)));
+}
+function signedQuantityText(value: bigint): string {
+  return value < 0n ? `-${quantityText(-value)}` : quantityText(value);
+}
+function addMinorChecked(left: bigint, right: bigint): bigint {
+  const result = left + right;
+  if (result < 0n || result > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', 'Count variance value exceeds the supported safe money range.');
+  return result;
+}
 function asMinor(value: unknown, field: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new DomainError('VALIDATION_FAILED', `${field} must be a non-negative safe integer in minor units.`);
   return value;
@@ -81,7 +97,12 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   switch (envelope.type) {
     case 'catalog.product.create': return createProduct(client, session, envelope);
     case 'inventory.receive': return receiveInventory(client, session, envelope);
+    case 'inventory.count.open': return openStockCount(client, session, envelope);
+    case 'inventory.count.save': return saveStockCount(client, session, envelope);
+    case 'inventory.count.post': return postStockCount(client, session, envelope);
+    case 'inventory.count.cancel': return cancelStockCount(client, session, envelope);
     case 'shift.open': return openShift(client, session, envelope);
+    case 'shift.cash.movement': return recordShiftCashMovement(client, session, envelope);
     case 'shift.close': return closeShift(client, session, envelope);
     case 'sales.order.settle': return settleSale(client, session, envelope);
     case 'sales.order.refund': return refundSale(client, session, envelope);
@@ -167,6 +188,215 @@ async function receiveInventory(client: PoolClient, session: ApiSession, envelop
   return result;
 }
 
+async function openStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'inventory.count');
+  const areaLabel = envelope.payload.areaLabel;
+  if (areaLabel !== undefined && (typeof areaLabel !== 'string' || areaLabel.trim().length > 100)) {
+    throw new DomainError('VALIDATION_FAILED', 'Count label must be 100 characters or fewer.');
+  }
+  const snapshots = await client.query<{ product_id: string; sku: string; name: string; base_unit: string; quantity: string; balance_version: string; cost_price_minor: string }>(
+    `SELECT p.id product_id,p.sku,p.name,p.base_unit,b.quantity::text quantity,b.version::text balance_version,p.cost_price_minor::text cost_price_minor
+     FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
+     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.id FOR UPDATE OF b`,
+    [session.tenantId, session.outletId],
+  );
+  if (!snapshots.rowCount) throw new DomainError('VALIDATION_FAILED', 'Create and receive at least one stock item before opening a count.');
+  const countId = randomUUID();
+  let header: { baseline_at: Date };
+  try {
+    const inserted = await client.query<{ baseline_at: Date }>(
+      `INSERT INTO inventory.stock_counts(id,tenant_id,outlet_id,area_label,opened_by)
+       VALUES($1,$2,$3,$4,$5) RETURNING baseline_at`,
+      [countId, session.tenantId, session.outletId, typeof areaLabel === 'string' ? areaLabel.trim() || null : null, session.userId],
+    );
+    header = inserted.rows[0];
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') throw new DomainError('VERSION_CONFLICT', 'An outlet stock count is already open. Resume that count instead.', 409);
+    throw error;
+  }
+  for (const row of snapshots.rows) {
+    await client.query(
+      `INSERT INTO inventory.stock_count_lines(tenant_id,outlet_id,count_id,product_id,sku_snapshot,name_snapshot,base_unit_snapshot,baseline_quantity,baseline_balance_version,baseline_unit_cost_minor)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10)`,
+      [session.tenantId, session.outletId, countId, row.product_id, row.sku, row.name, row.base_unit, row.quantity, row.balance_version, row.cost_price_minor],
+    );
+  }
+  const result = { countId, status: 'OPEN', lineCount: snapshots.rowCount, version: 1, baselineAt: header.baseline_at };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function saveStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'inventory.count');
+  const countId = envelope.payload.countId;
+  if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
+  const expectedVersion = versionFor(envelope, `count:${countId}`);
+  if (!expectedVersion) throw new DomainError('VALIDATION_FAILED', 'Expected count version is required.');
+  const count = await client.query<{ status: string; version: string }>(
+    'SELECT status,version::text version FROM inventory.stock_counts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE',
+    [countId, session.tenantId, session.outletId],
+  );
+  if (!count.rowCount) throw new DomainError('NOT_FOUND', 'Stock count was not found.', 404);
+  if (count.rows[0].status !== 'OPEN' || Number(count.rows[0].version) !== expectedVersion) {
+    throw new DomainError('VERSION_CONFLICT', 'This stock count changed or is no longer open. Reload it before saving.', 409, { status: count.rows[0].status, currentVersion: Number(count.rows[0].version) });
+  }
+  const lines = envelope.payload.lines;
+  if (!Array.isArray(lines) || lines.length < 1 || lines.length > 5000) throw new DomainError('VALIDATION_FAILED', 'Provide every count line to save the draft.');
+  const baseline = await client.query<{ product_id: string }>(
+    'SELECT product_id FROM inventory.stock_count_lines WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 ORDER BY product_id',
+    [session.tenantId, session.outletId, countId],
+  );
+  if (lines.length !== baseline.rowCount) throw new DomainError('VALIDATION_FAILED', 'The saved draft must contain every item in the count.');
+  const allowedProducts = new Set(baseline.rows.map(row => row.product_id));
+  const seen = new Set<string>();
+  const normalized = lines.map((raw, index) => {
+    if (!raw || typeof raw !== 'object') throw new DomainError('VALIDATION_FAILED', `Count line ${index + 1} is invalid.`);
+    const line = raw as Record<string, unknown>;
+    if (typeof line.productId !== 'string' || seen.has(line.productId) || !allowedProducts.has(line.productId)) {
+      throw new DomainError('VALIDATION_FAILED', 'Count line item IDs must be unique items from this count.');
+    }
+    seen.add(line.productId);
+    const countedQuantity = countQuantityText(line.countedQuantity);
+    const reason = line.varianceReason;
+    if (reason !== undefined && reason !== null && (typeof reason !== 'string' || reason.trim().length > 200)) throw new DomainError('VALIDATION_FAILED', 'Variance reason must be 200 characters or fewer.');
+    return { productId: line.productId, countedQuantity, reason: typeof reason === 'string' ? reason.trim() || null : null };
+  });
+  for (const line of normalized) {
+    await client.query(
+      `UPDATE inventory.stock_count_lines SET counted_quantity=$5::numeric,variance_reason=$6,counted_by=$7,counted_at=CASE WHEN $5::numeric IS NULL THEN NULL ELSE now() END
+       WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 AND product_id=$4`,
+      [session.tenantId, session.outletId, countId, line.productId, line.countedQuantity, line.reason, line.countedQuantity === null ? null : session.userId],
+    );
+  }
+  const updated = await client.query(
+    `UPDATE inventory.stock_counts SET version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='OPEN' AND version=$4 RETURNING version::text version`,
+    [countId, session.tenantId, session.outletId, expectedVersion],
+  );
+  if (!updated.rowCount) throw new DomainError('VERSION_CONFLICT', 'This stock count changed while it was being saved. Reload it before continuing.', 409);
+  const result = { countId, status: 'OPEN', lineCount: normalized.length, version: Number(updated.rows[0].version) };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function postStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'inventory.count.approve');
+  const countId = envelope.payload.countId;
+  if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
+  const expectedVersion = versionFor(envelope, `count:${countId}`);
+  if (!expectedVersion) throw new DomainError('VALIDATION_FAILED', 'Expected count version is required.');
+  const count = await client.query<{ status: string; version: string; area_label: string | null }>(
+    'SELECT status,version::text version,area_label FROM inventory.stock_counts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE',
+    [countId, session.tenantId, session.outletId],
+  );
+  if (!count.rowCount) throw new DomainError('NOT_FOUND', 'Stock count was not found.', 404);
+  if (count.rows[0].status !== 'OPEN' || Number(count.rows[0].version) !== expectedVersion) {
+    throw new DomainError('VERSION_CONFLICT', 'This stock count changed or is no longer open. Reload it before posting.', 409, { status: count.rows[0].status, currentVersion: Number(count.rows[0].version) });
+  }
+  const lines = await client.query<{ product_id: string; sku_snapshot: string; name_snapshot: string; base_unit_snapshot: string; baseline_quantity: string; baseline_balance_version: string; baseline_unit_cost_minor: string; counted_quantity: string | null; variance_reason: string | null }>(
+    `SELECT product_id,sku_snapshot,name_snapshot,base_unit_snapshot,baseline_quantity::text baseline_quantity,baseline_balance_version::text baseline_balance_version,
+       baseline_unit_cost_minor::text baseline_unit_cost_minor,counted_quantity::text counted_quantity,variance_reason
+     FROM inventory.stock_count_lines WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 ORDER BY product_id`,
+    [session.tenantId, session.outletId, countId],
+  );
+  if (!lines.rowCount || lines.rows.some(line => line.counted_quantity === null)) throw new DomainError('VALIDATION_FAILED', 'Count every listed item before posting the full outlet count.');
+  const unlisted = await client.query<{ id: string }>(
+    `SELECT p.id FROM catalog.products p LEFT JOIN inventory.stock_count_lines l
+       ON l.tenant_id=p.tenant_id AND l.outlet_id=p.outlet_id AND l.count_id=$3 AND l.product_id=p.id
+     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active AND l.product_id IS NULL LIMIT 1`,
+    [session.tenantId, session.outletId, countId],
+  );
+  if (unlisted.rowCount) throw new DomainError('VERSION_CONFLICT', 'The item catalogue changed after this count opened. Reload the count and recount before posting.', 409, { newProductId: unlisted.rows[0].id });
+  const productIds = lines.rows.map(line => line.product_id);
+  const balances = await client.query<{ product_id: string; quantity: string; version: string }>(
+    `SELECT product_id,quantity::text quantity,version::text version FROM inventory.balances
+     WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=ANY($3::uuid[]) ORDER BY product_id FOR UPDATE`,
+    [session.tenantId, session.outletId, productIds],
+  );
+  const balancesByProduct = new Map(balances.rows.map(row => [row.product_id, row]));
+  const stale = lines.rows.filter(line => {
+    const balance = balancesByProduct.get(line.product_id);
+    return !balance || Number(balance.version) !== Number(line.baseline_balance_version) || databaseQuantityMicros(balance.quantity) !== databaseQuantityMicros(line.baseline_quantity);
+  });
+  if (stale.length) throw new DomainError('VERSION_CONFLICT', 'Stock changed after this count opened. Review the changed items, recount them, and open a fresh count before posting.', 409, { changedProductIds: stale.map(line => line.product_id) });
+  const currencyResult = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
+  let gainMinor = 0n;
+  let shrinkMinor = 0n;
+  let adjustedLineCount = 0;
+  const auditLines: Array<{ productId: string; sku: string; expected: string; counted: string; reason: string | null }> = [];
+  for (const line of lines.rows) {
+    const baselineMicros = databaseQuantityMicros(line.baseline_quantity);
+    const countedMicros = databaseQuantityMicros(line.counted_quantity!);
+    const deltaMicros = countedMicros - baselineMicros;
+    const reason = line.variance_reason?.trim() || null;
+    if (deltaMicros !== 0n && !reason) throw new DomainError('VALIDATION_FAILED', `A reason is required for the variance on ${line.sku_snapshot}.`);
+    auditLines.push({ productId: line.product_id, sku: line.sku_snapshot, expected: line.baseline_quantity, counted: line.counted_quantity!, reason });
+    if (deltaMicros === 0n) continue;
+    const costMinor = BigInt(line.baseline_unit_cost_minor);
+    if (costMinor > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', `Stored unit cost for ${line.sku_snapshot} exceeds the supported safe money range.`);
+    const valueMinor = BigInt(amountForQuantity(Number(costMinor), deltaMicros < 0n ? -deltaMicros : deltaMicros));
+    if (deltaMicros > 0n) gainMinor = addMinorChecked(gainMinor, valueMinor);
+    else shrinkMinor = addMinorChecked(shrinkMinor, valueMinor);
+    await client.query(
+      `UPDATE inventory.balances SET quantity=$4::numeric,version=version+1
+       WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 AND version=$5`,
+      [session.tenantId, session.outletId, line.product_id, line.counted_quantity, line.baseline_balance_version],
+    );
+    await client.query(
+      `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,reference_id,document_reference)
+       VALUES($1,$2,$3,$4,$5,'COUNT_ADJUSTMENT',$6::numeric,$7,$8,$9)`,
+      [randomUUID(), session.tenantId, session.outletId, line.product_id, envelope.commandId, signedQuantityText(deltaMicros), Number(costMinor), countId, `Count ${countId.slice(0, 8).toUpperCase()}`],
+    );
+    adjustedLineCount += 1;
+  }
+  const totalVarianceMinor = gainMinor + shrinkMinor;
+  if (totalVarianceMinor > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', 'Count variance value exceeds the supported safe money range.');
+  if (totalVarianceMinor > 0n) {
+    await journal(client, session, envelope.commandId, 'INVENTORY_COUNT', currencyResult.rows[0].currency, [
+      { account: 'INVENTORY', debit: Number(gainMinor), credit: Number(shrinkMinor) },
+      { account: 'INVENTORY_COUNT_GAIN', debit: 0, credit: Number(gainMinor) },
+      { account: 'INVENTORY_COUNT_SHRINKAGE', debit: Number(shrinkMinor), credit: 0 },
+    ]);
+  }
+  const posted = await client.query(
+    `UPDATE inventory.stock_counts SET status='POSTED',version=version+1,posted_by=$4,posted_at=now()
+     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='OPEN' AND version=$5 RETURNING version::text version`,
+    [countId, session.tenantId, session.outletId, session.userId, expectedVersion],
+  );
+  if (!posted.rowCount) throw new DomainError('VERSION_CONFLICT', 'This stock count changed while posting. Reload it before continuing.', 409);
+  const result = { countId, status: 'POSTED', lineCount: lines.rowCount, adjustedLineCount, gainMinor: Number(gainMinor), shrinkMinor: Number(shrinkMinor), totalVarianceMinor: Number(totalVarianceMinor), currency: currencyResult.rows[0].currency, version: Number(posted.rows[0].version) };
+  await audit(client, session, envelope.commandId, envelope.type, { ...result, areaLabel: count.rows[0].area_label, lines: auditLines });
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function cancelStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'inventory.count.approve');
+  const countId = envelope.payload.countId;
+  if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
+  const expectedVersion = versionFor(envelope, `count:${countId}`);
+  if (!expectedVersion) throw new DomainError('VALIDATION_FAILED', 'Expected count version is required.');
+  const count = await client.query<{ status: string; version: string }>(
+    'SELECT status,version::text version FROM inventory.stock_counts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE',
+    [countId, session.tenantId, session.outletId],
+  );
+  if (!count.rowCount) throw new DomainError('NOT_FOUND', 'Stock count was not found.', 404);
+  if (count.rows[0].status !== 'OPEN' || Number(count.rows[0].version) !== expectedVersion) {
+    throw new DomainError('VERSION_CONFLICT', 'This stock count changed or is no longer open.', 409, { status: count.rows[0].status, currentVersion: Number(count.rows[0].version) });
+  }
+  const result = await client.query(
+    `UPDATE inventory.stock_counts SET status='CANCELLED',version=version+1,cancelled_by=$4,cancelled_at=now()
+     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='OPEN' AND version=$5 RETURNING version::text version`,
+    [countId, session.tenantId, session.outletId, session.userId, expectedVersion],
+  );
+  if (!result.rowCount) throw new DomainError('VERSION_CONFLICT', 'This stock count changed while it was being cancelled.', 409);
+  const value = { countId, status: 'CANCELLED', version: Number(result.rows[0].version) };
+  await audit(client, session, envelope.commandId, envelope.type, value);
+  await outbox(client, session, envelope.commandId, envelope.type, value);
+  return value;
+}
+
 async function openShift(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   requirePermission(session, 'shift.open');
   const openingFloat = asMinor(envelope.payload.openingFloatMinor, 'openingFloatMinor');
@@ -191,6 +421,57 @@ async function openShift(client: PoolClient, session: ApiSession, envelope: Comm
     ]);
   }
   const result = { shiftId, version: 1, openingFloatMinor: openingFloat };
+  await audit(client, session, envelope.commandId, envelope.type, result);
+  await outbox(client, session, envelope.commandId, envelope.type, result);
+  return result;
+}
+
+async function recordShiftCashMovement(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requirePermission(session, 'shift.payout');
+  const shiftId = envelope.payload.shiftId;
+  const movementType = envelope.payload.movementType;
+  const amount = asMinor(envelope.payload.amountMinor, 'amountMinor');
+  const reason = envelope.payload.reason;
+  const reference = envelope.payload.reference;
+  if (typeof shiftId !== 'string') throw new DomainError('VALIDATION_FAILED', 'shiftId is required.');
+  if (movementType !== 'PAID_IN' && movementType !== 'PAYOUT') throw new DomainError('VALIDATION_FAILED', 'movementType must be PAID_IN or PAYOUT.');
+  if (amount === 0) throw new DomainError('VALIDATION_FAILED', 'Cash movement amount must be greater than zero.');
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 200) throw new DomainError('VALIDATION_FAILED', 'Enter a cash movement reason of 1 to 200 characters.');
+  if (reference !== undefined && (typeof reference !== 'string' || reference.trim().length > 120)) throw new DomainError('VALIDATION_FAILED', 'Cash movement reference must be 120 characters or fewer.');
+  const expected = versionFor(envelope, `shift:${shiftId}`);
+  if (!expected) throw new DomainError('VALIDATION_FAILED', 'Expected shift version is required.');
+  const shift = await client.query<{ expected_cash_minor: string; version: string }>(
+    `SELECT expected_cash_minor,version FROM commerce.shifts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,
+    [shiftId, session.tenantId, session.outletId, session.userId],
+  );
+  if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
+  const row = shift.rows[0];
+  if (Number(row.version) !== expected) throw new DomainError('VERSION_CONFLICT', 'The shift changed. Refresh its cash balance before recording a movement.', 409, { currentVersion: Number(row.version) });
+  const currentCash = BigInt(row.expected_cash_minor);
+  const amountBig = BigInt(amount);
+  const nextCash = movementType === 'PAID_IN' ? currentCash + amountBig : currentCash - amountBig;
+  if (nextCash < 0n) throw new DomainError('INSUFFICIENT_CASH', 'A payout cannot exceed the expected cash in this till.', 409, { availableMinor: Number(currentCash), payoutMinor: amount });
+  if (nextCash > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', 'Shift cash exceeds the supported safe money range.');
+
+  const movementId = randomUUID();
+  await client.query(
+    `INSERT INTO commerce.shift_cash_movements(id,tenant_id,outlet_id,shift_id,command_id,actor_id,movement_type,amount_minor,reason,reference)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [movementId, session.tenantId, session.outletId, shiftId, envelope.commandId, session.userId, movementType, amount, reason.trim(), typeof reference === 'string' ? reference.trim() || null : null],
+  );
+  const updated = await client.query<{ version: string }>(
+    `UPDATE commerce.shifts SET expected_cash_minor=$5,version=version+1
+     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' AND version=$6 RETURNING version`,
+    [shiftId, session.tenantId, session.outletId, session.userId, nextCash.toString(), expected],
+  );
+  if (!updated.rowCount) throw new DomainError('VERSION_CONFLICT', 'The shift changed while recording this movement.', 409);
+  const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
+  await journal(client, session, envelope.commandId, movementType === 'PAID_IN' ? 'SHIFT_CASH_PAID_IN' : 'SHIFT_CASH_PAYOUT', tenant.rows[0].currency, movementType === 'PAID_IN' ? [
+    { account: 'CASH_TILL', debit: amount, credit: 0 }, { account: 'CASH_PAID_IN_CLEARING', debit: 0, credit: amount },
+  ] : [
+    { account: 'CASH_PAYOUT_CLEARING', debit: amount, credit: 0 }, { account: 'CASH_TILL', debit: 0, credit: amount },
+  ]);
+  const result = { movementId, shiftId, movementType, amountMinor: amount, expectedCashMinor: Number(nextCash), version: Number(updated.rows[0].version) };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;

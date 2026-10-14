@@ -1,13 +1,13 @@
 export type ApiRole = 'admin' | 'owner' | 'manager' | 'accountant' | 'cashier' | 'storekeeper' | 'receptionist' | 'housekeeper' | 'waiter' | 'cook' | 'bartender';
-export type ApiPermission = 'catalog.manage' | 'inventory.receive' | 'commerce.sell' | 'commerce.refund' | 'shift.open' | 'shift.close' | 'finance.view' | 'hotel.manage' | 'hotel.frontdesk' | 'hotel.housekeeping';
+export type ApiPermission = 'catalog.manage' | 'inventory.receive' | 'inventory.count' | 'inventory.count.approve' | 'commerce.sell' | 'commerce.refund' | 'shift.open' | 'shift.payout' | 'shift.close' | 'finance.view' | 'hotel.manage' | 'hotel.frontdesk' | 'hotel.housekeeping';
 
 export const ROLE_PERMISSIONS: Record<ApiRole, ApiPermission[]> = {
-  admin: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
-  owner: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
-  manager: ['catalog.manage', 'inventory.receive', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  admin: ['catalog.manage', 'inventory.receive', 'inventory.count', 'inventory.count.approve', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.payout', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  owner: ['catalog.manage', 'inventory.receive', 'inventory.count', 'inventory.count.approve', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.payout', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
+  manager: ['catalog.manage', 'inventory.receive', 'inventory.count', 'inventory.count.approve', 'commerce.sell', 'commerce.refund', 'shift.open', 'shift.payout', 'shift.close', 'finance.view','hotel.manage','hotel.frontdesk','hotel.housekeeping'],
   accountant: ['finance.view'],
   cashier: ['commerce.sell', 'shift.open', 'shift.close'],
-  storekeeper: ['inventory.receive'],
+  storekeeper: ['inventory.receive', 'inventory.count'],
   receptionist: ['hotel.frontdesk','shift.open','shift.close'], housekeeper: ['hotel.housekeeping'], waiter: [], cook: [], bartender: [],
 };
 

@@ -15,19 +15,19 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 - Local full refunds reject repeated attempts and missing reasons and create separate revenue/VAT reversal records. They do not submit provider refunds or create a production-authoritative journal.
 - The ledger no longer claims trial-balance verification or invents operating-bank data.
 - Signed-in POS no longer falls through to local sale processing when the server catalog fails. Server checkout is disabled until catalog and shift state are loaded.
-- Server-mode navigation hides local-only customer, kitchen, stock-count, report, management and onboarding workflows.
+- Server-mode navigation hides local-only customer, kitchen, report, management and onboarding workflows. Authorized server users now have a separate persistent stock-count workspace.
 - Authenticated UI permissions now come from the server session contract; catalog and sales history omit cost fields from unauthorized projections. Production API startup requires an exact `APP_ORIGINS` allowlist.
-- The local Stock catalogue now exposes a permission-gated Add item form and an empty-catalogue call to action. New records start at zero stock. The preview offers decimal stock adjustments to six places with a non-negative-balance guard; it remains browser-only. Signed-in item creation and reviewed delivery receiving use server commands. Stock count remains an unposted page draft, with no backend count command.
+- Stock now has visible header actions: local preview **Add item** and **Add stock**, plus authenticated **Add item** and **Receive stock**. The server Receive stock action opens the reviewed delivery form. A separate authenticated **Count stock** workspace saves full outlet count sessions, lets storekeepers record quantities, and requires a manager to post all variances atomically. Local preview item/stock changes remain browser-only. Server barcode/category/reorder setup, package conversion, import, manual adjustment, transfer, spot counts, physical locations and unknown-barcode resolution are still missing.
 
 ## Role journey map
 
 | Role | Intended journey | Current UI coverage | Blocking gaps before operational use |
 |---|---|---|---|
 | Administrator | Business/outlet setup, capabilities/tax, imports, staff/devices, first shift and readiness | Local setup preview; server item setup and connected commands | Server-mode setup and Manage are hidden. No account provisioning, outlet/device administration, tax-policy review, imports or go-live command. |
-| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale, unknown-command recovery, history and cash-up; local receipt preview | Only one cash tender is confirmed. No provider/split tender, immutable receipt document or complete drawer reconciliation. PostgreSQL/browser acceptance is pending. |
-| Storekeeper | Delivery, package conversion, receipt, count, variance review and movements | Server item setup, reviewed receipt and movement history; local count preview | No package conversion, barcode resolution, count session, blind count or approved variance command. |
+| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale, unknown-command recovery, history and cash-up; local receipt preview | The supported cash slice passed PostgreSQL acceptance, including refund and close. Browser acceptance remains pending. Only one cash tender is confirmed; provider/split tender, immutable receipt documents and complete drawer reconciliation are absent. |
+| Storekeeper | Delivery, package conversion, receipt, count, variance review and movements | Server item setup, reviewed receipt, movement history and saved full-outlet count draft; manager posts the count | No package conversion, barcode resolution, spot/blind count, physical locations or partial count adjustment flow. |
 | Waiter/cook/bartender | Table, order, fire/routing, station progress and settlement | Local tables and kitchen preview | Hidden in server mode. No persistent table/order/ticket commands, station routing, recipe consumption or settlement link. |
-| Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in and booked-night cash checkout | No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. Database acceptance remains pending. |
+| Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in, booked-night cash checkout and room-ready transitions | PostgreSQL acceptance covers the documented lifecycle; browser acceptance remains pending. No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. |
 | Housekeeper | Dirty, cleaning, inspection, ready and maintenance hold | Server dirty-room list and mark-ready command | No cleaning-start/inspection workflow or maintenance controls. Event history is not yet reviewed in an operator workflow. |
 | Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; report/ledger preview only when not signed in | Reports are hidden in server mode. No authoritative ledger/report query, completeness/freshness metadata, period controls or full drill-through. COGS still uses mutable catalog cost. |
 
@@ -46,9 +46,9 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 ### Stock receiving and count
 
 - [ ] Preview package conversion and exact minor-unit extension before posting a receipt.
-- [ ] Persist count drafts across restart and route unknown barcodes to resolution.
-- [ ] Count review captures baseline revision, location, quantities and variance reasons.
-- [ ] One atomic command records before/after movement evidence; concurrent sale/count returns a recoverable conflict.
+- [x] Persist full outlet count drafts across reload and compare every balance against the saved baseline revision. Unknown barcodes still have no server resolution queue.
+- [ ] Count review captures a physical location, quantities and variance reasons. The current area label is descriptive only; stock balances are outlet-wide.
+- [x] One atomic command records count movements and a balanced variance journal; a concurrent receipt/sale returns a recoverable version conflict and leaves the count intact.
 
 ### Hotel and restaurant
 
@@ -90,7 +90,7 @@ The stylesheet includes mobile navigation, short-height desktop rules, 44px cont
 
 1. Keep the current P0 source fixes and PostgreSQL CI acceptance together: fresh migrations, authenticated catalog read, exact command replay and overlapping reservation contention.
 2. Complete cashier/shift acceptance for rejected and unknown outcomes, split/provider tenders, immutable receipts, refunds and drawer reconciliation.
-3. Add stock counts/transfers/cost layers, restaurant tickets and customer-account services as separate transactional slices.
+3. Add spot counts, transfers, barcode/package catalog support and cost layers, then restaurant tickets and customer-account services as separate transactional slices.
 4. Complete hotel deposits, folio charges, payment and actual-night policy before calling the hotel lifecycle complete.
 5. Build reports from authoritative records, then review viewport, keyboard, touch/scanner and screen-reader behavior on connected journeys.
 

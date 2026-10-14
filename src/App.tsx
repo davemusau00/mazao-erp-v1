@@ -28,10 +28,12 @@ import { ReservationWorkspace } from './components/hospitality/ReservationWorksp
 import { BackendHotelWorkspace } from './components/hospitality/BackendHotelWorkspace';
 import { BackendTodayWorkspace } from './components/home/BackendTodayWorkspace';
 import { StockCountWorkspace } from './components/inventory/StockCountWorkspace';
+import { BackendStockCountWorkspace } from './components/inventory/BackendStockCountWorkspace';
 import { apiClient } from './services/apiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
+  const [purchaseStartTab, setPurchaseStartTab] = useState<'orders' | 'receive'>('orders');
   const [activeTenant, setActiveTenant] = useState(storage.getActiveTenant());
   const [backendSession, setBackendSession] = useState(apiClient.getSession());
   const [tenants] = useState(storage.getTenants());
@@ -116,12 +118,12 @@ export default function App() {
           : <ReservationWorkspace tenant={activeTenant} />)}
 
         {activeTab === 'stock' && (
-          <InventoryView tenant={activeTenant} />
+          <InventoryView tenant={activeTenant} onOpenReceiving={() => { setPurchaseStartTab('receive'); setActiveTab('purchasing'); }} />
         )}
 
-        {activeTab === 'stock-count' && <StockCountWorkspace />}
+        {activeTab === 'stock-count' && (backendSession ? <BackendStockCountWorkspace /> : <StockCountWorkspace />)}
 
-        {activeTab === 'purchasing' && <ProcurementWorkspace />}
+        {activeTab === 'purchasing' && <ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={() => setPurchaseStartTab('orders')} />}
 
         {activeTab === 'customers' && (
           <CustomerDirectoryView tenant={activeTenant} />

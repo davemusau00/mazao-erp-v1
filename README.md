@@ -15,12 +15,12 @@ Open the Vite URL printed in the terminal. `npm run typecheck` checks both the U
 
 ## Run the backend integration slice
 
-The repository includes a partial Fastify/PostgreSQL API for authenticated sessions, catalog and inventory reads, item setup, reviewed receiving, operator shifts, cash sales/refunds, and the initial hotel room/reservation/stay workflow. The [Backend integration register](docs/24-BACKEND-INTEGRATION.md) maps each connected screen to its client calls, routes, commands, persistence effects, and unsupported boundaries. Start PostgreSQL, run `npm run db:migrate`, and bootstrap an operator before `npm run api:dev`; the UI dev server proxies `/api/v1` to the API. CI provisions PostgreSQL for migration and API acceptance checks.
+The repository includes a partial Fastify/PostgreSQL API for authenticated sessions, catalog and inventory reads, item setup, reviewed receiving, outlet-wide stock counts, operator shifts and till movements, cash sales/refunds, and the initial hotel room/reservation/stay workflow. The [Backend integration register](docs/24-BACKEND-INTEGRATION.md) maps each connected screen to its client calls, routes, commands, persistence effects, and unsupported boundaries. Start PostgreSQL, run `npm run db:migrate`, and bootstrap an operator before `npm run api:dev`; the UI dev server proxies `/api/v1` to the API. CI provisions PostgreSQL for migration and API acceptance checks.
 
 ## Current UI
 
-- **Server-connected:** Today shift state, cash POS, sales history/cash refunds, item setup, delivery receiving, shift cash-up, room/reservation/check-in/checkout/housekeeping foundation.
-- **Local preview only:** stock counts, restaurant tables/kitchen, customer accounts, finance/reporting, staff/device management, onboarding, and settings. These are hidden while connected to the backend.
+- **Server-connected:** Today shift state, cash POS, sales history/cash refunds, item setup, delivery receiving, full outlet stock counts with reviewed posting, shift cash-up and paid-in/payout evidence, room/reservation/check-in/checkout/housekeeping foundation.
+- **Local preview only:** the legacy page-held count draft, restaurant tables/kitchen, customer accounts, finance/reporting, staff/device management, onboarding, and settings. These preview surfaces are hidden while connected to the backend. Server spot counts and unknown-barcode resolution are not yet available.
 - **Help and recovery:** operator guidance, IndexedDB retention for unknown server commands, status lookup, and demo-only sync tools remain clearly separated.
 
 The interface uses an OLED dark theme with blue and emerald semantic accents. Navigation and the main workflows adapt to role, enabled business type, and screen width.

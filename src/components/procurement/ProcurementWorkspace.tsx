@@ -11,8 +11,8 @@ type ProcurementTab = 'orders' | 'receive' | 'suppliers' | 'payables';
 interface SupplierDraft { id: string; name: string; reference: string; }
 interface DeliveryLine { product: ProductItem; quantity: string; unitCost: string; }
 
-export function ProcurementWorkspace() {
-  const [tab, setTab] = useState<ProcurementTab>('orders');
+export function ProcurementWorkspace({ initialTab = 'orders', onInitialTabConsumed }: { initialTab?: ProcurementTab; onInitialTabConsumed?: () => void }) {
+  const [tab, setTab] = useState<ProcurementTab>(initialTab);
   const [suppliers, setSuppliers] = useState<SupplierDraft[]>([]);
   const [supplierName, setSupplierName] = useState('');
   const [supplierReference, setSupplierReference] = useState('');
@@ -38,6 +38,7 @@ export function ProcurementWorkspace() {
   const totalUnits = sumDecimalStrings(lines.map(line => line.quantity));
   const refreshServerProducts=async()=>{try{const items=(await apiClient.listCatalog()).items;setServerProducts(items);setServerError('');return items}catch(error){setServerError(error instanceof Error?error.message:'Could not load server catalog.');return [] as BackendProduct[]}};
   useEffect(()=>{if(backendSession){void (async()=>{const items=await refreshServerProducts();const recoverable=await apiClient.listRecoverableCommands(backendSession.tenant.id);const stored=recoverable.find(record=>record.command.type==='inventory.receive');if(!stored)return;pendingReceipt.current=stored.command;setUnknownReceiptId(stored.command.commandId);setTab('receive');const payloadLines=stored.command.payload.lines as Array<{productId:string;quantity:string;unitCostMinor:number}>;setLines(payloadLines.flatMap(line=>{const item=items.find(product=>product.id===line.productId);return item?[{product:{id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:(item.costPriceMinor??0)/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit},quantity:line.quantity,unitCost:`${Math.floor(line.unitCostMinor/100)}.${String(line.unitCostMinor%100).padStart(2,'0')}`}]:[]}));setReference(String(stored.command.payload.documentReference??''));setServerSupplierName(String(stored.command.payload.supplierName??''));setReviewOpen(true);setReceiptNotice('An unresolved receipt is restored on this device. Check its server status before continuing.')})()}else setServerProducts([])},[backendSession?.deviceId]);
+  useEffect(()=>{if(initialTab!=='orders')onInitialTabConsumed?.()},[initialTab,onInitialTabConsumed]);
 
   const addLine = () => {
     if (!selectedProductRecord || !quantity || Number(quantity) <= 0) return;

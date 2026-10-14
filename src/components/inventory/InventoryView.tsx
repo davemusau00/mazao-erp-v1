@@ -20,6 +20,7 @@ import {BackendInventoryWorkspace} from './BackendInventoryWorkspace';
 
 interface InventoryViewProps {
   tenant: TenantProfile;
+  onOpenReceiving: () => void;
 }
 
 function stockDeltaText(value: string, type: StockMovement['type']): string | null {
@@ -30,13 +31,15 @@ function stockDeltaText(value: string, type: StockMovement['type']): string | nu
   return normalized;
 }
 
-export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
+export const InventoryView: React.FC<InventoryViewProps> = ({ tenant, onOpenReceiving }) => {
   const [products, setProducts] = useState<ProductItem[]>(storage.getProducts());
   const [movements, setMovements] = useState<StockMovement[]>(storage.getStockMovements());
   const [activeTab, setActiveTab] = useState<'catalogue' | 'movements'>('catalogue');
   const [searchQuery, setSearchQuery] = useState('');
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [stockPickerOpen, setStockPickerOpen] = useState(false);
+  const [stockPickerProductId, setStockPickerProductId] = useState('');
   const [newName, setNewName] = useState('');
   const [newSku, setNewSku] = useState('');
   const [newBarcode, setNewBarcode] = useState('');
@@ -47,6 +50,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
   const [newReorderPoint, setNewReorderPoint] = useState('0');
   const [addItemError, setAddItemError] = useState('');
   const canCreateProduct = storage.hasPermission('products.manage');
+  const canAdjustStock = storage.hasPermission('inventory.adjust');
 
   // Adjustment Modal
   const [adjustingProduct, setAdjustingProduct] = useState<ProductItem | null>(null);
@@ -133,10 +137,22 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
     }
   };
 
-  if(apiClient.getSession()) return <BackendInventoryWorkspace tenant={tenant}/>;
+  if(apiClient.getSession()) return <BackendInventoryWorkspace tenant={tenant} onOpenReceiving={onOpenReceiving}/>;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#090b10] space-y-6 pb-20 lg:pb-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold tracking-[.18em] text-blue-300">STOCK WORKSPACE</p>
+          <h1 className="mt-1 text-2xl font-bold text-zinc-100">Inventory</h1>
+          <p className="mt-1 text-sm text-zinc-400">Manage catalogue items and review on-hand stock.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canAdjustStock && <button type="button" onClick={() => { setStockPickerProductId(''); setStockPickerOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-sm font-semibold text-zinc-100 hover:border-blue-500"><Package className="h-4 w-4 text-blue-300" /> Add stock</button>}
+          {canCreateProduct && <button type="button" onClick={() => { setAddItemError(''); setAddItemOpen(true); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-500"><Plus className="h-4 w-4" /> Add item</button>}
+        </div>
+      </header>
+      <p className="-mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">Local preview only: item and stock changes stay in this browser and are not posted to the server.</p>
       {/* Inventory KPI Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="p-3.5 sm:p-4 rounded-xl bg-zinc-950 border border-zinc-850">
@@ -196,15 +212,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {canCreateProduct && activeTab === 'catalogue' && (
-            <button
-              type="button"
-              onClick={() => { setAddItemError(''); setAddItemOpen(true); }}
-              className="flex min-h-[40px] items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-500"
-            >
-              <Plus className="h-3.5 w-3.5" /> Add item
-            </button>
-          )}
           {activeTab === 'catalogue' && (
             <button
               onClick={() => setShowLowStockOnly(!showLowStockOnly)}
@@ -231,6 +238,28 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ tenant }) => {
           </div>
         </div>
       </div>
+
+      {stockPickerOpen && (
+        <ResponsiveDialog
+          isOpen={stockPickerOpen}
+          onClose={() => setStockPickerOpen(false)}
+          title="Choose an item to add stock"
+          subtitle="This local preview records a browser-only stock adjustment"
+          icon={<Package className="h-5 w-5 text-blue-400" />}
+          footerActions={
+            <>
+              <button type="button" onClick={() => setStockPickerOpen(false)} className="min-h-11 rounded-lg px-4 text-zinc-300 hover:bg-zinc-800">Cancel</button>
+              <button type="button" disabled={!products.some(product => product.id === stockPickerProductId)} onClick={() => {
+                const product = products.find(item => item.id === stockPickerProductId);
+                if (!product) return;
+                setAdjustingProduct(product); setAdjustDelta('1'); setAdjustType('restock'); setAdjustNote(''); setAdjustError(''); setStockPickerOpen(false);
+              }} className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50">Continue</button>
+            </>
+          }
+        >
+          {products.length ? <label className="block text-sm text-zinc-300">Catalogue item<select autoFocus value={stockPickerProductId} onChange={event => setStockPickerProductId(event.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-white"><option value="">Select an item</option>{products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.stockOnHand} {product.unit} on hand</option>)}</select></label> : <p className="text-sm text-zinc-300">Add a catalogue item before recording a stock adjustment.</p>}
+        </ResponsiveDialog>
+      )}
 
       {addItemOpen && (
         <ResponsiveDialog

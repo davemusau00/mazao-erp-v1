@@ -20,3 +20,8 @@ A durable location count session stores baseline revision, scanned lines, unknow
 
 ## Stock availability
 Display physical, reserved, pending local, available. Distinguish local provisional position from server authoritative position. Concurrency locking protects selling remaining stock and reconciling offline reservations.
+
+## Current server implementation boundary
+The API currently supports a durable **full outlet count** session. Opening it snapshots each active catalog item's on-hand quantity, balance version, unit and current catalog cost. Storekeepers can save count quantities and variance reasons; a manager-authorized command posts all differences together, records immutable count movements and a balanced variance journal, and rejects stale balance versions without discarding the draft. A manager can cancel a stale or abandoned draft, which remains visible in count history. The optional area label is descriptive only because inventory is not yet modeled by physical location.
+
+Spot counts, unknown barcode resolution, blind-count separation, location-specific balances, package conversions, count-adjustment commands independent of a full count, and FIFO/weighted-average cost layers remain unimplemented. Count variance journals use the unit cost captured from the catalog at session opening; this does not resolve the separate inventory valuation policy.

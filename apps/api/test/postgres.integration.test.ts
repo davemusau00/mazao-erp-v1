@@ -14,7 +14,7 @@ if (!databaseUrl) {
     import('../src/app.js'), import('../src/security.js'), import('../src/db.js'),
   ]);
 
-  test('fresh migrations support authenticated commands, canonical replay, and role-scoped cost projections', async () => {
+  test('fresh migrations support authenticated commands, stock-count recovery, canonical replay, and role-scoped cost projections', async () => {
     const tenantId = randomUUID();
     const outletId = randomUUID();
     const userId = randomUUID();
@@ -111,6 +111,36 @@ if (!databaseUrl) {
       const confirmedReservations = await db.pool.query<{ count: string }>(`SELECT count(*)::text count FROM hospitality.reservations WHERE tenant_id=$1 AND outlet_id=$2 AND room_id=$3 AND status='CONFIRMED' AND check_in_date<'2030-01-12' AND check_out_date>'2030-01-10'`, [tenantId, outletId, roomId]);
       assert.equal(confirmedReservations.rows[0].count, '1');
 
+      const lifecycleRoomCommand = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.room.create', occurredAt: new Date().toISOString(), expectedVersions: {},
+        payload: { roomNumber: '102', roomType: 'Standard', nightlyRateMinor: 10000, taxRateBps: 1600 },
+      });
+      assert.equal(lifecycleRoomCommand.json().status, 'CONFIRMED');
+      const lifecycleRoomId = String(lifecycleRoomCommand.json().value.roomId);
+      const businessDateResult = await db.pool.query<{ business_date: string }>(`SELECT to_char(now() AT TIME ZONE time_zone, 'YYYY-MM-DD') business_date FROM core.outlets WHERE id=$1`, [outletId]);
+      const arrivalDate = businessDateResult.rows[0].business_date;
+      const departureDate = new Date(Date.parse(`${arrivalDate}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10);
+      const lifecycleReservation = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.reservation.create', occurredAt: new Date().toISOString(), expectedVersions: { [`room:${lifecycleRoomId}`]: 1 },
+        payload: { roomId: lifecycleRoomId, guestName: 'Lifecycle Guest', guestContact: '+254700000001', checkInDate: arrivalDate, checkOutDate: departureDate },
+      });
+      assert.equal(lifecycleReservation.json().status, 'CONFIRMED');
+      const lifecycleReservationId = String(lifecycleReservation.json().value.reservationId);
+      const lifecycleCheckIn = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.checkin', occurredAt: new Date().toISOString(),
+        expectedVersions: { [`room:${lifecycleRoomId}`]: 2, [`reservation:${lifecycleReservationId}`]: 1 },
+        payload: { reservationId: lifecycleReservationId },
+      });
+      assert.equal(lifecycleCheckIn.json().status, 'CONFIRMED');
+      const lifecycleStayId = String(lifecycleCheckIn.json().value.stayId);
+      const lifecycleFolioId = String(lifecycleCheckIn.json().value.folioId);
+
+      const checkedInState = await db.pool.query<{ room_status: string; stay_status: string; folio_status: string }>(`SELECT r.status room_status,s.status stay_status,f.status folio_status FROM hospitality.rooms r JOIN hospitality.stays s ON s.room_id=r.id AND s.tenant_id=r.tenant_id AND s.outlet_id=r.outlet_id JOIN hospitality.folios f ON f.stay_id=s.id AND f.tenant_id=s.tenant_id AND f.outlet_id=s.outlet_id WHERE s.id=$1 AND s.tenant_id=$2 AND s.outlet_id=$3`, [lifecycleStayId, tenantId, outletId]);
+      assert.deepEqual(checkedInState.rows[0], { room_status: 'OCCUPIED', stay_status: 'CHECKED_IN', folio_status: 'OPEN' });
+
       const foreignTenantId = randomUUID();
       const foreignOutletId = randomUUID();
       const foreignProductId = randomUUID();
@@ -128,6 +158,142 @@ if (!databaseUrl) {
       assert.equal(receipt.statusCode, 200, receipt.body);
       assert.equal(receipt.json().status, 'CONFIRMED');
 
+      const countOpen = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.open',
+        occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { areaLabel: 'Main store' },
+      });
+      assert.equal(countOpen.json().status, 'CONFIRMED', countOpen.body);
+      const countId = String(countOpen.json().value.countId);
+      const currentCountResponse = await app.inject({ method: 'GET', url: '/api/v1/inventory/counts/current', headers });
+      assert.equal(currentCountResponse.statusCode, 200, currentCountResponse.body);
+      const currentCount = currentCountResponse.json().count as { id:string;version:number;lineCount:number;lines:Array<{productId:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null}> };
+      assert.equal(currentCount.id, countId);
+      assert.equal(currentCount.lineCount, 1);
+      assert.equal(currentCount.lines[0].expectedQuantity, '4.000000');
+      assert.equal(currentCount.lines[0].expectedBalanceVersion, 2);
+
+      const incompletePost = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.post',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${countId}`]: 1 }, payload: { countId },
+      });
+      assert.equal(incompletePost.json().status, 'REJECTED');
+
+      const storekeeperId = randomUUID();
+      const storekeeperDeviceId = randomUUID();
+      const storekeeperEmail = `storekeeper-${storekeeperId}@example.invalid`;
+      const storekeeperPassword = 'storekeeper-count-integration-password';
+      await db.pool.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,$3,$4)', [storekeeperId, storekeeperEmail, await hashPassword(storekeeperPassword), 'Integration Storekeeper']);
+      await db.pool.query("INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,'storekeeper')", [tenantId, storekeeperId]);
+      await db.pool.query('INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,$5)', [storekeeperDeviceId, tenantId, outletId, storekeeperId, 'Disposable count device']);
+      const storekeeperLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email: storekeeperEmail, password: storekeeperPassword } });
+      assert.equal(storekeeperLogin.statusCode, 200, storekeeperLogin.body);
+      const storekeeperSession = storekeeperLogin.json() as { csrfToken:string;user:{permissions:string[]} };
+      assert.ok(storekeeperSession.user.permissions.includes('inventory.count'));
+      assert.ok(!storekeeperSession.user.permissions.includes('inventory.count.approve'));
+      const storekeeperRawCookies = storekeeperLogin.headers['set-cookie'];
+      const storekeeperCookies = (Array.isArray(storekeeperRawCookies) ? storekeeperRawCookies : [storekeeperRawCookies])
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => value.split(';', 1)[0])
+        .join('; ');
+      const storekeeperHeaders = { cookie: storekeeperCookies, origin: 'http://localhost:3000', 'x-csrf-token': storekeeperSession.csrfToken };
+      const storekeeperDraftCommand = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: storekeeperDeviceId, type: 'inventory.count.save',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${countId}`]: 1 },
+        payload: { countId, lines: [{ productId, countedQuantity: '3', varianceReason: null }] },
+      };
+      const savedCount = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' }, payload: JSON.stringify(storekeeperDraftCommand) });
+      assert.equal(savedCount.statusCode, 200, savedCount.body);
+      assert.equal(savedCount.json().status, 'CONFIRMED');
+      assert.equal(savedCount.json().value.version, 2);
+      const savedCountReplay = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' }, payload: JSON.stringify(storekeeperDraftCommand) });
+      assert.deepEqual(savedCountReplay.json(), savedCount.json(), 'count draft replay must not advance its version twice');
+      const storekeeperPost = await app.inject({
+        method:'POST',url:'/api/v1/commands',headers:{...storekeeperHeaders,'content-type':'application/json'},
+        payload:JSON.stringify({protocolVersion:1,commandId:randomUUID(),tenantId,deviceId:storekeeperDeviceId,type:'inventory.count.post',occurredAt:new Date().toISOString(),expectedVersions:{[`count:${countId}`]:2},payload:{countId}}),
+      });
+      assert.equal(storekeeperPost.json().status,'REJECTED');
+      assert.equal(storekeeperPost.json().code,'FORBIDDEN');
+
+      const varianceWithoutReason = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.post',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${countId}`]: 2 }, payload: { countId },
+      });
+      assert.equal(varianceWithoutReason.json().status, 'REJECTED');
+      assert.match(varianceWithoutReason.json().message, /reason is required/i);
+
+      const correctedCountDraft = await app.inject({
+        method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' },
+        payload: JSON.stringify({ ...storekeeperDraftCommand, commandId: randomUUID(), expectedVersions: { [`count:${countId}`]: 2 }, payload: { countId, lines: [{ productId, countedQuantity: '3', varianceReason: 'Damaged during storage' }] } }),
+      });
+      assert.equal(correctedCountDraft.json().status, 'CONFIRMED', correctedCountDraft.body);
+      assert.equal(correctedCountDraft.json().value.version, 3);
+
+      const postedCount = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.post',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${countId}`]: 3 }, payload: { countId },
+      });
+      assert.equal(postedCount.json().status, 'CONFIRMED', postedCount.body);
+      assert.equal(postedCount.json().value.adjustedLineCount, 1);
+      assert.equal(postedCount.json().value.shrinkMinor, 15000);
+      const postedCountState = await db.pool.query<{quantity:string;movement_count:string;status:string;unbalanced_count_journals:string}>(`SELECT
+        (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,
+        (SELECT count(*)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$4 AND movement_type='COUNT_ADJUSTMENT') movement_count,
+        (SELECT status FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$4) status,
+        (SELECT count(*)::text FROM finance.journal_entries je LEFT JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 AND je.source_type='INVENTORY_COUNT' GROUP BY je.id HAVING coalesce(sum(jl.debit_minor),0)<>coalesce(sum(jl.credit_minor),0)) unbalanced_count_journals`, [tenantId, outletId, productId, countId]);
+      assert.equal(postedCountState.rows[0].quantity, '3.000000');
+      assert.equal(postedCountState.rows[0].movement_count, '1');
+      assert.equal(postedCountState.rows[0].status, 'POSTED');
+      assert.equal(postedCountState.rows[0].unbalanced_count_journals ?? '0', '0');
+      const postedCountHistory = await app.inject({ method:'GET',url:'/api/v1/inventory/counts',headers });
+      assert.equal(postedCountHistory.statusCode,200,postedCountHistory.body);
+      assert.equal((postedCountHistory.json().counts as Array<{id:string;status:string}>).find(item=>item.id===countId)?.status,'POSTED');
+      const postedCountDetails = await app.inject({ method:'GET',url:`/api/v1/inventory/counts/${countId}`,headers });
+      assert.equal(postedCountDetails.statusCode,200,postedCountDetails.body);
+      assert.equal(postedCountDetails.json().count.lines[0].varianceReason,'Damaged during storage');
+      const foreignCountDetails = await app.inject({ method:'GET',url:`/api/v1/inventory/counts/${randomUUID()}`,headers });
+      assert.equal(foreignCountDetails.statusCode,404);
+
+      const secondCountOpen = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.open',
+        occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { areaLabel: 'Main store recount' },
+      });
+      assert.equal(secondCountOpen.json().status, 'CONFIRMED', secondCountOpen.body);
+      const conflictedCountId = String(secondCountOpen.json().value.countId);
+      const secondCountDraft = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: storekeeperDeviceId, type: 'inventory.count.save',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${conflictedCountId}`]: 1 },
+        payload: { countId: conflictedCountId, lines: [{ productId, countedQuantity: '3', varianceReason: null }] },
+      };
+      const savedSecondCount = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' }, payload: JSON.stringify(secondCountDraft) });
+      assert.equal(savedSecondCount.json().status, 'CONFIRMED', savedSecondCount.body);
+      const concurrentReceipt = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.receive',
+        occurredAt: new Date().toISOString(), expectedVersions: {},
+        payload: { documentReference: 'CI-DURING-COUNT', lines: [{ productId, quantity: '1', unitCostMinor: 15000 }] },
+      });
+      assert.equal(concurrentReceipt.json().status, 'CONFIRMED', concurrentReceipt.body);
+      const staleCountPost = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.post',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`count:${conflictedCountId}`]: 2 }, payload: { countId: conflictedCountId },
+      });
+      assert.equal(staleCountPost.json().status, 'CONFLICT');
+      assert.equal(staleCountPost.json().code, 'VERSION_CONFLICT');
+      const conflictedCountState = await db.pool.query<{status:string;quantity:string;movement_count:string}>(`SELECT
+        (SELECT status FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3) status,
+        (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$4) quantity,
+        (SELECT count(*)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$3 AND movement_type='COUNT_ADJUSTMENT') movement_count`, [tenantId, outletId, conflictedCountId, productId]);
+      assert.equal(conflictedCountState.rows[0].status, 'OPEN', 'conflict must preserve the count draft');
+      assert.equal(conflictedCountState.rows[0].quantity, '4.000000', 'conflict must not overwrite the concurrent receipt');
+      assert.equal(conflictedCountState.rows[0].movement_count, '0');
+      const cancelCount = await postCommand({
+        protocolVersion:1,commandId:randomUUID(),tenantId,deviceId,type:'inventory.count.cancel',occurredAt:new Date().toISOString(),
+        expectedVersions:{[`count:${conflictedCountId}`]:2},payload:{countId:conflictedCountId},
+      });
+      assert.equal(cancelCount.json().status,'CONFIRMED',cancelCount.body);
+      const noCurrentCount = await app.inject({method:'GET',url:'/api/v1/inventory/counts/current',headers});
+      assert.equal(noCurrentCount.statusCode,200,noCurrentCount.body);
+      assert.equal(noCurrentCount.json().count,null);
+
       const shiftOpen = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.open',
         occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { openingFloatMinor: 50000 },
@@ -135,9 +301,83 @@ if (!databaseUrl) {
       assert.equal(shiftOpen.json().status, 'CONFIRMED');
       const shiftId = String(shiftOpen.json().value.shiftId);
 
+      const paidIn = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.cash.movement',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 1 },
+        payload: { shiftId, movementType: 'PAID_IN', amountMinor: 5000, reason: 'Opening change float', reference: 'VOUCHER-PI-1' },
+      });
+      assert.equal(paidIn.json().status, 'CONFIRMED', paidIn.body);
+      assert.equal(paidIn.json().value.expectedCashMinor, 55000);
+      assert.equal(paidIn.json().value.version, 2);
+
+      const payout = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.cash.movement',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 2 },
+        payload: { shiftId, movementType: 'PAYOUT', amountMinor: 3000, reason: 'Petty cash delivery', reference: 'VOUCHER-PO-1' },
+      });
+      assert.equal(payout.json().status, 'CONFIRMED', payout.body);
+      assert.equal(payout.json().value.expectedCashMinor, 52000);
+      assert.equal(payout.json().value.version, 3);
+
+      const overdrawnPayout = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.cash.movement',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 3 },
+        payload: { shiftId, movementType: 'PAYOUT', amountMinor: 60000, reason: 'Must be rejected' },
+      });
+      assert.equal(overdrawnPayout.json().status, 'REJECTED');
+
+      const tillState = await app.inject({ method: 'GET', url: '/api/v1/shifts/current', headers });
+      assert.equal(tillState.statusCode, 200, tillState.body);
+      const currentTill = tillState.json().shift as { version: number; expectedCashMinor: number; cashMovements: Array<{ movementType: string; amountMinor: number; reference: string|null }> };
+      assert.equal(currentTill.version, 3);
+      assert.equal(currentTill.expectedCashMinor, 52000);
+      assert.deepEqual(currentTill.cashMovements.map(movement => [movement.movementType, movement.amountMinor, movement.reference]), [
+        ['PAYOUT', 3000, 'VOUCHER-PO-1'], ['PAID_IN', 5000, 'VOUCHER-PI-1'],
+      ]);
+
+      // Advance the test stay by one booked night without waiting for a real calendar day.
+      const previousDate = new Date(Date.parse(`${arrivalDate}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10);
+      await db.pool.query(`UPDATE hospitality.stays SET check_in_date=$2::date,expected_check_out_date=$3::date WHERE id=$1 AND tenant_id=$4 AND outlet_id=$5`, [lifecycleStayId, previousDate, arrivalDate, tenantId, outletId]);
+      await db.pool.query(`UPDATE hospitality.reservations SET check_in_date=$2::date,check_out_date=$3::date WHERE id=$1 AND tenant_id=$4 AND outlet_id=$5`, [lifecycleReservationId, previousDate, arrivalDate, tenantId, outletId]);
+      const underpaidCheckout = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.checkout', occurredAt: new Date().toISOString(),
+        expectedVersions: { [`room:${lifecycleRoomId}`]: 3, [`stay:${lifecycleStayId}`]: 1, [`shift:${shiftId}`]: 3 },
+        payload: { stayId: lifecycleStayId, shiftId, currency: 'KES', tenderedMinor: 11599 },
+      });
+      assert.equal(underpaidCheckout.json().status, 'REJECTED');
+      const noCashOnRejectedCheckout = await db.pool.query<{ entries: string; expected_cash_minor: string }>(`SELECT
+        (SELECT count(*)::text FROM hospitality.folio_entries WHERE tenant_id=$1 AND outlet_id=$2 AND folio_id=$3) entries,
+        (SELECT expected_cash_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$4) expected_cash_minor`, [tenantId, outletId, lifecycleFolioId, shiftId]);
+      assert.equal(noCashOnRejectedCheckout.rows[0].entries, '0');
+      assert.equal(noCashOnRejectedCheckout.rows[0].expected_cash_minor, '52000');
+
+      const checkout = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.checkout', occurredAt: new Date().toISOString(),
+        expectedVersions: { [`room:${lifecycleRoomId}`]: 3, [`stay:${lifecycleStayId}`]: 1, [`shift:${shiftId}`]: 3 },
+        payload: { stayId: lifecycleStayId, shiftId, currency: 'KES', tenderedMinor: 12000 },
+      });
+      assert.equal(checkout.json().status, 'CONFIRMED');
+      assert.equal(checkout.json().value.subtotalMinor, 10000);
+      assert.equal(checkout.json().value.taxMinor, 1600);
+      assert.equal(checkout.json().value.totalMinor, 11600);
+      assert.equal(checkout.json().value.changeMinor, 400);
+      const housekeeping = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
+        type: 'hotel.room.mark_ready', occurredAt: new Date().toISOString(), expectedVersions: { [`room:${lifecycleRoomId}`]: 4 },
+        payload: { roomId: lifecycleRoomId },
+      });
+      assert.equal(housekeeping.json().status, 'CONFIRMED');
+      const completedStay = await db.pool.query<{ room_status: string; stay_status: string; folio_status: string; folio_entries: string; housekeeping_events: string }>(`SELECT r.status room_status,s.status stay_status,f.status folio_status,
+        (SELECT count(*)::text FROM hospitality.folio_entries WHERE tenant_id=$1 AND outlet_id=$2 AND folio_id=$3) folio_entries,
+        (SELECT count(*)::text FROM hospitality.housekeeping_events WHERE tenant_id=$1 AND outlet_id=$2 AND room_id=$4) housekeeping_events
+        FROM hospitality.rooms r JOIN hospitality.stays s ON s.room_id=r.id AND s.tenant_id=r.tenant_id AND s.outlet_id=r.outlet_id JOIN hospitality.folios f ON f.stay_id=s.id AND f.tenant_id=s.tenant_id AND f.outlet_id=s.outlet_id WHERE s.id=$5 AND s.tenant_id=$1 AND s.outlet_id=$2`, [tenantId, outletId, lifecycleFolioId, lifecycleRoomId, lifecycleStayId]);
+      assert.deepEqual(completedStay.rows[0], { room_status: 'READY', stay_status: 'CHECKED_OUT', folio_status: 'SETTLED', folio_entries: '2', housekeeping_events: '2' });
+
       const foreignSale = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'sales.order.settle',
-        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 1 },
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 4 },
         payload: { shiftId, lines: [{ productId: foreignProductId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 30000, currency: 'KES' }] },
       });
       assert.equal(foreignSale.json().status, 'REJECTED');
@@ -149,7 +389,7 @@ if (!databaseUrl) {
         deviceId,
         type: 'sales.order.settle',
         occurredAt: new Date().toISOString(),
-        expectedVersions: { [`shift:${shiftId}`]: 1 },
+        expectedVersions: { [`shift:${shiftId}`]: 4 },
         payload: { shiftId, lines: [{ productId, quantity: '2' }], tenders: [{ method: 'CASH', amountMinor: 60000, currency: 'KES' }] },
       };
       const sale = await postCommand(saleCommand);
@@ -182,12 +422,35 @@ if (!databaseUrl) {
       assert.ok(cashierSession.user.permissions.includes('commerce.sell'));
       assert.ok(!cashierSession.user.permissions.includes('catalog.manage'));
       assert.ok(!cashierSession.user.permissions.includes('finance.view'));
+      assert.ok(!cashierSession.user.permissions.includes('shift.payout'));
       const cashierRawCookies = cashierLogin.headers['set-cookie'];
       const cashierCookies = (Array.isArray(cashierRawCookies) ? cashierRawCookies : [cashierRawCookies])
         .filter((value): value is string => typeof value === 'string')
         .map(value => value.split(';', 1)[0])
         .join('; ');
       const cashierHeaders = { cookie: cashierCookies, origin: 'http://localhost:3000', 'x-csrf-token': cashierSession.csrfToken };
+
+      const cashierPayout = await app.inject({
+        method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'shift.cash.movement',
+          occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 5 },
+          payload: { shiftId, movementType: 'PAYOUT', amountMinor: 1000, reason: 'Unauthorized cashier payout' },
+        }),
+      });
+      assert.equal(cashierPayout.statusCode, 200, cashierPayout.body);
+      assert.equal(cashierPayout.json().status, 'REJECTED');
+      assert.equal(cashierPayout.json().code, 'FORBIDDEN');
+
+      const cashierCountAccess = await app.inject({ method:'GET',url:'/api/v1/inventory/counts',headers:cashierHeaders });
+      assert.equal(cashierCountAccess.statusCode,403);
+      const cashierCountCancel = await app.inject({
+        method:'POST',url:'/api/v1/commands',headers:{...cashierHeaders,'content-type':'application/json'},
+        payload:JSON.stringify({protocolVersion:1,commandId:randomUUID(),tenantId,deviceId:cashierDeviceId,type:'inventory.count.cancel',occurredAt:new Date().toISOString(),expectedVersions:{[`count:${conflictedCountId}`]:2},payload:{countId:conflictedCountId}}),
+      });
+      assert.equal(cashierCountCancel.statusCode,200,cashierCountCancel.body);
+      assert.equal(cashierCountCancel.json().status,'REJECTED');
+      assert.equal(cashierCountCancel.json().code,'FORBIDDEN');
 
       const cashierCatalog = await app.inject({ method: 'GET', url: '/api/v1/catalog/items', headers: cashierHeaders });
       assert.equal(cashierCatalog.statusCode, 200, cashierCatalog.body);
@@ -211,7 +474,7 @@ if (!databaseUrl) {
         deviceId,
         type: 'sales.order.refund',
         occurredAt: new Date().toISOString(),
-        expectedVersions: { [`shift:${shiftId}`]: 2 },
+        expectedVersions: { [`shift:${shiftId}`]: 5 },
         payload: { orderId: saleId, shiftId, reason: 'CI partial return', lines: [{ orderLineId: line.rows[0].id, quantity: '1', restock: true }] },
       };
       const refund = await postCommand(refundCommand);
@@ -223,8 +486,8 @@ if (!databaseUrl) {
 
       const close = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.close',
-        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 3 },
-        payload: { shiftId, countedCashMinor: 79000 },
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 6 },
+        payload: { shiftId, countedCashMinor: 92600 },
       });
       assert.equal(close.statusCode, 200, close.body);
       assert.equal(close.json().status, 'CONFIRMED');
@@ -241,7 +504,7 @@ if (!databaseUrl) {
       assert.equal(balances.rows[0].unbalanced_journals, '0');
       assert.equal(balances.rows[0].refunds, '1');
       assert.equal(balances.rows[0].shift_status, 'CLOSED');
-      assert.equal(balances.rows[0].expected_cash_minor, '79000');
+      assert.equal(balances.rows[0].expected_cash_minor, '92600');
       assert.equal(balances.rows[0].variance_minor, '0');
     } finally {
       await app.close();

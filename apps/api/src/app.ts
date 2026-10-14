@@ -94,7 +94,7 @@ export function buildApp() {
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
     const permissions=ROLE_PERMISSIONS[operator.role];
-    if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
+    if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
     const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
@@ -110,11 +110,60 @@ export function buildApp() {
       WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId]);
     return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference}))};
   });
+  const requireInventoryCountAccess = (operator: ApiSession) => {
+    if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
+      throw new DomainError('FORBIDDEN', 'Your role cannot access stock counts.', 403);
+    }
+  };
+  const readInventoryCount = async (operator: ApiSession, countId: string) => {
+    const count = await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.baseline_at,c.opened_at,c.posted_at,
+        opened.full_name opened_by_name,posted.full_name posted_by_name,
+        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
+        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
+      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by
+      LEFT JOIN identity.users posted ON posted.id=c.posted_by
+      WHERE c.id=$1 AND c.tenant_id=$2 AND c.outlet_id=$3`, [countId, operator.tenantId, operator.outletId]);
+    if (!count.rowCount) return null;
+    const lineResult = await pool.query(`SELECT product_id,sku_snapshot,name_snapshot,base_unit_snapshot,baseline_quantity::text baseline_quantity,
+        baseline_balance_version::text baseline_balance_version,counted_quantity::text counted_quantity,variance_reason,counted_by,counted_at
+      FROM inventory.stock_count_lines WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 ORDER BY sku_snapshot,product_id`, [operator.tenantId, operator.outletId, countId]);
+    const c = count.rows[0];
+    return { id:c.id,status:c.status,areaLabel:c.area_label,version:Number(c.version),baselineAt:c.baseline_at,openedAt:c.opened_at,openedBy:c.opened_by_name,
+      postedAt:c.posted_at,postedBy:c.posted_by_name,lineCount:c.line_count,countedLineCount:c.counted_line_count,
+      lines:lineResult.rows.map(line=>({productId:line.product_id,sku:line.sku_snapshot,name:line.name_snapshot,unit:line.base_unit_snapshot,
+        expectedQuantity:String(line.baseline_quantity),expectedBalanceVersion:Number(line.baseline_balance_version),countedQuantity:line.counted_quantity===null?null:String(line.counted_quantity),
+        varianceReason:line.variance_reason,countedBy:line.counted_by,countedAt:line.counted_at}))};
+  };
+  app.get('/api/v1/inventory/counts', async request => {
+    const operator=request.operator!; requireInventoryCountAccess(operator);
+    const result=await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.opened_at,c.posted_at,opened.full_name opened_by_name,posted.full_name posted_by_name,
+        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
+        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
+      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by LEFT JOIN identity.users posted ON posted.id=c.posted_by
+      WHERE c.tenant_id=$1 AND c.outlet_id=$2 ORDER BY c.opened_at DESC,c.id DESC LIMIT 50`,[operator.tenantId,operator.outletId]);
+    return {counts:result.rows.map(row=>({id:row.id,status:row.status,areaLabel:row.area_label,version:Number(row.version),openedAt:row.opened_at,openedBy:row.opened_by_name,postedAt:row.posted_at,postedBy:row.posted_by_name,lineCount:row.line_count,countedLineCount:row.counted_line_count}))};
+  });
+  app.get('/api/v1/inventory/counts/current', async request => {
+    const operator=request.operator!; requireInventoryCountAccess(operator);
+    const current=await pool.query<{id:string}>('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' ORDER BY opened_at DESC LIMIT 1',[operator.tenantId,operator.outletId]);
+    return {count:current.rowCount?await readInventoryCount(operator,current.rows[0].id):null};
+  });
+  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId', async request => {
+    const operator=request.operator!; requireInventoryCountAccess(operator);
+    const count=await readInventoryCount(operator,request.params.countId);
+    if(!count)throw new DomainError('NOT_FOUND','Stock count was not found.',404);
+    return {count};
+  });
   app.get('/api/v1/shifts/current', async request => {
     const s=request.operator!;
-    if (!ROLE_PERMISSIONS[s.role].some(permission=>permission==='shift.open'||permission==='shift.close')) throw new DomainError('FORBIDDEN','Your role cannot view till shifts.',403);
+    if (!ROLE_PERMISSIONS[s.role].some(permission=>permission==='shift.open'||permission==='shift.close'||permission==='shift.payout')) throw new DomainError('FORBIDDEN','Your role cannot view till shifts.',403);
     const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,expected_cash_minor,version,opened_at FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
-    const r=result.rows[0]; return { shift:r?{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at}:null };
+    const r=result.rows[0];
+    if(!r)return {shift:null};
+    const movements=await pool.query(`SELECT m.id,m.movement_type,m.amount_minor,m.reason,m.reference,m.created_at,u.full_name actor_name
+      FROM commerce.shift_cash_movements m JOIN identity.users u ON u.id=m.actor_id
+      WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.shift_id=$3 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`,[s.tenantId,s.outletId,r.id]);
+    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
   });
   app.get('/api/v1/sales/orders', async request => {
     const operator=request.operator!;

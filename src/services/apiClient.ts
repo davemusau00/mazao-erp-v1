@@ -6,7 +6,11 @@ export interface BackendSession {
   outlet:{id:string;name:string}; deviceId:string; csrfToken:string;
 }
 export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;taxRateBps:number;quantity:string;version:number }
-export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;expectedCashMinor:number;version:number;openedAt:string }
+export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
+export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
+export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null }
+export interface BackendInventoryCount { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;version:number;baselineAt:string;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number;lines:BackendInventoryCountLine[] }
+export interface BackendInventoryCountSummary { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;version:number;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number }
 export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
 export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
 export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number}
@@ -32,6 +36,9 @@ class ApiClient {
   async logout(){try{await this.request('/auth/logout',{method:'POST'})}finally{this.csrf='';this.publish(null)}}
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
   listInventoryMovements(){return this.request<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string}>}>('/inventory/movements')}
+  listInventoryCounts(){return this.request<{counts:BackendInventoryCountSummary[]}>('/inventory/counts')}
+  getCurrentInventoryCount(){return this.request<{count:BackendInventoryCount|null}>('/inventory/counts/current')}
+  getInventoryCount(countId:string){return this.request<{count:BackendInventoryCount}>('/inventory/counts/'+encodeURIComponent(countId))}
   getCurrentShift(){return this.request<{shift:BackendShift|null}>('/shifts/current')}
   listSalesOrders(){return this.request<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor?:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders')}
   listHotelRooms(){return this.request<{rooms:BackendRoom[]}>('/hospitality/rooms')}
