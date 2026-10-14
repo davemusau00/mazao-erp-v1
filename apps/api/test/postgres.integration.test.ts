@@ -479,7 +479,7 @@ if (!databaseUrl) {
       const trialBalanceBody = trialBalance.json() as {
         reportType: string; scope: string; timeZone: string;
         totals: { debitMinor: string; creditMinor: string; differenceMinor: string; balanced: boolean };
-        accounts: Array<{ accountCode: string; netCreditMinor: string }>;
+        accounts: Array<{ accountCode: string; netDebitMinor: string; netCreditMinor: string }>;
         coverage: { status: string; sourceTypes: Array<{ sourceType: string }> };
       };
       assert.equal(trialBalanceBody.reportType, 'TRIAL_BALANCE');
@@ -488,6 +488,8 @@ if (!databaseUrl) {
       assert.equal(trialBalanceBody.totals.balanced, true);
       assert.equal(trialBalanceBody.totals.debitMinor, trialBalanceBody.totals.creditMinor);
       assert.equal(trialBalanceBody.totals.differenceMinor, '0');
+      assert.equal(trialBalanceBody.totals.debitMinor, trialBalanceBody.accounts.reduce((sum, account) => sum + BigInt(account.netDebitMinor), 0n).toString());
+      assert.equal(trialBalanceBody.totals.creditMinor, trialBalanceBody.accounts.reduce((sum, account) => sum + BigInt(account.netCreditMinor), 0n).toString());
       assert.ok(trialBalanceBody.accounts.some(account => account.accountCode === 'SALES_REVENUE' && BigInt(account.netCreditMinor) > 0n));
       assert.equal(trialBalanceBody.coverage.status, 'POSTED_JOURNAL_ONLY');
 

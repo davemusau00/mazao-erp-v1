@@ -31,6 +31,17 @@ The source remediation is in commit `a1625452e30126acdba37c10acb8dfd4456d0d59`; 
 
 ## Integration follow-up (14 October 2026)
 
+### Current checkout update
+
+The supplied 14 October completion review estimates implementation at about 53%; this is a qualitative scope estimate, not test coverage. Hosted CI run 38544946257 passed for commit `448865f`, but it predates migration 010 and the finance report slice below.
+
+| Finding | Current source status | Evidence and remaining boundary |
+|---|---|---|
+| G-14 tenant/outlet foreign keys | Migration 010 adds validated composite foreign keys for device assignment, shift operator, order shift/operator, order lines, payments, and journal lines. It fails closed when existing rows cross their tenant/outlet boundary. | On 14 Oct, migrations 001–010 applied to populated-upgrade and fresh PostgreSQL 16 databases; fresh migration checksums passed on rerun. Direct-SQL adversarial cases reject cross-tenant references. Hosted CI predates migration 010. Other actor/event references still need review. |
+| G-20 authoritative reports | Read-only trial balance, partial operating summary, and journal-line drill-through routes are connected to a finance-view-only server workspace. | PostgreSQL acceptance verifies tenant scope, outlet-time-zone dates, integer-minor totals, journal balance checks, explicit incomplete coverage, account source drill-through, invalid-date rejection, and cashier denial. Period controls, complete P&L sources, AP/AR, full reconciliation, and inventory valuation reporting remain open. |
+
+**Current verification (14 October):** `npm run typecheck`, `npm run build`, and `npm run test:api` pass; API result is 9 passed, 0 failed, 0 skipped against the task-owned PostgreSQL 16 database migrated through 010. CI has not run migration 010 or these report changes. Browser journeys, hardware output, deployment and backup/restore remain unverified.
+
 The original audit date and SHA above remain the historical baseline. Follow-up work on the current branch expands the backend integration register to map each connected UI surface to its client methods, API routes, command records and remaining boundaries. Authenticated session responses carry server role permissions; navigation and connected workspace actions consume them rather than maintaining a second server role map. Catalog cost fields are returned only to `catalog.manage` or `finance.view`; order-line cost fields are returned only to `finance.view`. The receipt HTML helper escapes the dynamic text fields, including quantity, and restricts image sources to an allowlist.
 
 | Finding | Follow-up source status | Evidence and limit |
@@ -57,6 +68,8 @@ The supplied operator screenshot matches the earlier built UI bundle: its Stock 
 | Receive a delivery | Purchasing has reviewed receiving; authenticated receive writes a stock movement and inventory/accrual journal. | Supplier and reference are evidence text; supplier master, purchase orders, invoice matching, AP and landed cost are absent. |
 | Review movement history | Stock exposes movement history; server mode lists recent API movements, including count and receipt movements. Server balances use the accepted moving weighted-average method. | A complete valuation report and selectable costing policy are not implemented. |
 ## Decision at audited SHA
+
+**Current checkout update:** Migration 010 and permission-scoped trial balance/partial-summary reports are locally verified on the worktree described above. The older `001–009` and no-report wording in the historical audited-SHA assessment below refers to the earlier baseline; it is superseded by the 14 October current-checkout evidence above. Production remains **NO-GO** because current work has not run in CI, and browser acceptance, provider/hardware integration, operations, deployment and backup/restore are incomplete.
 
 **PRODUCTION NO-GO.** The defects in this section describe audited SHA `530cdbf`, not the current source. The current worktree has addressed the listed P0 migration/catalog/POS/replay defects and now has local PostgreSQL acceptance for migrations 001–009, supported stock counts, weighted-average inventory value and the connected sales/shift/hotel paths. Production remains unaccepted: corrected CI has not rerun; browser journeys, full tenant-FK/security and revocation matrix, backup/restore, deployment, operational monitoring and hardware/provider integrations remain unverified or incomplete.
 

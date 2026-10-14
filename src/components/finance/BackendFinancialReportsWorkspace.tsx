@@ -41,6 +41,7 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
   const [trialBalance, setTrialBalance] = useState<BackendTrialBalance | null>(null);
   const [summary, setSummary] = useState<BackendPartialOperatingSummary | null>(null);
   const [journalLines, setJournalLines] = useState<BackendJournalLines | null>(null);
+  const [journalOffset, setJournalOffset] = useState(0);
   const [selectedAccount, setSelectedAccount] = useState('');
   const [busy, setBusy] = useState(false);
   const [journalBusy, setJournalBusy] = useState(false);
@@ -64,14 +65,15 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
     setJournalBusy(true);
     setJournalError('');
     const query = view === 'trial-balance'
-      ? { accountCode: selectedAccount, asOf, limit: 100 }
-      : { accountCode: selectedAccount, from: period.from, to: period.to, limit: 100 };
+      ? { accountCode: selectedAccount, asOf, limit: 100, offset: journalOffset }
+      : { accountCode: selectedAccount, from: period.from, to: period.to, limit: 100, offset: journalOffset };
+    if (journalOffset === 0) setJournalLines(null);
     void apiClient.getJournalLines(query)
-      .then(result => { if (current) setJournalLines(result); })
+      .then(result => { if (current) setJournalLines(previous => journalOffset > 0 && previous ? { ...result, entries: [...previous.entries, ...result.entries] } : result); })
       .catch(reason => { if (current) setJournalError(reportError(reason)); })
       .finally(() => { if (current) setJournalBusy(false); });
     return () => { current = false; };
-  }, [selectedAccount, view, asOf, period]);
+  }, [selectedAccount, view, asOf, period, journalOffset]);
 
   const currency = trialBalance?.currency ?? summary?.currency ?? session?.tenant.currency ?? 'KES';
   const generatedAt = view === 'trial-balance' ? trialBalance?.generatedAt : summary?.generatedAt;
@@ -88,7 +90,10 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
     setSelectedAccount(''); setError(''); setPeriod({ from: fromInput, to: toInput });
   };
 
-  const selectAccount = (accountCode: string) => setSelectedAccount(value => value === accountCode ? '' : accountCode);
+  const selectAccount = (accountCode: string) => {
+    setJournalOffset(0);
+    setSelectedAccount(value => value === accountCode ? '' : accountCode);
+  };
   const selectedDescription = view === 'trial-balance'
     ? `Posted journal lines through ${asOf} in ${outletTimeZone}`
     : `Posted journal lines from ${period.from} through ${period.to} in ${outletTimeZone}`;
@@ -140,13 +145,13 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
               <div><h2 className="font-semibold text-zinc-100">{trialBalance.totals.balanced ? 'Posted journal totals balance' : 'Journal imbalance needs review'}</h2><p className="mt-1 max-w-3xl text-sm text-zinc-400">{trialBalance.coverage.explanation}</p></div>
             </div>
             <div className="grid grid-cols-2 gap-5 text-right text-sm sm:min-w-80">
-              <div><div className="text-xs text-zinc-500">Debits</div><div className="mt-1 font-mono text-zinc-100">{formatMinor(trialBalance.totals.debitMinor, currency)}</div></div>
-              <div><div className="text-xs text-zinc-500">Credits</div><div className="mt-1 font-mono text-zinc-100">{formatMinor(trialBalance.totals.creditMinor, currency)}</div></div>
+              <div><div className="text-xs text-zinc-500">Debit balances</div><div className="mt-1 font-mono text-zinc-100">{formatMinor(trialBalance.totals.debitMinor, currency)}</div></div>
+              <div><div className="text-xs text-zinc-500">Credit balances</div><div className="mt-1 font-mono text-zinc-100">{formatMinor(trialBalance.totals.creditMinor, currency)}</div></div>
             </div>
           </div>
           <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
             <div className="flex flex-wrap justify-between gap-2 border-b border-zinc-800 px-4 py-3"><h2 className="font-semibold text-zinc-100">Account balances · as of {trialBalance.asOf}</h2><span className="text-xs text-zinc-500">{trialBalance.coverage.journalEntryCount} posted entries</span></div>
-            <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500"><tr><th className="px-4 py-3">Account</th><th className="px-4 py-3 text-right">Debits</th><th className="px-4 py-3 text-right">Credits</th><th className="px-4 py-3 text-right">Debit balance</th><th className="px-4 py-3 text-right">Credit balance</th></tr></thead><tbody className="divide-y divide-zinc-900">{trialBalance.accounts.map(account => <tr key={account.accountCode} className="hover:bg-zinc-900/60"><th scope="row" className="px-4 py-3 font-medium"><button type="button" onClick={() => selectAccount(account.accountCode)} aria-expanded={selectedAccount === account.accountCode} className="min-h-11 text-left text-sky-300 hover:text-sky-200">{account.accountCode}<ChevronRight className="ml-1 inline" size={14} /></button></th><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.debitMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.creditMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.netDebitMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.netCreditMinor, currency)}</td></tr>)}{trialBalance.accounts.length === 0 && <tr><td colSpan={5} className="px-4 py-12 text-center text-zinc-500">No journal entries were posted through this date.</td></tr>}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500"><tr><th className="px-4 py-3">Account</th><th className="px-4 py-3 text-right">Total debits</th><th className="px-4 py-3 text-right">Total credits</th><th className="px-4 py-3 text-right">Debit balance</th><th className="px-4 py-3 text-right">Credit balance</th></tr></thead><tbody className="divide-y divide-zinc-900">{trialBalance.accounts.map(account => <tr key={account.accountCode} className="hover:bg-zinc-900/60"><th scope="row" className="px-4 py-3 font-medium"><button type="button" onClick={() => selectAccount(account.accountCode)} aria-expanded={selectedAccount === account.accountCode} className="min-h-11 text-left text-sky-300 hover:text-sky-200">{account.accountCode}<ChevronRight className="ml-1 inline" size={14} /></button></th><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.debitMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.creditMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.netDebitMinor, currency)}</td><td className="px-4 py-3 text-right font-mono text-zinc-300">{formatMinor(account.netCreditMinor, currency)}</td></tr>)}{trialBalance.accounts.length === 0 && <tr><td colSpan={5} className="px-4 py-12 text-center text-zinc-500">No journal entries were posted through this date.</td></tr>}</tbody></table></div>
           </div>
           <CoverageDetails entryCount={trialBalance.coverage.journalEntryCount} emptyCount={trialBalance.coverage.emptyJournalEntryCount} unbalancedCount={trialBalance.coverage.unbalancedJournalEntryCount} sourceTypes={sourceTypes ?? []} />
         </>}
@@ -164,11 +169,46 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
         </>}
       </>}
 
-      {selectedAccount && <section aria-labelledby="journal-lines-title" className="overflow-hidden rounded-xl border border-sky-900/70 bg-zinc-950">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3"><div><h2 id="journal-lines-title" className="font-semibold text-zinc-100">{selectedAccount} · journal detail</h2><p className="mt-1 text-xs text-zinc-500">{selectedDescription}</p></div><button type="button" onClick={() => setSelectedAccount('')} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-900">Close detail</button></div>
-        {journalBusy && <div role="status" className="p-4 text-sm text-zinc-400">Loading journal detail…</div>}{journalError && <div role="alert" className="p-4 text-sm text-rose-300">{journalError}</div>}
-        {journalLines && !journalBusy && <><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500"><tr><th className="px-4 py-3">Posted</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">Journal ID</th><th className="px-4 py-3 text-right">Debit</th><th className="px-4 py-3 text-right">Credit</th></tr></thead><tbody className="divide-y divide-zinc-900">{journalLines.entries.map(line => <tr key={`${line.journalEntryId}-${line.accountCode}`}><td className="px-4 py-3 text-zinc-300">{new Date(line.postedAt).toLocaleString(undefined, { timeZone: outletTimeZone })}</td><td className="px-4 py-3 text-zinc-300">{line.sourceType}{line.sourceId ? ` · ${line.sourceId.slice(0, 8)}` : ''}</td><td className="px-4 py-3 font-mono text-xs text-zinc-500">{line.journalEntryId}</td><td className="px-4 py-3 text-right font-mono">{formatMinor(line.debitMinor, currency)}</td><td className="px-4 py-3 text-right font-mono">{formatMinor(line.creditMinor, currency)}</td></tr>)}{journalLines.entries.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-500">No journal lines for this account in the selected scope.</td></tr>}</tbody></table></div><div className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">Showing {journalLines.entries.length} of {journalLines.total} source lines{journalLines.total > journalLines.entries.length ? ' · additional pages are available through the reports API' : ''}</div></>}
-      </section>}
+      {selectedAccount && (
+        <section aria-labelledby="journal-lines-title" className="overflow-hidden rounded-xl border border-sky-900/70 bg-zinc-950">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+            <div>
+              <h2 id="journal-lines-title" className="font-semibold text-zinc-100">{selectedAccount} - journal detail</h2>
+              <p className="mt-1 text-xs text-zinc-500">{selectedDescription}</p>
+            </div>
+            <button type="button" onClick={() => setSelectedAccount('')} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-900">Close detail</button>
+          </div>
+          {journalBusy && <div role="status" className="p-4 text-sm text-zinc-400">Loading journal detail...</div>}
+          {journalError && <div role="alert" className="p-4 text-sm text-rose-300">{journalError}</div>}
+          {journalLines && (!journalBusy || journalOffset > 0) && (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-sm">
+                  <thead className="bg-zinc-900/70 text-xs uppercase tracking-wide text-zinc-500">
+                    <tr><th className="px-4 py-3">Posted</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">Journal ID</th><th className="px-4 py-3 text-right">Debit</th><th className="px-4 py-3 text-right">Credit</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900">
+                    {journalLines.entries.map(line => (
+                      <tr key={`${line.journalEntryId}-${line.accountCode}`}>
+                        <td className="px-4 py-3 text-zinc-300">{new Date(line.postedAt).toLocaleString(undefined, { timeZone: outletTimeZone })}</td>
+                        <td className="px-4 py-3 text-zinc-300">{line.sourceType}{line.sourceId ? ` - ${line.sourceId.slice(0, 8)}` : ''}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-zinc-500">{line.journalEntryId}</td>
+                        <td className="px-4 py-3 text-right font-mono">{formatMinor(line.debitMinor, currency)}</td>
+                        <td className="px-4 py-3 text-right font-mono">{formatMinor(line.creditMinor, currency)}</td>
+                      </tr>
+                    ))}
+                    {journalLines.entries.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-500">No journal lines for this account in the selected scope.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 px-4 py-3">
+                <span className="text-xs text-zinc-500">Showing {journalLines.entries.length} of {journalLines.total} source lines</span>
+                {journalLines.nextOffset !== null && <button type="button" onClick={() => setJournalOffset(journalLines.nextOffset ?? 0)} disabled={journalBusy} className="min-h-11 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-200 hover:bg-zinc-900 disabled:opacity-50">Load next 100 entries</button>}
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </div>
   </section>;
 }

@@ -141,8 +141,8 @@ export async function getTrialBalance(session: ApiSession, asOfValue: unknown) {
   return inReadSnapshot(async client => {
     const snapshot = await readSnapshot(client, session, null, asOf);
     const accounts = accountBalanceRows(snapshot.accounts);
-    const totalDebit = accounts.reduce((sum, account) => sum + BigInt(account.debitMinor), 0n);
-    const totalCredit = accounts.reduce((sum, account) => sum + BigInt(account.creditMinor), 0n);
+    const totalDebit = accounts.reduce((sum, account) => sum + BigInt(account.netDebitMinor), 0n);
+    const totalCredit = accounts.reduce((sum, account) => sum + BigInt(account.netCreditMinor), 0n);
     const difference = totalDebit - totalCredit;
     return {
       reportType: 'TRIAL_BALANCE',
