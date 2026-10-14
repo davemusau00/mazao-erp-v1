@@ -46,13 +46,24 @@ previous_static=$(readlink /var/www/mazao/current)
 printf '%s\n' "$previous_static" > "backups/pwa-before-$release"
 compose() { docker compose --project-name mazao --env-file /srv/mazao/.env -f /srv/mazao/compose.yml "$@"; }
 rollback() {
+  trap - ERR
+  set +e
   echo 'Activation failed; restoring the previous Mazao API/static release without reversing migrations.' >&2
-  cp "backups/env-before-$release" .env
-  compose up -d --no-deps --wait --wait-timeout 120 api || true
+  cp "backups/env-before-$release" .env || { echo 'Could not restore the Mazao environment; operator recovery is required.' >&2; exit 1; }
+  compose up -d --no-deps --wait --wait-timeout 120 api
+  rollback_api_status=$?
   if [[ $(readlink /var/www/mazao/current) != "$previous_static" ]]; then
     sudo -n ln -s "$previous_static" /var/www/mazao/current.rollback
     sudo -n mv -Tf /var/www/mazao/current.rollback /var/www/mazao/current
   fi
+  curl --retry 5 --retry-all-errors --retry-delay 1 --fail --silent --show-error http://127.0.0.1:4101/api/v1/health/ready
+  rollback_ready_status=$?
+  if [[ $rollback_api_status != 0 || $rollback_ready_status != 0 || $(readlink /var/www/mazao/current) != "$previous_static" ]]; then
+    echo 'Rollback verification failed; inspect only the Mazao project before routing further traffic.' >&2
+  else
+    echo 'Previous Mazao API is ready and static release restored.' >&2
+  fi
+  exit 1
 }
 trap rollback ERR
 sed -i "s|^MAZAO_API_IMAGE=.*|MAZAO_API_IMAGE=$image|" .env
