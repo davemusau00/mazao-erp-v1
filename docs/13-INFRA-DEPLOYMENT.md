@@ -49,10 +49,14 @@ For each release:
 5. Install only the Mazao Nginx site. Obtain a certificate for mazao.davemusau.co.ke using the existing Certbot installation and verified DNS, run nginx -t, then perform a graceful reload. Do not add an API subdomain vhost.
 6. Verify the PWA and same-origin live/readiness endpoints over HTTPS. Check existing Nginx routes and containers before and after activation.
 
+The local SSH alias mazao-live points to administrator@93.127.131.55 using the existing id_ed25519 key with strict host checking. No new key needs to be installed on this server.
+
 Keep the prior PWA symlink target and a dated copy of the Mazao Nginx file for rollback. Roll back only Mazao's API image, static symlink, and vhost. Never stop or recreate another Compose project, remove an existing volume, or reverse a database migration. Do not open the pilot for business data until its off-host backup and restore procedure has been verified.
 
 ## Data and operational boundaries
 
 The initial administrator and tenant are created only through apps/api/scripts/bootstrap.ts with actual owner-provided business details and a locally entered password. Do not seed preview/demo tenants or paid orders. Authenticated server mode supports only the journeys listed as server-connected in the README and backend integration register; preview-only modules must not be presented as authoritative server data.
+
+The Windows helper infra/Bootstrap-Mazao.ps1 prompts for and confirms the administrator password. The password crosses SSH through stdin and is not written to a file or command argument. Upload infra/bootstrap-initial-tenant.sh to /srv/mazao first; it rejects an initial bootstrap if a tenant already exists. The initial pilot enables only retail, inventory and commerce. Keep user credentials and business metadata out of public release evidence.
 
 The database is the source of truth. A transactional outbox row proves local transaction evidence only; there is no deployed outbox worker, server-side offline replay service, or external delivery guarantee. Maintain an encrypted off-host PostgreSQL backup and perform an isolated restore before recording business transactions. See the backup runbook.
