@@ -32,6 +32,7 @@ function textReceipt(receipt: BackendSaleReceipt) {
     `Tax: ${money(receipt.taxMinor, receipt.currency)}`,
     `Total: ${money(receipt.totalMinor, receipt.currency)}`,
     `Paid: ${money(receipt.amountPaidMinor, receipt.currency)}`,
+    ...(receipt.customerAccountCharge ? [`Charged to account: ${receipt.customerAccountCharge.customerName}`, `Amount due: ${money(receipt.customerAccountCharge.amountDueMinor, receipt.currency)}`] : []),
     ...(receipt.cashTenderedMinor === null ? [] : [`Cash received: ${money(receipt.cashTenderedMinor, receipt.currency)}`, `Change: ${money(receipt.changeMinor ?? '0', receipt.currency)}`]),
     '',
     'Sale receipt. Electronic tax invoice integration is not connected.',
@@ -87,6 +88,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
             <div className="flex justify-between gap-2"><dt>Tax total</dt><dd>{money(receipt.taxMinor, receipt.currency)}</dd></div>
             <div className="flex justify-between gap-2 border-t border-zinc-300 pt-1 text-xs font-bold"><dt>TOTAL</dt><dd>{money(receipt.totalMinor, receipt.currency)}</dd></div>
             <div className="flex justify-between gap-2 pt-1"><dt>Paid</dt><dd>{money(receipt.amountPaidMinor, receipt.currency)}</dd></div>
+            {receipt.customerAccountCharge && <><div className="flex justify-between gap-2"><dt>Customer account</dt><dd className="text-right">{receipt.customerAccountCharge.customerName}</dd></div><div className="flex justify-between gap-2 font-semibold"><dt>Account amount due</dt><dd>{money(receipt.customerAccountCharge.amountDueMinor, receipt.currency)}</dd></div></>}
             {receipt.cashTenderedMinor !== null && <><div className="flex justify-between gap-2"><dt>Cash received</dt><dd>{money(receipt.cashTenderedMinor, receipt.currency)}</dd></div><div className="flex justify-between gap-2"><dt>Change</dt><dd>{money(receipt.changeMinor ?? '0', receipt.currency)}</dd></div></>}
           </dl>
           <div className="my-3 border-t border-dashed border-zinc-400" />

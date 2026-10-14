@@ -294,9 +294,10 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
         const value=response.value; const session=apiClient.getSession();
         if(session&&pendingCommand.current) {
           const shiftId=String(pendingCommand.current.payload.shiftId??serverShift?.id??'');
-          const sale:SaleOrder={id:String(value.saleId),idempotencyKey:unknownCommandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId,cashierName:session.user.name,tenantId:session.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
+          const accountCustomerId=typeof pendingCommand.current.payload.customerId==='string'?pendingCommand.current.payload.customerId:null;
+          const sale:SaleOrder={id:String(value.saleId),idempotencyKey:unknownCommandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId,cashierName:session.user.name,tenantId:session.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:accountCustomerId?'customer_credit':'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
           setCart([]);setIsTenderModalOpen(false);setIsMobileCartOpen(false);onOrderCompleted(sale);
-          if(serverShift&&typeof value.shiftVersion==='number')setServerShift({...serverShift,version:value.shiftVersion,expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor)});
+          if(serverShift&&typeof value.shiftVersion==='number')setServerShift({...serverShift,version:value.shiftVersion,expectedCashMinor:serverShift.expectedCashMinor+(accountCustomerId?0:Number(value.totalMinor)),cashSalesMinor:serverShift.cashSalesMinor+(accountCustomerId?0:Number(value.totalMinor))});
           void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:(i.costPriceMinor??0)/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))});
         }
         showNotice('Server confirmed the sale; the receipt is ready.');setUnknownCommandId(null);pendingCommand.current=null;
@@ -362,22 +363,28 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
         showNotice('Server catalog is unavailable. Reconnect or refresh before accepting payment; demo checkout is disabled while signed in.');
         return;
       }
-      if (paymentMethod !== 'cash') { showNotice('Server checkout currently accepts verified cash tender only. Other tenders are blocked until their providers are connected.'); return; }
       if (!serverShift) { showNotice('Open a server shift before taking a sale.'); return; }
-      let tenderMinor:number;
-      try { tenderMinor=moneyInputToMinor(amountTendered || total.toFixed(2)); }
-      catch(error) { showNotice(error instanceof Error?error.message:'Tender amount is invalid.');return; }
+      const isAccountCharge = paymentMethod === 'customer_credit';
+      if (paymentMethod !== 'cash' && !isAccountCharge) { showNotice('Server checkout supports cash and customer account credit. Provider and room tenders are not connected.'); return; }
+      if (isAccountCharge && (!selectedBackendCustomer || !backendCreditAllowed)) { showNotice('Choose an active customer account with enough approved credit.'); return; }
+      let tenderMinor = 0;
+      if (!isAccountCharge) {
+        try { tenderMinor = moneyInputToMinor(amountTendered || total.toFixed(2), backendSession.tenant.currency); }
+        catch(error) { showNotice(error instanceof Error ? error.message : 'Tender amount is invalid.'); return; }
+      }
       const command = pendingCommand.current ?? {
         protocolVersion:1 as const, commandId:crypto.randomUUID(), tenantId:backendSession.tenant.id, deviceId:backendSession.deviceId,
         type:'sales.order.settle', occurredAt:new Date().toISOString(), expectedVersions:{[`shift:${serverShift.id}`]:serverShift.version},
-        payload:{shiftId:serverShift.id,lines:cart.map(item=>({productId:item.product.id,quantity:String(item.quantity)})),tenders:[{method:'CASH',amountMinor:tenderMinor,currency:backendSession.tenant.currency}]},
+        payload:{shiftId:serverShift.id,lines:cart.map(item=>({productId:item.product.id,quantity:String(item.quantity)})),...(isAccountCharge?{customerId:selectedBackendCustomer!.id}:{}),tenders:isAccountCharge?[]:[{method:'CASH',amountMinor:tenderMinor,currency:backendSession.tenant.currency}]},
       };
       pendingCommand.current=command;
       try {
         const outcome=await apiClient.submitCommand(command);
         if(outcome.status==='CONFIRMED' && outcome.value) {
-          const value=outcome.value; const saleOrder:SaleOrder={id:String(value.saleId),idempotencyKey:command.commandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:backendSession.user.name,tenantId:backendSession.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
-          pendingCommand.current=null; setUnknownCommandId(null); setCart([]); setIsTenderModalOpen(false); setIsMobileCartOpen(false); setServerShift({...serverShift,version:Number(value.shiftVersion),cashSalesMinor:serverShift.cashSalesMinor+Number(value.totalMinor),expectedCashMinor:serverShift.expectedCashMinor+Number(value.totalMinor)}); onOrderCompleted(saleOrder); void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:(i.costPriceMinor??0)/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))}); return;
+          const value=outcome.value; const saleOrder:SaleOrder={id:String(value.saleId),idempotencyKey:command.commandId,orderNumber:String(value.saleId).slice(0,8).toUpperCase(),shiftId:serverShift.id,cashierName:backendSession.user.name,tenantId:backendSession.tenant.id,items:[...cart],subtotal:Number(value.subtotalMinor)/100,tax:Number(value.taxMinor)/100,discount:0,total:Number(value.totalMinor)/100,paymentMethod:isAccountCharge?'customer_credit':'cash',amountTendered:Number(value.tenderedMinor)/100,changeDue:Number(value.changeMinor)/100,timestamp:new Date().toISOString(),syncStatus:'synced_server',status:'completed'};
+          pendingCommand.current=null; setUnknownCommandId(null); setCart([]); setIsTenderModalOpen(false); setIsMobileCartOpen(false); setServerShift({...serverShift,version:Number(value.shiftVersion),cashSalesMinor:serverShift.cashSalesMinor+(isAccountCharge?0:Number(value.totalMinor)),expectedCashMinor:serverShift.expectedCashMinor+(isAccountCharge?0:Number(value.totalMinor))});
+          if (isAccountCharge && typeof value.customerBalanceMinor === 'string') setBackendCustomers(current => current.map(customer => customer.id === selectedBackendCustomer?.id ? {...customer,balanceMinor:value.customerBalanceMinor as string,version:customer.version+1,updatedAt:new Date().toISOString()} : customer));
+          onOrderCompleted(saleOrder); void apiClient.listCatalog().then(c=>{setProducts(c.items.map(i=>({id:i.id,sku:i.sku,barcode:'',name:i.name,category:'server catalog',costPrice:(i.costPriceMinor??0)/100,sellingPrice:i.sellingPriceMinor/100,stockOnHand:Number(i.quantity),reorderPoint:0,unit:i.unit})));setBackendTaxRates(Object.fromEntries(c.items.map(i=>[i.id,i.taxRateBps])));setBackendPriceMinor(Object.fromEntries(c.items.map(i=>[i.id,i.sellingPriceMinor])))}); return;
         }
         if(outcome.status==='CONFLICT'||outcome.status==='REJECTED') { pendingCommand.current=null; setUnknownCommandId(null); showNotice(outcome.message??`Sale ${outcome.status.toLowerCase()}: ${outcome.code??''}`); return; }
         setUnknownCommandId(command.commandId); showNotice('Sale outcome is not confirmed. Check command status before any retry.');
@@ -846,12 +853,10 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
             <button
               onClick={handleFinalizeSale}
               disabled={
-                (apiClient.getSession() !== null && (!backendCatalog || !serverShift || !!unknownCommandId || paymentMethod !== 'cash')) ||
+                (apiClient.getSession() !== null && (!backendCatalog || !serverShift || !!unknownCommandId || (paymentMethod !== 'cash' && paymentMethod !== 'customer_credit') || (paymentMethod === 'customer_credit' && !apiClient.getSession()?.user.permissions.includes('customers.charge')))) ||
                 (paymentMethod === 'cash' && tenderedNum < total) ||
                 (paymentMethod === 'room_folio' && occupiedRooms.length === 0) ||
-                (paymentMethod === 'customer_credit' &&
-                  (!selectedCustomer ||
-                    ((isCreditLimitExceeded || isCustomerSuspended) && !isOverrideAuthorized)))
+                (paymentMethod === 'customer_credit' && (apiClient.getSession() ? !backendCreditAllowed : !selectedCustomer || ((isCreditLimitExceeded || isCustomerSuspended) && !isOverrideAuthorized)))
               }
               className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-semibold text-xs shadow-sm transition-all min-h-[44px]"
             >
@@ -1009,8 +1014,29 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
             </div>
           )}
 
-          {/* Customer Credit / Charge to Account Details */}
-          {paymentMethod === 'customer_credit' && (
+          {paymentMethod === 'customer_credit' && apiClient.getSession() && (
+            <section className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3.5 sm:p-4" aria-label="Server customer account charge">
+              <div className="flex items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-100"><UserCheck className="h-4 w-4 text-sky-300" />Charge an approved customer account</h3><p className="mt-1 text-xs text-zinc-400">The server checks the live balance, account status, and credit limit when you confirm.</p></div><span className="shrink-0 rounded-full border border-sky-800 bg-sky-950/50 px-2 py-1 text-[10px] text-sky-200">{backendCustomers.length} accounts</span></div>
+              <label className="block text-xs text-zinc-400">Search customer<input value={customerSearchQuery} onChange={event=>setCustomerSearchQuery(event.target.value)} placeholder="Name, phone, or email" className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-sky-500 focus:outline-none" /></label>
+              <div className="max-h-44 space-y-2 overflow-y-auto" role="listbox" aria-label="Customer accounts">
+                {filteredBackendCreditCustomers.length===0 ? <p className="rounded-lg bg-zinc-900 p-4 text-center text-sm text-zinc-400">No server customer accounts match. A manager can add one in Customers.</p> : filteredBackendCreditCustomers.map(customer=>{
+                  const available=BigInt(customer.creditLimitMinor)-BigInt(customer.balanceMinor);const selected=customer.id===selectedCustomerId;
+                  return <button key={customer.id} type="button" role="option" aria-selected={selected} onClick={()=>setSelectedCustomerId(customer.id)} className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${selected?'border-sky-500 bg-sky-950/40':'border-zinc-800 bg-zinc-900 hover:border-zinc-700'}`}>
+                    <span className="min-w-0"><strong className="block truncate text-sm text-zinc-100">{customer.name}</strong><small className="text-xs text-zinc-400">{customer.phone} · {customer.status==='ACTIVE'?'Active':'Suspended'}</small></span>
+                    <span className="shrink-0 text-right text-xs"><span className="block text-zinc-300">Balance {formatMinorMoneyText(customer.balanceMinor,tenant.currency)}</span><span className={available>=backendTotalMinor&&customer.status==='ACTIVE'?'text-emerald-300':'text-rose-300'}>Available {formatMinorMoneyText(available,tenant.currency)}</span></span>
+                  </button>;
+                })}
+              </div>
+              {selectedBackendCustomer && <div className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs">
+                <div><span className="block text-zinc-500">Approved limit</span><strong className="mt-1 block font-mono text-zinc-100">{formatMinorMoneyText(selectedBackendCustomer.creditLimitMinor,tenant.currency)}</strong></div>
+                <div><span className="block text-zinc-500">Sale amount</span><strong className="mt-1 block font-mono text-zinc-100">{formatMinorMoneyText(backendTotalMinor,tenant.currency)}</strong></div>
+                <p className={`col-span-2 rounded-md p-2 ${backendCreditAllowed?'bg-emerald-950/40 text-emerald-200':'bg-rose-950/40 text-rose-200'}`} role="status">{selectedBackendCustomer.status!=='ACTIVE'?'Account is suspended. A manager must reactivate it.':backendCreditAllowed?'Credit is within the approved limit. The server records the sale as a receivable.':'Credit limit is not sufficient for this sale. Server checkout will block the charge.'}</p>
+              </div>}
+            </section>
+          )}
+
+          {/* Local-preview customer credit; its browser PIN is not server authorization. */}
+          {paymentMethod === 'customer_credit' && !apiClient.getSession() && (
             <div className="p-3.5 sm:p-4 rounded-lg bg-zinc-950 border border-zinc-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">

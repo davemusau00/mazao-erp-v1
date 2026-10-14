@@ -1,8 +1,11 @@
 /** Convert a currency amount string to integer minor units without binary float arithmetic. */
-export function moneyInputToMinor(value:string):number {
+export function moneyInputToMinor(value:string,currency='KES'):number {
   const match=/^(\d+)(?:\.(\d*))?$/.exec(value.trim());
-  if(!match||match[2]?.length>2) throw new Error('Enter an amount with up to two decimal places.');
-  const minor=BigInt(match[1])*100n+BigInt((match[2]??'').padEnd(2,'0')||'0');
+  const digits=currencyMinorDigits(currency);
+  const fraction=match?.[2]??'';
+  if(!match||fraction.length>digits&&!/^0+$/.test(fraction.slice(digits))) throw new Error(`Enter an amount with up to ${digits} decimal place${digits===1?'':'s'}.`);
+  const scale=10n**BigInt(digits);
+  const minor=BigInt(match[1])*scale+BigInt((fraction+'0'.repeat(digits)).slice(0,digits)||'0');
   if(minor>BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Amount exceeds supported limit.');
   return Number(minor);
 }
