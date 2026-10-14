@@ -128,6 +128,25 @@ if (!sourceDatabaseUrl) {
           cash_tendered_minor: null,
           change_minor: null,
         }, 'legacy receipt migration should backfill server identity but leave unrecoverable cash handover evidence unknown');
+        migrateThrough('014_configuration');
+        const controlSql = `SELECT jsonb_build_object(
+          'products',(SELECT jsonb_agg(jsonb_build_object('id',id,'sku',sku,'name',name,'unit',base_unit,'currency',currency,'price',selling_price_minor,'cost',cost_price_minor,'tax',tax_rate_bps,'version',version) ORDER BY id) FROM catalog.products WHERE tenant_id=$1),
+          'stock',(SELECT jsonb_agg(to_jsonb(b) ORDER BY product_id) FROM inventory.balances b WHERE tenant_id=$1),
+          'movements',(SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM inventory.movements m WHERE tenant_id=$1),
+          'orders',(SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM commerce.orders o WHERE tenant_id=$1),
+          'journals',(SELECT jsonb_agg(to_jsonb(j) ORDER BY id) FROM finance.journal_entries j WHERE tenant_id=$1),
+          'journalLines',(SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM finance.journal_lines l WHERE tenant_id=$1),
+          'counts',(SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM inventory.stock_counts c WHERE tenant_id=$1),
+          'countLines',(SELECT jsonb_agg(to_jsonb(l) ORDER BY product_id) FROM inventory.stock_count_lines l WHERE tenant_id=$1)
+        ) controls`;
+        const beforeImport = (await db.query(controlSql,[tenantId])).rows[0].controls;
+        migrateThrough('015_product_import');
+        assert.deepEqual((await db.query(controlSql,[tenantId])).rows[0].controls,beforeImport,'CSV migration must preserve populated catalog, balances, movements, receipts, journals and open counts');
+        const metadata = (await db.query('SELECT category,barcode,reorder_level::text,last_import_batch_id FROM catalog.products WHERE tenant_id=$1 AND id=$2',[tenantId,productId])).rows[0];
+        assert.deepEqual(metadata,{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
+        assert.equal((await db.query('SELECT count(*)::int n FROM catalog.product_import_batches')).rows[0].n,0,'migration does not seed imports or business data');
+        migrateThrough('015_product_import');
+        assert.deepEqual((await db.query(controlSql,[tenantId])).rows[0].controls,beforeImport,'checksum-safe rerun preserves existing business evidence');
       } finally {
         await db.end();
       }

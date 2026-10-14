@@ -485,6 +485,7 @@
   .operator-copy small { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
   .operator-button > svg { display: none; }
   .connection-pill { min-width: 36px; width: 36px; height: 36px; justify-content: center; padding: 0; }
+  .connection-pill.server-session { min-width: 80px; width: auto; min-height: 44px; height: auto; padding: 0 8px; }
   .connection-pill > span { display: none; }
   .connection-pill b { position: absolute; transform: translate(12px, -11px); min-width: 14px; height: 14px; font-size: 8px; }
   .install-action { display: none; }
