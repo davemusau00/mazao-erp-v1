@@ -472,6 +472,43 @@ if (!databaseUrl) {
       const saleCogsJournal=await db.pool.query<{debit_minor:string;credit_minor:string}>(`SELECT coalesce(sum(jl.debit_minor),0)::text debit_minor,coalesce(sum(jl.credit_minor),0)::text credit_minor FROM finance.journal_entries je JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 AND je.source_type='SALE_COGS' AND je.source_id=$2`,[tenantId,saleCommand.commandId]);
       assert.deepEqual(saleCogsJournal.rows[0],{debit_minor:'38333',credit_minor:'38333'},'sale journal must use the same weighted-average COGS snapshot');
 
+      const reportBusinessDateResult = await db.pool.query<{ business_date: string }>("SELECT (now() AT TIME ZONE 'Africa/Nairobi')::date::text business_date");
+      const reportBusinessDate = reportBusinessDateResult.rows[0].business_date;
+      const trialBalance = await app.inject({ method: 'GET', url: `/api/v1/reports/trial-balance?asOf=${reportBusinessDate}`, headers });
+      assert.equal(trialBalance.statusCode, 200, trialBalance.body);
+      const trialBalanceBody = trialBalance.json() as {
+        reportType: string; scope: string; timeZone: string;
+        totals: { debitMinor: string; creditMinor: string; differenceMinor: string; balanced: boolean };
+        accounts: Array<{ accountCode: string; netCreditMinor: string }>;
+        coverage: { status: string; sourceTypes: Array<{ sourceType: string }> };
+      };
+      assert.equal(trialBalanceBody.reportType, 'TRIAL_BALANCE');
+      assert.equal(trialBalanceBody.scope, 'TENANT');
+      assert.equal(trialBalanceBody.timeZone, 'Africa/Nairobi');
+      assert.equal(trialBalanceBody.totals.balanced, true);
+      assert.equal(trialBalanceBody.totals.debitMinor, trialBalanceBody.totals.creditMinor);
+      assert.equal(trialBalanceBody.totals.differenceMinor, '0');
+      assert.ok(trialBalanceBody.accounts.some(account => account.accountCode === 'SALES_REVENUE' && BigInt(account.netCreditMinor) > 0n));
+      assert.equal(trialBalanceBody.coverage.status, 'POSTED_JOURNAL_ONLY');
+
+      const partialSummary = await app.inject({ method: 'GET', url: `/api/v1/reports/profit-loss?from=${reportBusinessDate}&to=${reportBusinessDate}`, headers });
+      assert.equal(partialSummary.statusCode, 200, partialSummary.body);
+      const partialSummaryBody = partialSummary.json() as {
+        reportType: string; totals: Record<string, string>; coverage: { status: string; omittedSources: string[] };
+      };
+      assert.equal(partialSummaryBody.reportType, 'PARTIAL_OPERATING_SUMMARY');
+      assert.equal(partialSummaryBody.coverage.status, 'PARTIAL');
+      assert.ok(BigInt(partialSummaryBody.totals.revenueMinor) > 0n);
+      assert.ok(partialSummaryBody.coverage.omittedSources.length > 0);
+      assert.equal(Object.hasOwn(partialSummaryBody.totals, 'netProfitMinor'), false);
+
+      const accountDrilldown = await app.inject({ method: 'GET', url: `/api/v1/reports/journal-lines?accountCode=SALES_REVENUE&asOf=${reportBusinessDate}&limit=10`, headers });
+      assert.equal(accountDrilldown.statusCode, 200, accountDrilldown.body);
+      assert.ok(accountDrilldown.json().total >= 1);
+      assert.ok(accountDrilldown.json().entries.some((line: { sourceType: string; sourceId: string }) => line.sourceType === 'SALE' && line.sourceId === saleCommand.commandId));
+      const invalidReportDate = await app.inject({ method: 'GET', url: '/api/v1/reports/trial-balance?asOf=2026-02-30', headers });
+      assert.equal(invalidReportDate.statusCode, 400);
+
       const cashierId = randomUUID();
       const cashierDeviceId = randomUUID();
       const cashierEmail = `cashier-${cashierId}@example.invalid`;
@@ -492,6 +529,11 @@ if (!databaseUrl) {
         .map(value => value.split(';', 1)[0])
         .join('; ');
       const cashierHeaders = { cookie: cashierCookies, origin: 'http://localhost:3000', 'x-csrf-token': cashierSession.csrfToken };
+
+      const cashierTrialBalance = await app.inject({ method: 'GET', url: `/api/v1/reports/trial-balance?asOf=${reportBusinessDate}`, headers: cashierHeaders });
+      assert.equal(cashierTrialBalance.statusCode, 403);
+      const cashierOperatingSummary = await app.inject({ method: 'GET', url: `/api/v1/reports/profit-loss?from=${reportBusinessDate}&to=${reportBusinessDate}`, headers: cashierHeaders });
+      assert.equal(cashierOperatingSummary.statusCode, 403);
 
       const cashierPayout = await app.inject({
         method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' },
