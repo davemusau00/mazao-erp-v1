@@ -265,7 +265,7 @@ export async function getJournalLines(session: ApiSession, query: { accountCode:
       FROM finance.journal_entries je
       JOIN finance.journal_lines jl ON jl.tenant_id=je.tenant_id AND jl.journal_entry_id=je.id
       WHERE je.tenant_id=$1 AND jl.account_code=$2
-        AND ($3::date IS NULL OR je.posted_at >= ($3::date::timestamp AT TIME ZONE $6))
+        AND ($3::date IS NULL OR je.posted_at >= ($3::date::timestamp AT TIME ZONE $5))
         AND je.posted_at < (($4::date + 1)::timestamp AT TIME ZONE $5)`,
     [session.tenantId, query.accountCode, start, end, session.timeZone]);
     const entriesResult = await client.query(`SELECT je.id journal_entry_id,je.source_type,je.source_id,je.currency,je.posted_at,je.created_by,
@@ -278,10 +278,12 @@ export async function getJournalLines(session: ApiSession, query: { accountCode:
       ORDER BY je.posted_at DESC,je.id DESC,jl.id
       LIMIT $5 OFFSET $7`,
     [session.tenantId, query.accountCode, start, end, limit, session.timeZone, offset]);
-    const total = Number(countResult.rows[0].total);
+    const total = BigInt(countResult.rows[0].total);
+    const returned = BigInt(entriesResult.rowCount ?? 0);
+    const next = BigInt(offset) + returned;
     return {
-      scope: 'TENANT', accountCode: query.accountCode, ...(asOf ? { asOf } : { from: range!.from, to: range!.to }), limit, offset, total,
-      nextOffset: offset + entriesResult.rowCount! < total ? offset + entriesResult.rowCount! : null,
+      scope: 'TENANT', accountCode: query.accountCode, ...(asOf ? { asOf } : { from: range!.from, to: range!.to }), limit, offset, total: total.toString(),
+      nextOffset: next < total ? Number(next) : null,
       entries: entriesResult.rows.map(row => ({
         journalEntryId: row.journal_entry_id,
         sourceType: row.source_type,

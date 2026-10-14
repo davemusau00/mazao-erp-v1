@@ -504,7 +504,7 @@ if (!databaseUrl) {
 
       const accountDrilldown = await app.inject({ method: 'GET', url: `/api/v1/reports/journal-lines?accountCode=SALES_REVENUE&asOf=${reportBusinessDate}&limit=10`, headers });
       assert.equal(accountDrilldown.statusCode, 200, accountDrilldown.body);
-      assert.ok(accountDrilldown.json().total >= 1);
+      assert.ok(BigInt(accountDrilldown.json().total) >= 1n);
       assert.ok(accountDrilldown.json().entries.some((line: { sourceType: string; sourceId: string }) => line.sourceType === 'SALE' && line.sourceId === saleCommand.commandId));
       const invalidReportDate = await app.inject({ method: 'GET', url: '/api/v1/reports/trial-balance?asOf=2026-02-30', headers });
       assert.equal(invalidReportDate.statusCode, 400);

@@ -19,8 +19,8 @@ The repository includes a partial Fastify/PostgreSQL API for authenticated sessi
 
 ## Current UI
 
-- **Server-connected:** Today shift state, cash POS, sales history/cash refunds, item setup, delivery receiving, full outlet stock counts with reviewed posting, shift cash-up and paid-in/payout evidence, room/reservation/check-in/checkout/housekeeping foundation.
-- **Local preview only:** the legacy page-held count draft, restaurant tables/kitchen, customer accounts, finance/reporting, staff/device management, onboarding, and settings. These preview surfaces are hidden while connected to the backend. Server spot counts and unknown-barcode resolution are not yet available.
+- **Server-connected:** Today shift state, cash POS, sales history/cash refunds, item setup, delivery receiving, full outlet stock counts with reviewed posting, shift cash-up and paid-in/payout evidence, room/reservation/check-in/checkout/housekeeping foundation, and `finance.view`-gated trial balance plus partial operating-summary reports with journal drill-through.
+- **Local preview only:** the legacy page-held count draft, restaurant tables/kitchen, customer accounts, staff/device management, onboarding, settings, and the demo finance workspace when no server session is active. Preview records do not become server data. Server spot counts and unknown-barcode resolution are not yet available.
 - **Help and recovery:** operator guidance, IndexedDB retention for unknown server commands, status lookup, and demo-only sync tools remain clearly separated.
 
 The interface uses an OLED dark theme with blue and emerald semantic accents. Navigation and the main workflows adapt to role, enabled business type, and screen width.
@@ -29,7 +29,7 @@ The interface uses an OLED dark theme with blue and emerald semantic accents. Na
 
 The app has both seeded browser-local preview data and authenticated server-backed journeys. Signing in connects only modules listed as connected in the integration register. Unsupported local mutation screens are hidden in server mode; local preview success does not represent a server transaction. Do not use local preview flows to record real business transactions.
 
-The v1 UI service contracts are in `src/types/ui.ts`; the current HTTP adapter is `src/services/apiClient.ts`, and backend domain commands live in `apps/api/`. Contract types for modules without server endpoints remain design boundaries, not implemented services.
+The v1 UI service contracts are in `src/types/ui.ts`; the current HTTP adapter is `src/services/apiClient.ts`, and backend domain commands live in `apps/api/`. Server reports read posted journal evidence tenant-wide; the operating summary is explicitly partial and period controls, AP/AR and complete financial statements are not implemented. Contract types for modules without server endpoints remain design boundaries, not implemented services.
 
 ## Product specifications
 

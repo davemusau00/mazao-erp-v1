@@ -28,7 +28,7 @@ export interface BackendPartialOperatingSummary {
   lines:Array<{accountCode:string;section:string;amountMinor:string}>;
 }
 export interface BackendJournalLines {
-  scope:'TENANT';accountCode:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:number;nextOffset:number|null;
+  scope:'TENANT';accountCode:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:string;nextOffset:number|null;
   entries:Array<{journalEntryId:string;sourceType:string;sourceId:string|null;currency:string;postedAt:string;createdBy:string|null;accountCode:string;debitMinor:string;creditMinor:string}>;
 }
 
