@@ -40,6 +40,9 @@ export default function App() {
   const [purchaseStartTab, setPurchaseStartTab] = useState<'orders' | 'receive'>('orders');
   const [activeTenant, setActiveTenant] = useState(storage.getActiveTenant());
   const [backendSession, setBackendSession] = useState(apiClient.getSession());
+  const [sessionBootstrap, setSessionBootstrap] = useState<'checking'|'ready'|'error'>('checking');
+  const [restoreError, setRestoreError] = useState('');
+  const [explicitLocalPreview, setExplicitLocalPreview] = useState(false);
   const [tenants] = useState(storage.getTenants());
   const [, setIsOnline] = useState(storage.isOnline());
   const [, setOutboxCount] = useState(storage.getOutboxCount());
@@ -61,17 +64,43 @@ export default function App() {
   // Subscribe to reactive storage changes
   useEffect(() => {
     const unsubscribeBackend = apiClient.subscribe(setBackendSession);
-    void apiClient.restore();
+    let mounted = true;
+    const restoreSession = async () => {
+      setSessionBootstrap('checking');
+      setRestoreError('');
+      setExplicitLocalPreview(false);
+      try {
+        await apiClient.restore();
+        if (mounted) setSessionBootstrap('ready');
+      } catch (error) {
+        if (!mounted) return;
+        setRestoreError(error instanceof Error ? error.message : 'The server session could not be verified.');
+        setSessionBootstrap('error');
+      }
+    };
+    void restoreSession();
     const unsubscribe = storage.subscribe(() => {
       setActiveTenant(storage.getActiveTenant());
       setIsOnline(storage.isOnline());
       setOutboxCount(storage.getOutboxCount());
     });
     return () => {
+      mounted = false;
       unsubscribe();
       unsubscribeBackend();
     };
   }, []);
+
+  useEffect(() => {
+    if (!backendSession) return;
+    setCompletedOrder(null);
+    setBackendReceipt(null);
+    setBackendReceiptLoading(false);
+    setBackendReceiptError('');
+    setIsSyncCenterOpen(false);
+    setIsDiagnosticsOpen(false);
+    setDiagnosticsBarcode(null);
+  }, [backendSession?.user.id]);
 
   const handleTenantChange = (newTenantId: string) => {
     storage.switchTenant(newTenantId);
@@ -105,6 +134,21 @@ export default function App() {
     setBackendReceiptLoading(false);
     setBackendReceiptError('');
   };
+
+  if (sessionBootstrap === 'checking') return <SessionBootstrapScreen status="checking" />;
+  if (sessionBootstrap === 'error' && !explicitLocalPreview) return <SessionBootstrapScreen
+    status="error"
+    message={restoreError}
+    onRetry={() => {
+      setSessionBootstrap('checking');
+      setRestoreError('');
+      void apiClient.restore().then(() => setSessionBootstrap('ready')).catch(error => {
+        setRestoreError(error instanceof Error ? error.message : 'The server session could not be verified.');
+        setSessionBootstrap('error');
+      });
+    }}
+    onOpenLocalPreview={() => setExplicitLocalPreview(true)}
+  />;
 
   const handleBarcodeFromDiagnostics = (barcode: string) => {
     setDiagnosticsBarcode(barcode);
@@ -181,16 +225,16 @@ export default function App() {
 
         {activeTab === 'onboarding' && <OnboardingWorkspace tenant={activeTenant} />}
 
-        {activeTab === 'help' && <HelpWorkspace onNavigate={setActiveTab} onOpenSyncCenter={() => setIsSyncCenterOpen(true)} />}
+      {activeTab === 'help' && <HelpWorkspace onNavigate={setActiveTab} onOpenSyncCenter={() => setIsSyncCenterOpen(true)} />}
       </AppShell>
 
       {/* Diagnostics & Simulator Console Drawer */}
-      <DiagnosticsDrawer
+      {!backendSession && <DiagnosticsDrawer
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
         onScanBarcode={handleBarcodeFromDiagnostics}
         onOpenSyncCenter={() => setIsSyncCenterOpen(true)}
-      />
+      />}
 
       {/* Receipt Preview & ESC/POS Print Modal */}
       {completedOrder && (backendSession
@@ -198,10 +242,37 @@ export default function App() {
         : <ReceiptModal order={completedOrder} tenant={activeTenant} onClose={closeReceipt} />)}
 
       {/* Outbox Sync Center & Network Simulator Modal */}
-      <SyncCenterModal
+      {!backendSession && <SyncCenterModal
         isOpen={isSyncCenterOpen}
         onClose={() => setIsSyncCenterOpen(false)}
-      />
+      />}
     </div>
   );
+}
+
+function SessionBootstrapScreen({
+  status,
+  message,
+  onRetry,
+  onOpenLocalPreview,
+}: {
+  status: 'checking'|'error';
+  message?: string;
+  onRetry?: () => void;
+  onOpenLocalPreview?: () => void;
+}) {
+  return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100">
+    <section className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl" aria-labelledby="session-bootstrap-title">
+      <p className="text-xs uppercase tracking-[.18em] text-blue-300">Mazao workspace</p>
+      <h1 id="session-bootstrap-title" className="mt-2 text-2xl font-bold">{status === 'checking' ? 'Checking saved server session' : 'Server session could not be verified'}</h1>
+      <p role={status === 'error' ? 'alert' : 'status'} className="mt-3 text-sm leading-6 text-zinc-300">
+        {status === 'checking' ? 'Wait while Mazao checks whether this browser has an authenticated operator session.' : `${message ?? 'The server is unavailable.'} No business workspace has been opened.`}
+      </p>
+      {status === 'error' && <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <button type="button" onClick={onRetry} className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold">Retry server check</button>
+        <button type="button" onClick={onOpenLocalPreview} className="min-h-11 rounded-lg border border-zinc-700 px-4 text-zinc-200">Open local preview only</button>
+      </div>}
+      {status === 'error' && <p className="mt-4 text-xs leading-5 text-amber-200">The local preview uses separate browser demo records. Do not use it to record real business transactions.</p>}
+    </section>
+  </main>;
 }

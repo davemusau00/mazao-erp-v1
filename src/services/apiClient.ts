@@ -57,8 +57,8 @@ class ApiClient {
     return body as T;
   }
   async login(email:string,password:string){const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});this.csrf=s.csrfToken;this.publish(s);return s}
-  async restore(){try{const s=await this.request<BackendSession>('/auth/me');this.csrf=s.csrfToken;this.publish(s);return s}catch{this.csrf='';this.publish(null);return null}}
-  async logout(){try{await this.request('/auth/logout',{method:'POST'})}finally{this.csrf='';this.publish(null)}}
+  async restore(){try{const s=await this.request<BackendSession>('/auth/me');this.csrf=s.csrfToken;this.publish(s);return s}catch(error){if((error as {status?:number}).status!==401)throw error;this.csrf='';this.publish(null);return null}}
+  async logout(){await this.request('/auth/logout',{method:'POST'});this.csrf='';this.publish(null)}
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
   listCustomerAccounts(){return this.request<{customers:BackendCustomerAccount[]}>('/customers')}
   getCustomerStatement(customerId:string){return this.request<BackendCustomerStatement>('/customers/'+encodeURIComponent(customerId)+'/statement')}
