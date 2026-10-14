@@ -24,12 +24,12 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 | Role | Intended journey | Current UI coverage | Blocking gaps before operational use |
 |---|---|---|---|
 | Administrator | Business/outlet setup, capabilities/tax, imports, staff/devices, first shift and readiness | Local setup preview; server item setup and connected commands | Server-mode setup and Manage are hidden. No account provisioning, outlet/device administration, tax-policy review, imports or go-live command. |
-| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale, unknown-command recovery, history and cash-up; local receipt preview | The supported cash slice passed PostgreSQL acceptance, including refund and close. Browser acceptance remains pending. Only one cash tender is confirmed; provider/split tender, immutable receipt documents and complete drawer reconciliation are absent. |
+| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale, unknown-command recovery, history and cash-up; server receipt identity/tax/tender detail and browser print preview | PostgreSQL acceptance covers the current cash slice and server receipt query. Browser acceptance remains pending. Split/provider tenders, a signed fiscal artifact, verified printer delivery and complete drawer reconciliation are absent. |
 | Storekeeper | Delivery, package conversion, receipt, count, variance review and movements | Server item setup, reviewed receipt, movement history and saved full-outlet count draft; manager posts the count | No package conversion, barcode resolution, spot/blind count, physical locations or partial count adjustment flow. |
 | Waiter/cook/bartender | Table, order, fire/routing, station progress and settlement | Local tables and kitchen preview | Hidden in server mode. No persistent table/order/ticket commands, station routing, recipe consumption or settlement link. |
 | Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in, booked-night cash checkout and room-ready transitions | PostgreSQL acceptance covers the documented lifecycle; browser acceptance remains pending. No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. |
 | Housekeeper | Dirty, cleaning, inspection, ready and maintenance hold | Server dirty-room list and mark-ready command | No cleaning-start/inspection workflow or maintenance controls. Event history is not yet reviewed in an operator workflow. |
-| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; report/ledger preview only when not signed in | Reports are hidden in server mode. No authoritative ledger/report query, completeness/freshness metadata, period controls or full drill-through. Sale COGS now uses moving weighted-average carrying value, but report reconciliation and valuation drill-through are not implemented. |
+| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; finance-view-only trial balance, partial operating summary and journal drill-through | Reports use posted journal data tenant-wide and clearly identify omissions. Period controls, complete financial statements, AP/AR, expense/accrual coverage, full reconciliation and stock valuation drill-through are not implemented. Browser acceptance remains pending. |
 
 ## Critical slice acceptance criteria
 
@@ -39,7 +39,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 - [ ] Submit one stable command ID; exact retry returns the same canonical response and does not repeat mutation.
 - [ ] Support split tenders that equal the due amount; distinguish cash, provider-confirmed payment, unverified references and customer/guest balance.
 - [ ] Keep basket and command reference available on rejection, unknown and conflict outcomes. Unknown outcomes support status and activity review without a new payment.
-- [ ] Create receipts from confirmed server data; printer completion does not become payment authority.
+- [x] Create server receipt views from confirmed sale records with snapshotted tenant/outlet identity, per-line tax and persisted cash/change evidence; print completion does not become payment authority. Browser receipt and hardware acceptance remain pending.
 - [ ] Cash-up records authoritative shift version, counted cash, variance, actor, time and reason; replay cannot close twice.
 - [ ] Refunds are linked reversals with policy/permission checks and a source receipt.
 

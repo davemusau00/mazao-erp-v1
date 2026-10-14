@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -158,7 +158,7 @@ if (!databaseUrl) {
       await db.pool.query(`INSERT INTO commerce.shifts(id,tenant_id,outlet_id,operator_id,status,opening_float_minor,expected_cash_minor)
         VALUES($1,$2,$3,$4,'OPEN',0,0)`, [foreignShiftId, foreignTenantId, foreignOutletId, foreignUserId]);
       await db.pool.query(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`, [foreignOrderId, foreignTenantId, foreignOutletId, foreignShiftId, foreignUserId]);
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::uuid::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`, [foreignOrderId, foreignTenantId, foreignOutletId, foreignShiftId, foreignUserId]);
       await db.pool.query(`INSERT INTO finance.journal_entries(id,tenant_id,source_type,source_id,currency,created_by)
         VALUES($1,$2,'INTEGRATION_FIXTURE',$3,'KES',$4)`, [foreignJournalEntryId, foreignTenantId, randomUUID(), foreignUserId]);
 
@@ -171,7 +171,7 @@ if (!databaseUrl) {
         'device assignment must reference a user membership in the same tenant',
       );
       await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::uuid::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
       [randomUUID(), tenantId, outletId, foreignShiftId, userId],
       'an order must reference a shift from the same tenant and outlet');
       await expectForeignKeyViolation(`INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor)
@@ -357,7 +357,7 @@ if (!databaseUrl) {
       assert.equal(shiftOpen.json().status, 'CONFIRMED');
       const shiftId = String(shiftOpen.json().value.shiftId);
       await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::uuid::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
       [randomUUID(), tenantId, outletId, shiftId, foreignUserId],
       'an order operator must be a member of the same tenant');
 
@@ -659,3 +659,4 @@ if (!databaseUrl) {
     }
   });
 }
+
