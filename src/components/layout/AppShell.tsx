@@ -1,169 +1,98 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Building2, ChefHat, ChevronDown, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, UserPlus, Users, Wifi, WifiOff, Wrench, X, CalendarDays } from 'lucide-react';
-import { TenantProfile, Permission, ROLE_PERMISSIONS } from '../../types/erp';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays } from 'lucide-react';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
-import { storage } from '../../services/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
-import type {RecoverableCommand} from '../../services/commandJournal';
-import { SignInForm } from '../auth/SignInForm';
+import type { RecoverableCommand } from '../../services/commandJournal';
 
-export type ActiveTab = WorkspaceId;
-
-const workspaceItems: Array<WorkspaceDefinition & { icon: React.ReactNode }> = [
-  { id: 'today', label: 'Today', description: 'Your shift at a glance', group: 'work', icon: <LayoutDashboard /> },
-  { id: 'sell', label: 'Sell', description: 'Take payment and serve guests', permission: 'pos.sell', group: 'work', icon: <ShoppingCart /> },
-  { id: 'sales', label: 'Sales history', description: 'Find receipts and returns', permission: 'sales.history', group: 'work', icon: <Clock3 /> },
-  { id: 'service', label: 'Tables & kitchen', description: 'Orders, tabs and preparation', anyPermissions: ['pos.sell', 'kitchen.work'], capability: 'food_service', group: 'work', icon: <ChefHat /> },
-  { id: 'stock', label: 'Stock', description: 'Items, movements and counts', permission: 'inventory.adjust', group: 'work', icon: <Package /> },
-  { id: 'stock-count', label: 'Count stock', description: 'Scan and review a count', permission: 'inventory.adjust', group: 'work', icon: <ClipboardCheck /> },
-  { id: 'purchasing', label: 'Purchasing', description: 'Suppliers and deliveries', permission: 'procurement.manage', group: 'work', icon: <Truck /> },
-  { id: 'hotel', label: 'Hotel', description: 'Rooms and guest bills', anyPermissions: ['rooms.checkin', 'rooms.checkout', 'hotel.housekeeping'], capability: 'hospitality', group: 'work', icon: <Hotel /> },
-  { id: 'reservations', label: 'Reservations', description: 'Check dates and room options', permission: 'rooms.checkin', capability: 'hospitality', group: 'work', icon: <CalendarDays /> },
-  { id: 'customers', label: 'Customers', description: 'Accounts and repayments', permission: 'customers.view', group: 'work', icon: <Users /> },
-  { id: 'shifts', label: 'Shifts', description: 'Till opening and cash-up', permission: 'shift.open', group: 'money', icon: <Clock3 /> },
-  { id: 'money', label: 'Money', description: 'Ledger and balances', permission: 'ledger.view', group: 'money', icon: <Scale /> },
-  { id: 'reports', label: 'Reports', description: 'Sales and operating reports', permission: 'analytics.view', group: 'money', icon: <BarChart3 /> },
-  { id: 'manage', label: 'Manage', description: 'Business setup and access', permission: 'settings.view', group: 'manage', icon: <Settings2 /> },
-  { id: 'onboarding', label: 'Setup checklist', description: 'Prepare an outlet for go-live', permission: 'settings.manage', group: 'manage', icon: <UserPlus /> },
-  { id: 'help', label: 'Help', description: 'Guides and recovery steps', group: 'support', icon: <CircleHelp /> },
+export type ActiveTab=WorkspaceId;
+const workspaceItems:Array<WorkspaceDefinition&{icon:React.ReactNode}>=[
+  {id:'today',label:'Today',description:'Your shift at a glance',group:'work',icon:<LayoutDashboard/>},
+  {id:'sell',label:'Sell',description:'Take payment and serve guests',group:'work',icon:<ShoppingCart/>},
+  {id:'sales',label:'Sales history',description:'Find receipts and returns',group:'work',icon:<Clock3/>},
+  {id:'service',label:'Tables & kitchen',description:'Orders, tabs and preparation',group:'work',icon:<ChefHat/>},
+  {id:'stock',label:'Stock',description:'Items, movements and counts',group:'work',icon:<Package/>},
+  {id:'stock-count',label:'Count stock',description:'Scan and review a count',group:'work',icon:<ClipboardCheck/>},
+  {id:'purchasing',label:'Purchasing',description:'Suppliers and deliveries',group:'work',icon:<Truck/>},
+  {id:'hotel',label:'Hotel',description:'Rooms and guest bills',group:'work',icon:<Hotel/>},
+  {id:'reservations',label:'Reservations',description:'Check dates and room options',group:'work',icon:<CalendarDays/>},
+  {id:'customers',label:'Customers',description:'Accounts and repayments',group:'work',icon:<Users/>},
+  {id:'shifts',label:'Shifts',description:'Till opening and cash-up',group:'money',icon:<Clock3/>},
+  {id:'money',label:'Money',description:'Ledger and balances',group:'money',icon:<Scale/>},
+  {id:'reports',label:'Reports',description:'Sales and operating reports',group:'money',icon:<BarChart3/>},
+  {id:'manage',label:'Manage',description:'Business setup and access',group:'manage',icon:<Settings2/>},
+  {id:'help',label:'Help',description:'Guides and recovery steps',group:'support',icon:<CircleHelp/>},
 ];
+const groups=[{id:'work',label:'WORK'},{id:'money',label:'MONEY'},{id:'manage',label:'MANAGE'},{id:'support',label:'SUPPORT'}] as const;
 
-const groups = [
-  { id: 'work', label: 'WORK' },
-  { id: 'money', label: 'MONEY' },
-  { id: 'manage', label: 'MANAGE' },
-  { id: 'support', label: 'SUPPORT' },
-] as const;
-interface AppShellProps {
-  activeTab: ActiveTab;
-  onTabChange: (tab: ActiveTab) => void;
-  activeTenant: TenantProfile;
-  tenants: TenantProfile[];
-  onTenantChange: (tenantId: string) => void;
-  onOpenSyncCenter: () => void;
-  onOpenDiagnostics: () => void;
-  children: React.ReactNode;
+export function canOpenWorkspace(session:BackendSession,workspace:WorkspaceId):boolean {
+  const has=(...permissions:string[])=>permissions.some(permission=>session.user.permissions.includes(permission));
+  const enabled=(capability:string)=>session.tenant.capabilities.includes(capability);
+  const allowed:Record<WorkspaceId,boolean>={
+    today:true,help:true,sell:enabled('commerce')&&has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),
+    service:false,stock:has('catalog.manage','inventory.receive'),
+    'stock-count':has('inventory.count','inventory.count.approve'),purchasing:has('inventory.receive'),
+    hotel:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),
+    reservations:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage'),
+    customers:enabled('commerce')&&has('customers.view'),shifts:has('shift.open','shift.close'),
+    money:has('finance.view'),reports:has('finance.view'),manage:has('config.view','config.manage'),onboarding:false,
+  };
+  return allowed[workspace];
 }
 
-export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, activeTenant, tenants, onTenantChange, onOpenSyncCenter, onOpenDiagnostics, children }) => {
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [operatorOpen, setOperatorOpen] = useState(false);
-  const [backendSession, setBackendSession] = useState<BackendSession | null>(apiClient.getSession());
+export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;onTabChange:(tab:ActiveTab)=>void;children:React.ReactNode}) {
+  const [moreOpen,setMoreOpen]=useState(false);
+  const [session,setSession]=useState(apiClient.getSession());
+  const [online,setOnline]=useState(navigator.onLine);
   const [recoverableCommands,setRecoverableCommands]=useState<RecoverableCommand[]>([]);
-  const [backendLoginOpen, setBackendLoginOpen] = useState(false);
-  const [backendLogoutError, setBackendLogoutError] = useState('');
-  const [, setStorageRevision] = useState(0);
-  useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
-  useEffect(() => apiClient.subscribe(setBackendSession), []);
-  useEffect(()=>{if(!backendSession){setRecoverableCommands([]);return}void apiClient.listRecoverableCommands(backendSession.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));return apiClient.subscribeRecovery(setRecoverableCommands)},[backendSession?.tenant.id]);
-  const signOutBackend = async () => {
-    setBackendLogoutError('');
-    try { await apiClient.logout(); }
-    catch (error) { setBackendLogoutError(error instanceof Error ? error.message : 'Server sign-out could not be confirmed.'); }
+  const [logoutError,setLogoutError]=useState('');
+  const {isInstallable,isInstalled,install}=usePWAInstall();
+  useEffect(()=>apiClient.subscribe(setSession),[]);
+  useEffect(()=>{
+    const update=()=>setOnline(navigator.onLine);
+    window.addEventListener('online',update);window.addEventListener('offline',update);
+    return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
+  useEffect(()=>{
+    if(!session){setRecoverableCommands([]);return;}
+    void apiClient.listRecoverableCommands(session.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));
+    return apiClient.subscribeRecovery(setRecoverableCommands);
+  },[session?.tenant.id]);
+  const available=useMemo(()=>session?workspaceItems.filter(item=>canOpenWorkspace(session,item.id)):[],[session]);
+  useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
+  if(!session)return null;
+  const selectWorkspace=(id:WorkspaceId)=>{
+    if(!canOpenWorkspace(session,id))return;
+    if(id!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+    onTabChange(id);setMoreOpen(false);
   };
-  const isOnline = storage.isOnline();
-  const pendingOutbox = storage.getOutboxCount();
-  const persistenceError = backendSession ? null : storage.getPersistenceError();
-  const staffUsers = storage.getStaffUsers();
-  const activeStaff = storage.getActiveStaff();
-  const { isInstallable, isInstalled, install } = usePWAInstall();
-  const availableWorkspaces = useMemo(() => workspaceItems.filter(item => {
-    if(backendSession){
-      const has=(...permissions:string[])=>permissions.some(permission=>backendSession.user.permissions.includes(permission));
-      const serverAllowed:Record<WorkspaceId,boolean>={
-        today:true,help:true,sell:has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),service:false,stock:has('catalog.manage','inventory.receive'),
-        'stock-count':has('inventory.count','inventory.count.approve'),purchasing:has('inventory.receive'),hotel:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),reservations:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage'),customers:backendSession.tenant.capabilities.includes('commerce')&&has('customers.view'),
-        shifts:has('shift.open','shift.close'),money:has('finance.view'),reports:has('finance.view'),manage:false,onboarding:false,
-      };
-      return serverAllowed[item.id];
-    }
-    if (item.permission && !storage.hasPermission(item.permission as Permission)) return false;
-    if (item.anyPermissions && !item.anyPermissions.some(permission => storage.hasPermission(permission))) return false;
-    if (item.capability === 'hospitality' && activeTenant.capabilities && !activeTenant.capabilities.includes('hospitality')) return false;
-    if (item.capability === 'hospitality' && !activeTenant.capabilities && activeTenant.type !== 'hospitality' && activeTenant.type !== 'restaurant') return false;
-    if (item.capability === 'food_service' && activeTenant.capabilities && !activeTenant.capabilities.includes('food_service')) return false;
-    if (item.capability === 'food_service' && !activeTenant.capabilities && activeTenant.type !== 'restaurant') return false;
-    return true;
-  }), [activeTenant.id, activeTenant.type, activeTenant.capabilities, activeStaff.id, activeStaff.role, backendSession?.user.id,backendSession?.user.role,backendSession?.user.permissions.join(','),backendSession?.tenant.capabilities.join(',')]);
-  useEffect(()=>{if(backendSession&&!availableWorkspaces.some(item=>item.id===activeTab))onTabChange('today')},[backendSession?.user.id,activeTab,availableWorkspaces,onTabChange]);
-
-  const changeStaff = (staffId: string) => {
-    storage.switchStaff(staffId);
-    setOperatorOpen(false);
-    const route = workspaceItems.find(item => item.id === activeTab);
-    const nextStaff = staffUsers.find(staff => staff.id === staffId);
-    const permissions = nextStaff ? ROLE_PERMISSIONS[nextStaff.role] : [];
-    const allowedByRole = !route?.permission || permissions.includes(route.permission as Permission);
-    const allowedByAnyRole = !route?.anyPermissions || route.anyPermissions.some(permission => permissions.includes(permission));
-    const allowedByCapability = route?.capability === 'hospitality'
-      ? activeTenant.capabilities?.includes('hospitality') ?? ['hospitality', 'restaurant'].includes(activeTenant.type)
-      : route?.capability === 'food_service'
-        ? activeTenant.capabilities?.includes('food_service') ?? activeTenant.type === 'restaurant'
-        : true;
-    if (!route || !allowedByRole || !allowedByAnyRole || !allowedByCapability) onTabChange('today');
+  const signOut=async()=>{
+    if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+    setLogoutError('');try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
-  const selectWorkspace = (id: WorkspaceId) => { onTabChange(id); setMoreOpen(false); };
-
+  const openRecovery=()=>{
+    const type=recoverableCommands[0]?.command.type??'';
+    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type==='catalog.product.create'?'stock':'shifts';
+    selectWorkspace(destination);
+  };
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Main navigation">
       <div className="brand-lockup"><div className="brand-mark">M</div><div><strong>Mazao</strong><small>BUSINESS WORKSPACE</small></div></div>
-      <div className="sidebar-context"><span className="context-label">{backendSession?'SERVER OUTLET':'BUSINESS'}</span><strong title={backendSession?.outlet.name ?? activeTenant.outletName ?? activeTenant.name}>{backendSession?.outlet.name ?? activeTenant.outletName ?? activeTenant.name}</strong><span>{backendSession?`${backendSession.tenant.currency} · ${backendSession.tenant.timeZone}`:`${activeTenant.currency} · ${activeTenant.timeZone ?? 'Africa/Nairobi'}`}</span></div>
-      <nav className="workspace-nav">
-        {groups.map(group => {
-          const items = availableWorkspaces.filter(item => item.group === group.id);
-          if (!items.length) return null;
-          return <section key={group.id} className="nav-group"><h2>{group.label}</h2>{items.map(item => <button key={item.id} type="button" title={item.label} aria-label={item.label} className={`nav-link ${activeTab === item.id ? 'active' : ''}`} onClick={() => selectWorkspace(item.id)} aria-current={activeTab === item.id ? 'page' : undefined}>
-            <span className="nav-icon">{item.icon}</span><span className="nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
-          </button>)}</section>;
-        })}
-      </nav>
-      <div className="sidebar-footer"><span className="demo-indicator"><span />{backendSession?`Server · ${backendSession.outlet.name}`:'Local demo workspace'}</span>{!backendSession && storage.hasPermission('settings.view') && <button type="button" className="sidebar-tool" onClick={onOpenDiagnostics}><Wrench size={16} /> Diagnostics</button>}</div>
+      <div className="sidebar-context"><span className="context-label">OUTLET</span><strong title={session.outlet.name}>{session.outlet.name}</strong><span>{session.tenant.currency} · {session.tenant.timeZone}</span></div>
+      <nav className="workspace-nav">{groups.map(group=>{const items=available.filter(item=>item.group===group.id);return items.length?<section key={group.id} className="nav-group"><h2>{group.label}</h2>{items.map(item=><button key={item.id} type="button" title={item.label} aria-label={item.label} className={'nav-link '+(activeTab===item.id?'active':'')} onClick={()=>selectWorkspace(item.id)} aria-current={activeTab===item.id?'page':undefined}><span className="nav-icon">{item.icon}</span><span className="nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span></button>)}</section>:null;})}</nav>
+      <div className="sidebar-footer"><span className="demo-indicator"><span/>Server · {session.outlet.name}</span></div>
     </aside>
-
     <div className="app-main-column">
-      <header className="topbar">
-        <div className="topbar-context">
-          {backendSession ? <div className="operator-button" aria-label={`Signed in as ${backendSession.user.name}`}>
-            <span className="operator-avatar">{backendSession.user.name.slice(0, 1)}</span><span className="operator-copy"><strong>{backendSession.tenant.name}</strong><small>{backendSession.outlet.name} · {backendSession.user.name} · {backendSession.user.role}</small></span>
-          </div> : <>
-            <label className="tenant-select-wrap"><Building2 size={15} /><span className="sr-only">Business</span><select value={activeTenant.id} onChange={event => onTenantChange(event.target.value)} aria-label="Select business">
-              {tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
-            </select><ChevronDown size={13} /></label>
-            <span className="topbar-divider" />
-            <div className="operator-wrap"><button className="operator-button" type="button" onClick={() => setOperatorOpen(value => !value)} aria-expanded={operatorOpen}>
-              <span className="operator-avatar">{activeStaff.name.slice(0, 1)}</span><span className="operator-copy"><strong>{activeStaff.name}</strong><small>{activeStaff.title} · {activeStaff.role}</small></span><ChevronDown size={14} />
-            </button>{operatorOpen && <div className="operator-menu" role="menu"><span className="menu-caption">DEMO OPERATOR</span>{staffUsers.map(staff => <button role="menuitem" type="button" key={staff.id} onClick={() => changeStaff(staff.id)} className={staff.id === activeStaff.id ? 'selected' : ''}><span>{staff.name}</span><small>{staff.title} · {staff.role}</small></button>)}</div>}</div>
-          </>}
-        </div>
-        <div className="topbar-actions">
-          {backendSession ? <div className="connection-pill online" title={`${backendSession.tenant.name} · ${backendSession.outlet.name}`}><Wifi size={15}/><span>Server account</span><button type="button" onClick={() => void signOutBackend()} aria-label="Sign out of server">Sign out</button></div> : <>
-            <button className="connection-pill offline" type="button" onClick={() => setBackendLoginOpen(true)}><WifiOff size={15}/><span>Connect backend</span></button>
-            <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Local preview online' : 'Local preview offline'}${pendingOutbox ? `, ${pendingOutbox} waiting in the local preview` : ''}`}>
-              {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Local preview online' : 'Local preview offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
-            </button>
-          </>}
-          {isInstallable && !isInstalled && <button type="button" className="icon-action install-action" onClick={install}><Download size={16} /><span>Install app</span></button>}
-          {!backendSession && storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}
-        </div>
-      </header>
+      <header className="topbar"><div className="topbar-context"><div className="operator-button" aria-label={'Signed in as '+session.user.name}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {session.user.role}</small></span></div></div><div className="topbar-actions"><div className={'connection-pill '+(online?'online':'offline')} title={online?'Server connection available':'Offline: server actions require a connection'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Server account':'Offline'}</span><button className="min-h-11" type="button" onClick={()=>void signOut()} aria-label="Sign out of server">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
-        {persistenceError && <div role="alert" className="persistence-error-banner"><strong>Local save failed.</strong> {persistenceError}</div>}
-        {backendLogoutError && <div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {backendLogoutError} Your authenticated workspace remains open.</div>}
-        {backendSession&&recoverableCommands.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length} server command{recoverableCommands.length===1?'':'s'} need status review.</strong> The exact command is safely retained on this device. <button type="button" className="ml-2 underline" onClick={()=>{const type=recoverableCommands[0].command.type;onTabChange(type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type==='catalog.product.create'?'stock':'shifts')}}>Open recovery workspace</button></div>}
-        <div className="workspace-interaction-boundary" inert={!backendSession && persistenceError ? true : undefined}>{children}</div>
+        {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Server actions require a connection. Unconfirmed commands remain available for status review.</div>}
+        {logoutError&&<div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {logoutError}</div>}
+        {recoverableCommands.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length} server command{recoverableCommands.length===1?'':'s'} need status review.</strong> The exact command is retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open recovery workspace</button></div>}
+        <div className="workspace-interaction-boundary">{children}</div>
       </main>
-      <nav className="mobile-bottom-nav" aria-label="Quick navigation">
-        {(['today', 'sell', 'stock'] as WorkspaceId[]).map(id => {
-          const item = workspaceItems.find(entry => entry.id === id)!;
-          if (!availableWorkspaces.some(entry => entry.id === id)) return null;
-          return <button type="button" key={id} className={activeTab === id ? 'active' : ''} onClick={() => selectWorkspace(id)} aria-current={activeTab === id ? 'page' : undefined}>{item.icon}<span>{item.label}</span></button>;
-        })}
-        <button type="button" className={moreOpen ? 'active' : ''} onClick={() => setMoreOpen(value => !value)} aria-expanded={moreOpen}><Menu /><span>More</span></button>
-      </nav>
-      {moreOpen && <div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" onClick={() => setMoreOpen(false)} aria-label="Close navigation"><X size={18} /></button></div>{availableWorkspaces.filter(item => !['today', 'sell', 'stock'].includes(item.id)).map(item => <button type="button" key={item.id} onClick={() => selectWorkspace(item.id)} className={activeTab === item.id ? 'active' : ''}>{item.icon}<span>{item.label}</span></button>)}</div>}
-      {backendLoginOpen && <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" role="presentation"><SignInForm onSignedIn={() => setBackendLoginOpen(false)} onCancel={() => setBackendLoginOpen(false)} /></div>}
+      <nav className="mobile-bottom-nav" aria-label="Quick navigation">{(['today','sell','stock'] as WorkspaceId[]).map(id=>{const item=available.find(entry=>entry.id===id);return item?<button type="button" key={id} className={activeTab===id?'active':''} onClick={()=>selectWorkspace(id)} aria-current={activeTab===id?'page':undefined}>{item.icon}<span>{item.label}</span></button>:null;})}<button type="button" className={moreOpen?'active':''} onClick={()=>setMoreOpen(value=>!value)} aria-expanded={moreOpen}><Menu/><span>More</span></button></nav>
+      {moreOpen&&<div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" className="min-h-11 min-w-11" onClick={()=>setMoreOpen(false)} aria-label="Close navigation"><X size={18}/></button></div>{available.filter(item=>!['today','sell','stock'].includes(item.id)).map(item=><button type="button" key={item.id} onClick={()=>selectWorkspace(item.id)} className={activeTab===item.id?'active':''}>{item.icon}<span>{item.label}</span></button>)}</div>}
     </div>
   </div>;
-};
+}
