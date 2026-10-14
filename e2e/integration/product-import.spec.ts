@@ -220,6 +220,8 @@ test('CSV mapping and primary review actions fit all required desktop, tablet an
     const action=page.getByRole('button',{name:'Validate all rows',exact:true}); await action.scrollIntoViewIfNeeded();
     await expect(action).toBeInViewport(); const rect=await action.boundingBox();
     expect(rect!.height).toBeGreaterThanOrEqual(44); expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
+    const signOut=await page.getByRole('button',{name:'Sign out of server',exact:true}).boundingBox();
+    expect(signOut!.height).toBeGreaterThanOrEqual(44); expect(signOut!.width).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
   await validate(page);
