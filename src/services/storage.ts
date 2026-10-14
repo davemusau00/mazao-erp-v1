@@ -24,6 +24,7 @@ import {
   CustomerTransaction,
   PaymentMethod
 } from '../types/erp';
+import { sumDecimalStrings } from '../utils/decimal';
 
 // Seed tenants
 export const INITIAL_TENANTS: TenantProfile[] = [
@@ -1029,8 +1030,10 @@ class StorageEngine {
     const list = this.products[this.tenantId] || [];
     const prod = list.find(p => p.id === productId);
     if (!prod) return;
-
-    prod.stockOnHand = Math.max(0, prod.stockOnHand + delta);
+    if (!Number.isFinite(delta) || delta === 0) throw new Error('Stock change must be a finite, non-zero quantity.');
+    const balanceAfter = Number(sumDecimalStrings([String(prod.stockOnHand), String(delta)]));
+    if (!Number.isFinite(balanceAfter) || balanceAfter < 0) throw new Error('Stock cannot be reduced below zero.');
+    prod.stockOnHand = balanceAfter;
 
     const movement: StockMovement = {
       id: 'mov-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),

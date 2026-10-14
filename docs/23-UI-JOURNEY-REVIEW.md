@@ -17,6 +17,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 - Signed-in POS no longer falls through to local sale processing when the server catalog fails. Server checkout is disabled until catalog and shift state are loaded.
 - Server-mode navigation hides local-only customer, kitchen, stock-count, report, management and onboarding workflows.
 - Authenticated UI permissions now come from the server session contract; catalog and sales history omit cost fields from unauthorized projections. Production API startup requires an exact `APP_ORIGINS` allowlist.
+- The local Stock catalogue now exposes a permission-gated Add item form and an empty-catalogue call to action. New records start at zero stock. The preview offers decimal stock adjustments to six places with a non-negative-balance guard; it remains browser-only. Signed-in item creation and reviewed delivery receiving use server commands. Stock count remains an unposted page draft, with no backend count command.
 
 ## Role journey map
 
