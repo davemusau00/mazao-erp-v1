@@ -39,3 +39,9 @@ After restore:
 4. Remove only the disposable restore container and its temporary volume after evidence is recorded.
 
 Never use reverse SQL migrations as a restore strategy. For a real incident, fence writes, select the authoritative recovery point, preserve unknown command IDs for reconciliation, restore and validate, then deliberately reopen writes and document the audit trail.
+
+## Observed local restore runtime failure ? 14 October 2026
+
+A verification attempt reported PostgreSQL fdatasync I/O errors and Docker Desktop read-only metadata storage. The VPS remained healthy. Encrypted off-host backup creation still works because it uses remote pg_dump and Windows DPAPI; the post-release backup metadata remains restoreVerified=false. Keep the earlier successfully restored checkpoint. Do not treat the failed attempt as a passed restore or erase new live records.
+
+The failed disposable container is mazao-restore-575a26ba59c540f6834135bec5019920. Its removal failed while Docker's filesystem was read-only. Repair local Docker, confirm this exact task-owned container, remove it and rerun Backup-Mazao.ps1 -VerifyRestore. Do not reset Docker's data store or remove unrelated containers/volumes without separate approval. Plaintext Windows/VPS dump paths from the failed attempt were checked absent. See docs/25-PILOT-DEPLOYMENT-2026-10-14.md for the dated checkpoint/release evidence and automatic-review rejection of the alternate restore attempt.
