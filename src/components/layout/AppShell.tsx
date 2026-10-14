@@ -77,7 +77,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
       const serverAllowed:Record<WorkspaceId,boolean>={
         today:true,help:true,sell:has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),service:false,stock:has('catalog.manage','inventory.receive'),
         'stock-count':has('inventory.count','inventory.count.approve'),purchasing:has('inventory.receive'),hotel:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),reservations:backendSession.tenant.capabilities.includes('hospitality')&&has('hotel.frontdesk','hotel.manage'),customers:false,
-        shifts:has('shift.open','shift.close'),money:false,reports:false,manage:false,onboarding:false,
+        shifts:has('shift.open','shift.close'),money:has('finance.view'),reports:has('finance.view'),manage:false,onboarding:false,
       };
       return serverAllowed[item.id];
     }

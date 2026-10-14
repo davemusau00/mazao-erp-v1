@@ -8,6 +8,7 @@ import { DomainError } from './contracts.js';
 import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
+import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -181,6 +182,19 @@ export function buildApp() {
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:'cash',lines:r.lines}))};
   });
+  app.get<{ Querystring: { asOf?: string } }>('/api/v1/reports/trial-balance', async request =>
+    getTrialBalance(request.operator!, request.query.asOf));
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/profit-loss', async request =>
+    getProfitLoss(request.operator!, request.query.from, request.query.to));
+  app.get<{ Querystring: { accountCode?: string; from?: string; to?: string; asOf?: string; limit?: string; offset?: string } }>('/api/v1/reports/journal-lines', async request =>
+    getJournalLines(request.operator!, {
+      accountCode: request.query.accountCode,
+      from: request.query.from,
+      to: request.query.to,
+      asOf: request.query.asOf,
+      limit: request.query.limit,
+      offset: request.query.offset,
+    }));
   app.get('/api/v1/hospitality/rooms', async request => {
     const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
     if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'||permission==='hotel.housekeeping'))throw new DomainError('FORBIDDEN','Your role cannot view rooms.',403);

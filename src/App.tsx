@@ -13,6 +13,7 @@ import { HospitalityView } from './components/hospitality/HospitalityView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { ShiftManagerView } from './components/shifts/ShiftManagerView';
 import { FinanceWorkspace } from './components/finance/FinanceWorkspace';
+import { BackendFinancialReportsWorkspace } from './components/finance/BackendFinancialReportsWorkspace';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { CustomerDirectoryView } from './components/customers/CustomerDirectoryView';
 import { ReceiptModal } from './components/hardware/ReceiptModal';
@@ -134,11 +135,15 @@ export default function App() {
         )}
 
         {activeTab === 'money' && (
-          <FinanceWorkspace tenant={activeTenant} />
+          backendSession
+            ? <BackendFinancialReportsWorkspace initialView="trial-balance" />
+            : <FinanceWorkspace tenant={activeTenant} />
         )}
 
         {activeTab === 'reports' && (
-          <AnalyticsView currentTenant={activeTenant} onOpenSales={() => setActiveTab('sales')} />
+          backendSession
+            ? <BackendFinancialReportsWorkspace initialView="operating-summary" />
+            : <AnalyticsView currentTenant={activeTenant} onOpenSales={() => setActiveTab('sales')} />
         )}
 
         {activeTab === 'manage' && <ManageWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}
