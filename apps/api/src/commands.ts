@@ -569,7 +569,9 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh and retry using the current version.', 409, { currentVersion: Number(shift.rows[0].version) });
 
-  const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
+  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
+  if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
   const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string }> = [];
   for (const line of normalized) {
@@ -603,10 +605,13 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (tenderTotal < total) throw new DomainError('VALIDATION_FAILED', 'Cash tender allocations do not cover the sale total.', 400, { amountDueMinor: total, tenderedMinor: tenderTotal });
 
   const orderId = randomUUID();
+  const receiptNumber = `MZ-${orderId.replaceAll('-', '').toUpperCase()}`;
   await client.query(
-    `INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED')`,
-    [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total],
+    `INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,
+       receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot,cash_tendered_minor,change_minor)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15)`,
+    [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
+      tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone, tenderTotal, tenderTotal - total],
   );
   for (const line of computed) {
     await client.query(
@@ -651,7 +656,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     { account: 'COST_OF_GOODS_SOLD', debit: cogs, credit: 0 },
     { account: 'INVENTORY', debit: 0, credit: cogs },
   ]);
-  const result = { saleId: orderId, receiptId: orderId, currency, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, tenderedMinor: tenderTotal, changeMinor: tenderTotal - total, shiftVersion: nextVersion, status: 'CONFIRMED' };
+  const result = { saleId: orderId, receiptId: orderId, receiptNumber, currency, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, tenderedMinor: tenderTotal, changeMinor: tenderTotal - total, shiftVersion: nextVersion, status: 'CONFIRMED' };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;

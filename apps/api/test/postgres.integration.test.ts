@@ -157,8 +157,8 @@ if (!databaseUrl) {
       await db.pool.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,5)', [foreignTenantId, foreignOutletId, foreignProductId]);
       await db.pool.query(`INSERT INTO commerce.shifts(id,tenant_id,outlet_id,operator_id,status,opening_float_minor,expected_cash_minor)
         VALUES($1,$2,$3,$4,'OPEN',0,0)`, [foreignShiftId, foreignTenantId, foreignOutletId, foreignUserId]);
-      await db.pool.query(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`, [foreignOrderId, foreignTenantId, foreignOutletId, foreignShiftId, foreignUserId]);
+      await db.pool.query(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`, [foreignOrderId, foreignTenantId, foreignOutletId, foreignShiftId, foreignUserId]);
       await db.pool.query(`INSERT INTO finance.journal_entries(id,tenant_id,source_type,source_id,currency,created_by)
         VALUES($1,$2,'INTEGRATION_FIXTURE',$3,'KES',$4)`, [foreignJournalEntryId, foreignTenantId, randomUUID(), foreignUserId]);
 
@@ -170,8 +170,8 @@ if (!databaseUrl) {
         [randomUUID(), foreignTenantId, foreignOutletId, userId, 'Cross-tenant assignment must fail'],
         'device assignment must reference a user membership in the same tenant',
       );
-      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`,
+      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
       [randomUUID(), tenantId, outletId, foreignShiftId, userId],
       'an order must reference a shift from the same tenant and outlet');
       await expectForeignKeyViolation(`INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor)
@@ -356,8 +356,8 @@ if (!databaseUrl) {
       });
       assert.equal(shiftOpen.json().status, 'CONFIRMED');
       const shiftId = String(shiftOpen.json().value.shiftId);
-      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
-        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`,
+      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED','MZ-'||upper(replace($1::text,'-','')),(SELECT name FROM core.tenants WHERE id=$2),(SELECT name FROM core.outlets WHERE tenant_id=$2 AND id=$3),(SELECT time_zone FROM core.outlets WHERE tenant_id=$2 AND id=$3))`,
       [randomUUID(), tenantId, outletId, shiftId, foreignUserId],
       'an order operator must be a member of the same tenant');
 
@@ -469,6 +469,29 @@ if (!databaseUrl) {
       assert.ok(managerOrder, 'manager should see the confirmed sale');
       assert.equal(Number(managerOrder.lines[0].costPriceMinor), 15000, 'finance users may read historical unit cost');
       assert.equal(managerOrder.lines[0].cogsMinor,'38333','sale snapshots exact weighted-average COGS in minor units');
+      const saleReceiptResponse = await app.inject({ method: 'GET', url: `/api/v1/sales/orders/${saleId}/receipt`, headers });
+      assert.equal(saleReceiptResponse.statusCode, 200, saleReceiptResponse.body);
+      const saleReceipt = saleReceiptResponse.json() as {
+        status: string; fiscalDocumentStatus: string; receiptNumber: string; tenantName: string; outletName: string; timeZone: string; currency: string;
+        subtotalMinor: string; taxMinor: string; totalMinor: string; amountPaidMinor: string; cashTenderedMinor: string; changeMinor: string;
+        lines: Array<{ taxRateBps: number; subtotalMinor: string; taxMinor: string; totalMinor: string }>;
+      };
+      assert.equal(saleReceipt.status, 'CONFIRMED');
+      assert.equal(saleReceipt.fiscalDocumentStatus, 'NOT_INTEGRATED');
+      assert.match(saleReceipt.receiptNumber, /^MZ-[0-9A-F]{32}$/);
+      assert.equal(saleReceipt.tenantName, 'Disposable API integration tenant');
+      assert.equal(saleReceipt.outletName, 'Integration outlet');
+      assert.equal(saleReceipt.timeZone, 'Africa/Nairobi');
+      assert.equal(saleReceipt.currency, 'KES');
+      assert.equal(saleReceipt.subtotalMinor, '50000');
+      assert.equal(saleReceipt.taxMinor, '8000');
+      assert.equal(saleReceipt.totalMinor, '58000');
+      assert.equal(saleReceipt.amountPaidMinor, '58000');
+      assert.equal(saleReceipt.cashTenderedMinor, '60000');
+      assert.equal(saleReceipt.changeMinor, '2000');
+      assert.deepEqual(saleReceipt.lines.map(line => ({ taxRateBps: line.taxRateBps, subtotalMinor: line.subtotalMinor, taxMinor: line.taxMinor, totalMinor: line.totalMinor })), [
+        { taxRateBps: 1600, subtotalMinor: '50000', taxMinor: '8000', totalMinor: '58000' },
+      ]);
       const saleCogsJournal=await db.pool.query<{debit_minor:string;credit_minor:string}>(`SELECT coalesce(sum(jl.debit_minor),0)::text debit_minor,coalesce(sum(jl.credit_minor),0)::text credit_minor FROM finance.journal_entries je JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 AND je.source_type='SALE_COGS' AND je.source_id=$2`,[tenantId,saleCommand.commandId]);
       assert.deepEqual(saleCogsJournal.rows[0],{debit_minor:'38333',credit_minor:'38333'},'sale journal must use the same weighted-average COGS snapshot');
 
@@ -532,6 +555,9 @@ if (!databaseUrl) {
         .join('; ');
       const cashierHeaders = { cookie: cashierCookies, origin: 'http://localhost:3000', 'x-csrf-token': cashierSession.csrfToken };
 
+      const cashierSaleReceipt = await app.inject({ method: 'GET', url: `/api/v1/sales/orders/${saleId}/receipt`, headers: cashierHeaders });
+      assert.equal(cashierSaleReceipt.statusCode, 200, cashierSaleReceipt.body);
+      assert.equal(cashierSaleReceipt.json().receiptId, saleId);
       const cashierTrialBalance = await app.inject({ method: 'GET', url: `/api/v1/reports/trial-balance?asOf=${reportBusinessDate}`, headers: cashierHeaders });
       assert.equal(cashierTrialBalance.statusCode, 403);
       const cashierOperatingSummary = await app.inject({ method: 'GET', url: `/api/v1/reports/profit-loss?from=${reportBusinessDate}&to=${reportBusinessDate}`, headers: cashierHeaders });

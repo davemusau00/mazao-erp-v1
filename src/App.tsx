@@ -3,7 +3,7 @@
  * PWA-First Modular Monolith with Offline Synchronization
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { storage } from './services/storage';
 import { SaleOrder } from './types/erp';
 import { AppShell, ActiveTab } from './components/layout/AppShell';
@@ -17,6 +17,7 @@ import { BackendFinancialReportsWorkspace } from './components/finance/BackendFi
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { CustomerDirectoryView } from './components/customers/CustomerDirectoryView';
 import { ReceiptModal } from './components/hardware/ReceiptModal';
+import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SyncCenterModal } from './components/sync/SyncCenterModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
 import { TodayWorkspace } from './components/home/TodayWorkspace';
@@ -31,6 +32,7 @@ import { BackendTodayWorkspace } from './components/home/BackendTodayWorkspace';
 import { StockCountWorkspace } from './components/inventory/StockCountWorkspace';
 import { BackendStockCountWorkspace } from './components/inventory/BackendStockCountWorkspace';
 import { apiClient } from './services/apiClient';
+import type { BackendSaleReceipt } from './services/apiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
@@ -43,6 +45,10 @@ export default function App() {
 
   // Receipt Modal State
   const [completedOrder, setCompletedOrder] = useState<SaleOrder | null>(null);
+  const [backendReceipt, setBackendReceipt] = useState<BackendSaleReceipt | null>(null);
+  const [backendReceiptLoading, setBackendReceiptLoading] = useState(false);
+  const [backendReceiptError, setBackendReceiptError] = useState('');
+  const backendReceiptRequest = useRef(0);
 
   // Sync Center Modal State
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
@@ -71,8 +77,32 @@ export default function App() {
     setActiveTenant(storage.getActiveTenant());
   };
 
+  const loadBackendReceipt = (orderId: string) => {
+    const requestId = ++backendReceiptRequest.current;
+    setBackendReceipt(null);
+    setBackendReceiptLoading(true);
+    setBackendReceiptError('');
+    void apiClient.getSaleReceipt(orderId).then(receipt => {
+      if (backendReceiptRequest.current === requestId) setBackendReceipt(receipt);
+    }).catch(error => {
+      if (backendReceiptRequest.current === requestId) setBackendReceiptError(error instanceof Error ? error.message : 'Receipt lookup failed.');
+    }).finally(() => {
+      if (backendReceiptRequest.current === requestId) setBackendReceiptLoading(false);
+    });
+  };
+
   const handleOrderCompleted = (order: SaleOrder) => {
     setCompletedOrder(order);
+    if (apiClient.getSession()) loadBackendReceipt(order.id);
+    else { ++backendReceiptRequest.current; setBackendReceipt(null); setBackendReceiptLoading(false); setBackendReceiptError(''); }
+  };
+
+  const closeReceipt = () => {
+    ++backendReceiptRequest.current;
+    setCompletedOrder(null);
+    setBackendReceipt(null);
+    setBackendReceiptLoading(false);
+    setBackendReceiptError('');
   };
 
   const handleBarcodeFromDiagnostics = (barcode: string) => {
@@ -162,11 +192,9 @@ export default function App() {
       />
 
       {/* Receipt Preview & ESC/POS Print Modal */}
-      <ReceiptModal
-        order={completedOrder}
-        tenant={activeTenant}
-        onClose={() => setCompletedOrder(null)}
-      />
+      {completedOrder && (backendSession
+        ? <BackendReceiptModal receipt={backendReceipt} loading={backendReceiptLoading} error={backendReceiptError} onRetry={() => loadBackendReceipt(completedOrder.id)} onClose={closeReceipt} />
+        : <ReceiptModal order={completedOrder} tenant={activeTenant} onClose={closeReceipt} />)}
 
       {/* Outbox Sync Center & Network Simulator Modal */}
       <SyncCenterModal

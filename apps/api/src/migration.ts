@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { pool } from './db.js';
 
-const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality','005_shift_cash_movements','006_inventory_counts','007_weighted_average_inventory_cost','008_reconcile_inventory_value_from_movements','009_reconcile_restocked_refund_values','010_composite_tenant_foreign_keys'];
+const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality','005_shift_cash_movements','006_inventory_counts','007_weighted_average_inventory_cost','008_reconcile_inventory_value_from_movements','009_reconcile_restocked_refund_values','010_composite_tenant_foreign_keys','011_receipt_identity_snapshots'];
+const migrationTarget=process.env.MIGRATION_TARGET;
+if(migrationTarget&&!versions.includes(migrationTarget))throw new Error(`MIGRATION_TARGET must be a known migration version; received ${migrationTarget}.`);
 const client=await pool.connect();
 
 /**
@@ -48,5 +50,6 @@ try {
         await client.query('COMMIT'); process.stdout.write(`Applied ${version} (${checksum.slice(0,12)}).\n`);
       }
     } catch(error) { await client.query('ROLLBACK'); throw error; }
+    if(version===migrationTarget)break;
   }
 } finally { client.release(); await pool.end(); }

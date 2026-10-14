@@ -9,6 +9,7 @@ import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
+import { getSaleReceipt } from './receipts.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -182,6 +183,8 @@ export function buildApp() {
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:'cash',lines:r.lines}))};
   });
+  app.get<{ Params: { orderId: string } }>('/api/v1/sales/orders/:orderId/receipt', async request =>
+    getSaleReceipt(request.operator!, request.params.orderId));
   app.get<{ Querystring: { asOf?: string } }>('/api/v1/reports/trial-balance', async request =>
     getTrialBalance(request.operator!, request.query.asOf));
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/profit-loss', async request =>
