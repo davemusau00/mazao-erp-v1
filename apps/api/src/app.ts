@@ -96,19 +96,21 @@ export function buildApp() {
     const permissions=ROLE_PERMISSIONS[operator.role];
     if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,p.tax_rate_bps,b.quantity,b.version
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
   app.get('/api/v1/inventory/movements', async request => {
     const operator=request.operator!;
-    if(!ROLE_PERMISSIONS[operator.role].includes('inventory.receive')) throw new DomainError('FORBIDDEN','Your role cannot review stock movements.',403);
-    const result=await pool.query(`SELECT m.id,m.created_at,m.movement_type,m.quantity_delta,m.document_reference,p.sku,p.name,
+    const permissions=ROLE_PERMISSIONS[operator.role];
+    if(!permissions.includes('inventory.receive')) throw new DomainError('FORBIDDEN','Your role cannot review stock movements.',403);
+    const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
+    const result=await pool.query(`SELECT m.id,m.created_at,m.movement_type,m.quantity_delta,m.document_reference,CASE WHEN $3::boolean THEN m.value_minor::text END value_minor,p.sku,p.name,
         SUM(m.quantity_delta) OVER(PARTITION BY m.product_id ORDER BY m.created_at,m.id ROWS UNBOUNDED PRECEDING) balance_after
       FROM inventory.movements m JOIN catalog.products p ON p.id=m.product_id AND p.tenant_id=m.tenant_id AND p.outlet_id=m.outlet_id
-      WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId]);
-    return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference}))};
+      WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
+    return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference,...(canReadCost?{valueMinor:String(r.value_minor)}:{})}))};
   });
   const requireInventoryCountAccess = (operator: ApiSession) => {
     if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
@@ -173,7 +175,7 @@ export function buildApp() {
     const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,u.full_name cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,
         COALESCE((SELECT SUM(p.amount_minor) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),0)::text paid_minor,
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
-        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
       FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);

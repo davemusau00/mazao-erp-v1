@@ -157,6 +157,13 @@ if (!databaseUrl) {
       });
       assert.equal(receipt.statusCode, 200, receipt.body);
       assert.equal(receipt.json().status, 'CONFIRMED');
+      const higherCostReceipt = await postCommand({
+        protocolVersion:1,commandId:randomUUID(),tenantId,deviceId,type:'inventory.receive',occurredAt:new Date().toISOString(),expectedVersions:{},
+        payload:{documentReference:'CI-GRN-2',lines:[{productId,quantity:'2',unitCostMinor:30000}]},
+      });
+      assert.equal(higherCostReceipt.json().status,'CONFIRMED',higherCostReceipt.body);
+      const receivedValue = await db.pool.query<{quantity:string;inventory_value_minor:string}>('SELECT quantity::text quantity,inventory_value_minor::text inventory_value_minor FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3',[tenantId,outletId,productId]);
+      assert.deepEqual(receivedValue.rows[0],{quantity:'6.000000',inventory_value_minor:'120000'},'receipt layers must build exact outlet carrying value');
 
       const countOpen = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.open',
@@ -169,8 +176,8 @@ if (!databaseUrl) {
       const currentCount = currentCountResponse.json().count as { id:string;version:number;lineCount:number;lines:Array<{productId:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null}> };
       assert.equal(currentCount.id, countId);
       assert.equal(currentCount.lineCount, 1);
-      assert.equal(currentCount.lines[0].expectedQuantity, '4.000000');
-      assert.equal(currentCount.lines[0].expectedBalanceVersion, 2);
+      assert.equal(currentCount.lines[0].expectedQuantity, '6.000000');
+      assert.equal(currentCount.lines[0].expectedBalanceVersion, 3);
 
       const incompletePost = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.post',
@@ -199,7 +206,7 @@ if (!databaseUrl) {
       const storekeeperDraftCommand = {
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: storekeeperDeviceId, type: 'inventory.count.save',
         occurredAt: new Date().toISOString(), expectedVersions: { [`count:${countId}`]: 1 },
-        payload: { countId, lines: [{ productId, countedQuantity: '3', varianceReason: null }] },
+        payload: { countId, lines: [{ productId, countedQuantity: '5', varianceReason: null }] },
       };
       const savedCount = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' }, payload: JSON.stringify(storekeeperDraftCommand) });
       assert.equal(savedCount.statusCode, 200, savedCount.body);
@@ -223,7 +230,7 @@ if (!databaseUrl) {
 
       const correctedCountDraft = await app.inject({
         method: 'POST', url: '/api/v1/commands', headers: { ...storekeeperHeaders, 'content-type':'application/json' },
-        payload: JSON.stringify({ ...storekeeperDraftCommand, commandId: randomUUID(), expectedVersions: { [`count:${countId}`]: 2 }, payload: { countId, lines: [{ productId, countedQuantity: '3', varianceReason: 'Damaged during storage' }] } }),
+        payload: JSON.stringify({ ...storekeeperDraftCommand, commandId: randomUUID(), expectedVersions: { [`count:${countId}`]: 2 }, payload: { countId, lines: [{ productId, countedQuantity: '5', varianceReason: 'Damaged during storage' }] } }),
       });
       assert.equal(correctedCountDraft.json().status, 'CONFIRMED', correctedCountDraft.body);
       assert.equal(correctedCountDraft.json().value.version, 3);
@@ -234,14 +241,18 @@ if (!databaseUrl) {
       });
       assert.equal(postedCount.json().status, 'CONFIRMED', postedCount.body);
       assert.equal(postedCount.json().value.adjustedLineCount, 1);
-      assert.equal(postedCount.json().value.shrinkMinor, 15000);
-      const postedCountState = await db.pool.query<{quantity:string;movement_count:string;status:string;unbalanced_count_journals:string}>(`SELECT
+      assert.equal(postedCount.json().value.shrinkMinor, 20000,'count shrinkage uses the moving average, not the setup cost');
+      const postedCountState = await db.pool.query<{quantity:string;inventory_value_minor:string;movement_count:string;movement_value_minor:string;status:string;unbalanced_count_journals:string}>(`SELECT
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,
+        (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) inventory_value_minor,
         (SELECT count(*)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$4 AND movement_type='COUNT_ADJUSTMENT') movement_count,
+        (SELECT value_minor::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$4 AND movement_type='COUNT_ADJUSTMENT') movement_value_minor,
         (SELECT status FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$4) status,
         (SELECT count(*)::text FROM finance.journal_entries je LEFT JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 AND je.source_type='INVENTORY_COUNT' GROUP BY je.id HAVING coalesce(sum(jl.debit_minor),0)<>coalesce(sum(jl.credit_minor),0)) unbalanced_count_journals`, [tenantId, outletId, productId, countId]);
-      assert.equal(postedCountState.rows[0].quantity, '3.000000');
+      assert.equal(postedCountState.rows[0].quantity, '5.000000');
+      assert.equal(postedCountState.rows[0].inventory_value_minor, '100000');
       assert.equal(postedCountState.rows[0].movement_count, '1');
+      assert.equal(postedCountState.rows[0].movement_value_minor, '20000');
       assert.equal(postedCountState.rows[0].status, 'POSTED');
       assert.equal(postedCountState.rows[0].unbalanced_count_journals ?? '0', '0');
       const postedCountHistory = await app.inject({ method:'GET',url:'/api/v1/inventory/counts',headers });
@@ -269,7 +280,7 @@ if (!databaseUrl) {
       const concurrentReceipt = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.receive',
         occurredAt: new Date().toISOString(), expectedVersions: {},
-        payload: { documentReference: 'CI-DURING-COUNT', lines: [{ productId, quantity: '1', unitCostMinor: 15000 }] },
+       payload: { documentReference: 'CI-DURING-COUNT', lines: [{ productId, quantity: '1', unitCostMinor: 15000 }] },
       });
       assert.equal(concurrentReceipt.json().status, 'CONFIRMED', concurrentReceipt.body);
       const staleCountPost = await postCommand({
@@ -278,12 +289,14 @@ if (!databaseUrl) {
       });
       assert.equal(staleCountPost.json().status, 'CONFLICT');
       assert.equal(staleCountPost.json().code, 'VERSION_CONFLICT');
-      const conflictedCountState = await db.pool.query<{status:string;quantity:string;movement_count:string}>(`SELECT
+      const conflictedCountState = await db.pool.query<{status:string;quantity:string;inventory_value_minor:string;movement_count:string}>(`SELECT
         (SELECT status FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3) status,
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$4) quantity,
+        (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$4) inventory_value_minor,
         (SELECT count(*)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$3 AND movement_type='COUNT_ADJUSTMENT') movement_count`, [tenantId, outletId, conflictedCountId, productId]);
       assert.equal(conflictedCountState.rows[0].status, 'OPEN', 'conflict must preserve the count draft');
-      assert.equal(conflictedCountState.rows[0].quantity, '4.000000', 'conflict must not overwrite the concurrent receipt');
+      assert.equal(conflictedCountState.rows[0].quantity, '6.000000', 'conflict must not overwrite the concurrent receipt');
+      assert.equal(conflictedCountState.rows[0].inventory_value_minor, '115000', 'conflict preserves receipt carrying value as well as quantity');
       assert.equal(conflictedCountState.rows[0].movement_count, '0');
       const cancelCount = await postCommand({
         protocolVersion:1,commandId:randomUUID(),tenantId,deviceId,type:'inventory.count.cancel',occurredAt:new Date().toISOString(),
@@ -405,9 +418,10 @@ if (!databaseUrl) {
 
       const managerOrders = await app.inject({ method: 'GET', url: '/api/v1/sales/orders', headers });
       assert.equal(managerOrders.statusCode, 200, managerOrders.body);
-      const managerOrder = (managerOrders.json().orders as Array<{ id: string; lines: Array<{ costPriceMinor?: number | string }> }>).find(order => order.id === saleId);
+      const managerOrder = (managerOrders.json().orders as Array<{ id: string; lines: Array<{ costPriceMinor?: number | string;cogsMinor?:string }> }>).find(order => order.id === saleId);
       assert.ok(managerOrder, 'manager should see the confirmed sale');
       assert.equal(Number(managerOrder.lines[0].costPriceMinor), 15000, 'finance users may read historical unit cost');
+      assert.equal(managerOrder.lines[0].cogsMinor,'38333','sale snapshots exact weighted-average COGS in minor units');
 
       const cashierId = randomUUID();
       const cashierDeviceId = randomUUID();
@@ -481,6 +495,7 @@ if (!databaseUrl) {
       assert.equal(refund.statusCode, 200, refund.body);
       assert.equal(refund.json().status, 'CONFIRMED');
       assert.equal(refund.json().value.totalMinor, 29000);
+      assert.equal(refund.json().value.status,'PARTIALLY_REFUNDED');
       const refundReplay = await postCommand(refundCommand);
       assert.deepEqual(refundReplay.json(), refund.json());
 
@@ -493,14 +508,16 @@ if (!databaseUrl) {
       assert.equal(close.json().status, 'CONFIRMED');
       assert.equal(close.json().value.varianceMinor, 0);
 
-      const balances = await db.pool.query<{ quantity: string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
+      const balances = await db.pool.query<{ quantity: string;inventory_value_minor:string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,
+        (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) inventory_value_minor,
         (SELECT count(*)::text FROM (SELECT je.id FROM finance.journal_entries je LEFT JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 GROUP BY je.id HAVING coalesce(sum(jl.debit_minor),0)<>coalesce(sum(jl.credit_minor),0) OR coalesce(sum(jl.debit_minor),0)=0) unbalanced) unbalanced_journals,
         (SELECT count(*)::text FROM commerce.refunds WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$4) refunds,
         (SELECT status FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) shift_status,
         (SELECT expected_cash_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) expected_cash_minor,
         (SELECT variance_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) variance_minor`, [tenantId, outletId, productId, saleId, shiftId]);
-      assert.equal(balances.rows[0].quantity, '3.000000');
+      assert.equal(balances.rows[0].quantity, '5.000000');
+      assert.equal(balances.rows[0].inventory_value_minor, '95834','sale and partial refund conserve the remaining moving-average carrying value');
       assert.equal(balances.rows[0].unbalanced_journals, '0');
       assert.equal(balances.rows[0].refunds, '1');
       assert.equal(balances.rows[0].shift_status, 'CLOSED');
