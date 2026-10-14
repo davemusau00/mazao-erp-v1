@@ -3,8 +3,8 @@ import { ProductItem, CartItem, PaymentMethod, TenantProfile, SaleOrder, Custome
 import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
-import { apiClient, type BackendShift } from '../../services/apiClient';
-import { moneyInputToMinor } from '../../utils/money';
+import { apiClient, type BackendCustomerAccount, type BackendShift } from '../../services/apiClient';
+import { formatMinorMoneyText, moneyInputToMinor } from '../../utils/money';
 import {
   Barcode,
   Search,
@@ -63,6 +63,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
   const [backendCatalog, setBackendCatalog] = useState(false);
   const [backendTaxRates, setBackendTaxRates] = useState<Record<string,number>>({});
   const [backendPriceMinor, setBackendPriceMinor] = useState<Record<string,number>>({});
+  const [backendCustomers, setBackendCustomers] = useState<BackendCustomerAccount[]>([]);
   const [unknownCommandId, setUnknownCommandId] = useState<string | null>(null);
   const pendingCommand = useRef<import('../../services/apiClient').BackendCommand | null>(null);
 
@@ -92,12 +93,17 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
     let alive = true;
     const load = async () => {
       const session = apiClient.getSession();
-      if (!session) { if (alive) { setBackendCatalog(false); setServerShift(null); setProducts(storage.getProducts()); } return; }
+      if (!session) { if (alive) { setBackendCatalog(false); setServerShift(null); setBackendCustomers([]); setProducts(storage.getProducts()); } return; }
       if (alive) { setBackendCatalog(false); setServerShift(null); setProducts([]); }
       try {
-        const [catalog, shift] = await Promise.all([apiClient.listCatalog(), apiClient.getCurrentShift()]);
+        const customerAccountsPromise = session.user.permissions.includes('customers.view')
+          ? apiClient.listCustomerAccounts().catch(() => ({ customers: [] as BackendCustomerAccount[] }))
+          : Promise.resolve({ customers: [] as BackendCustomerAccount[] });
+        const [catalog, shift, accountResult] = await Promise.all([apiClient.listCatalog(), apiClient.getCurrentShift(), customerAccountsPromise]);
         if (!alive) return;
         setBackendCatalog(true); setServerShift(shift.shift);
+        setBackendCustomers(accountResult.customers);
+        setSelectedCustomerId(current => accountResult.customers.some(customer => customer.id === current) ? current : accountResult.customers[0]?.id ?? '');
         setBackendTaxRates(Object.fromEntries(catalog.items.map(item=>[item.id,item.taxRateBps])));
         setBackendPriceMinor(Object.fromEntries(catalog.items.map(item=>[item.id,item.sellingPriceMinor])));
         const serverItems=catalog.items.map(item => ({ id:item.id,sku:item.sku,barcode:'',name:item.name,category:'server catalog',costPrice:(item.costPriceMinor??0)/100,sellingPrice:item.sellingPriceMinor/100,stockOnHand:Number(item.quantity),reorderPoint:0,unit:item.unit }));
@@ -163,6 +169,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
 
   // Customer Credit Calculations & Real-time Validation
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+  const selectedBackendCustomer = backendCustomers.find(customer => customer.id === selectedCustomerId);
   const projectedCustomerBalance = selectedCustomer ? selectedCustomer.currentBalance + total : 0;
   const isCreditLimitExceeded = selectedCustomer ? projectedCustomerBalance > selectedCustomer.creditLimit : false;
   const isCustomerSuspended = selectedCustomer?.status === 'suspended';
@@ -179,6 +186,14 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
       (c.nationalIdOrTaxId && c.nationalIdOrTaxId.toLowerCase().includes(q))
     );
   });
+  const filteredBackendCreditCustomers = backendCustomers.filter(customer => {
+    if (!customerSearchQuery.trim()) return true;
+    const query = customerSearchQuery.trim().toLocaleLowerCase();
+    return customer.name.toLocaleLowerCase().includes(query) || customer.phone.toLocaleLowerCase().includes(query) || (customer.email ?? '').toLocaleLowerCase().includes(query);
+  });
+  const backendTotalMinor = BigInt(subtotalMinor) + BigInt(taxMinor);
+  const backendCreditAvailable = selectedBackendCustomer ? BigInt(selectedBackendCustomer.creditLimitMinor) - BigInt(selectedBackendCustomer.balanceMinor) : 0n;
+  const backendCreditAllowed = !!selectedBackendCustomer && selectedBackendCustomer.status === 'ACTIVE' && backendCreditAvailable >= backendTotalMinor;
 
   // Add item to cart
   const handleAddToCart = (product: ProductItem) => {
