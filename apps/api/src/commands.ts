@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import type { ApiPermission, ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { stableStringify } from './security.js';
+import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationSnapshot } from './configuration.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -110,7 +111,20 @@ async function journal(client: PoolClient, session: ApiSession, commandId: strin
 export async function executeCommand(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   if (envelope.deviceId !== session.deviceId) throw new DomainError('FORBIDDEN', 'Command device does not match the authenticated session.', 403);
   if (envelope.tenantId && envelope.tenantId !== session.tenantId) throw new DomainError('FORBIDDEN', 'Command tenant does not match the authenticated session.', 403);
+  // Configuration changes must be observed within the command transaction,
+  // including when a capability changed after authentication preflight.
+  const capabilities = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1', [session.tenantId]);
+  session = { ...session, capabilities: capabilities.rows.map(row => row.capability) };
+  if (envelope.type.startsWith('catalog.') || envelope.type.startsWith('inventory.')) requireCapability(session, 'inventory');
+  if (envelope.type.startsWith('shift.')) requireCapability(session, 'commerce');
+  if (envelope.type === 'sales.order.settle' || envelope.type === 'sales.order.refund') {
+    requireCapability(session, 'commerce');
+    requireCapability(session, 'inventory');
+  }
   switch (envelope.type) {
+    case 'configuration.business.update':
+    case 'configuration.outlet.update':
+    case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
     case 'catalog.product.create': return createProduct(client, session, envelope);
     case 'inventory.receive': return receiveInventory(client, session, envelope);
     case 'inventory.count.open': return openStockCount(client, session, envelope);
@@ -254,14 +268,15 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
 
 async function createProduct(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   requirePermission(session, 'catalog.manage');
-  const { sku, name, baseUnit, currency, sellingPriceMinor, costPriceMinor, taxRateBps } = envelope.payload;
+  const { sku, name, baseUnit, currency, sellingPriceMinor, costPriceMinor } = envelope.payload;
   if (typeof sku !== 'string' || !/^[\w.-]{1,64}$/.test(sku) || typeof name !== 'string' || !name.trim() || name.length > 160 || typeof baseUnit !== 'string' || !/^[\w.-]{1,24}$/.test(baseUnit)) {
     throw new DomainError('VALIDATION_FAILED', 'SKU, item name, and base unit are required and must be valid.');
   }
   const sell = asMinor(sellingPriceMinor, 'sellingPriceMinor');
   const cost = asMinor(costPriceMinor, 'costPriceMinor');
+  const currencyResult = await client.query<{ currency: string; business_profile: unknown }>('SELECT currency,business_profile FROM core.tenants WHERE id=$1', [session.tenantId]);
+  const taxRateBps = envelope.payload.taxRateBps === undefined ? readBusinessProfile(currencyResult.rows[0].business_profile).taxPolicy.defaultRateBps : envelope.payload.taxRateBps;
   if (!Number.isInteger(taxRateBps) || Number(taxRateBps) < 0 || Number(taxRateBps) > 10_000) throw new DomainError('VALIDATION_FAILED', 'taxRateBps must be from 0 through 10000.');
-  const currencyResult = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
   if (currency !== currencyResult.rows[0]?.currency) throw new DomainError('VALIDATION_FAILED', 'Product currency must match the tenant currency.');
   const productId = randomUUID();
   try {
@@ -741,7 +756,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh and retry using the current version.', 409, { currentVersion: Number(shift.rows[0].version) });
 
-  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone
+  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile
     FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
@@ -793,11 +808,12 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   await client.query(
     `INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,
        receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot,cash_tendered_minor,change_minor,
-       customer_account_id,customer_name_snapshot,customer_amount_due_minor)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+       customer_account_id,customer_name_snapshot,customer_amount_due_minor,receipt_profile_snapshot)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)`,
     [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
       tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone,
-      customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0],
+      customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0,
+      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile))],
   );
   for (const line of computed) {
     await client.query(
@@ -919,10 +935,11 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
 
 async function createHotelRoom(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
   requireCapability(session,'hospitality');requirePermission(session,'hotel.manage');
-  const roomNumber=envelope.payload.roomNumber;const roomType=envelope.payload.roomType;const rate=asMinor(envelope.payload.nightlyRateMinor,'nightlyRateMinor');const taxRateBps=envelope.payload.taxRateBps;
+  const roomNumber=envelope.payload.roomNumber;const roomType=envelope.payload.roomType;const rate=asMinor(envelope.payload.nightlyRateMinor,'nightlyRateMinor');
   if(typeof roomNumber!=='string'||!roomNumber.trim()||roomNumber.trim().length>24||typeof roomType!=='string'||!roomType.trim()||roomType.trim().length>80||rate===0)throw new DomainError('VALIDATION_FAILED','Room number, room type, and a positive nightly rate are required.');
+  const tenant=await client.query<{currency:string;business_profile:unknown}>('SELECT currency,business_profile FROM core.tenants WHERE id=$1',[session.tenantId]);const roomId=randomUUID();
+  const taxRateBps=envelope.payload.taxRateBps===undefined?readBusinessProfile(tenant.rows[0].business_profile).taxPolicy.defaultRateBps:envelope.payload.taxRateBps;
   if(typeof taxRateBps!=='number'||!Number.isInteger(taxRateBps)||taxRateBps<0||taxRateBps>10_000)throw new DomainError('VALIDATION_FAILED','Room tax rate must be from 0 through 10000 basis points.');
-  const tenant=await client.query<{currency:string}>('SELECT currency FROM core.tenants WHERE id=$1',[session.tenantId]);const roomId=randomUUID();
   try{await client.query(`INSERT INTO hospitality.rooms(id,tenant_id,outlet_id,room_number,room_type,nightly_rate_minor,tax_rate_bps,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[roomId,session.tenantId,session.outletId,roomNumber.trim(),roomType.trim(),rate,taxRateBps,tenant.rows[0].currency])}catch(error){if((error as {code?:string}).code==='23505')throw new DomainError('VALIDATION_FAILED','That room number already exists at this outlet.');throw error}
   const result={roomId,roomNumber:roomNumber.trim(),version:1};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }

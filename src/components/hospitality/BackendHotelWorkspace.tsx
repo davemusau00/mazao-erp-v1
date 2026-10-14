@@ -7,7 +7,7 @@ import {
   type BackendRoom,
   type BackendStay,
 } from '../../services/apiClient';
-import { formatMinorMoney, moneyInputToMinor } from '../../utils/money';
+import { formatMinorMoney, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
 
 type HotelView = 'rooms' | 'reservations' | 'stays' | 'housekeeping';
 type DialogState =
@@ -46,7 +46,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const canFrontdesk = permissions.includes('hotel.frontdesk');
   const canManage = permissions.includes('hotel.manage');
   const canHousekeep = permissions.includes('hotel.housekeeping');
-  const today = todayLocal(session.tenant.timeZone);
+  const today = todayLocal((session.outlet.timeZone ?? session.tenant.timeZone));
 
   const [view, setView] = useState<HotelView>(initialView);
   const [rooms, setRooms] = useState<BackendRoom[]>([]);
@@ -63,7 +63,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const [roomNumber, setRoomNumber] = useState('');
   const [roomType, setRoomType] = useState('Standard');
   const [nightlyRate, setNightlyRate] = useState('');
-  const [roomTax, setRoomTax] = useState('0');
+  const [roomTax, setRoomTax] = useState('');
   const [guestName, setGuestName] = useState('');
   const [guestContact, setGuestContact] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -194,7 +194,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     try {
       await run('hotel.room.create', {
         roomNumber: roomNumber.trim(), roomType: roomType.trim(),
-        nightlyRateMinor: moneyInputToMinor(nightlyRate), taxRateBps: percentToBps(roomTax),
+        nightlyRateMinor: moneyInputToMinor(nightlyRate, session.tenant.currency), ...(roomTax.trim() ? { taxRateBps: percentToBps(roomTax) } : {}),
       });
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'Room details are invalid.');
@@ -234,14 +234,14 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   };
 
   const openCheckout = (stay: BackendStay) => {
-    setTendered((stay.estimatedTotalMinor / 100).toFixed(2));
+    setTendered(minorToMoneyInput(stay.estimatedTotalMinor, stay.currency));
     setDialog({ type: 'checkout', stay });
   };
 
   const checkout = async (event: React.FormEvent, stay: BackendStay) => {
     event.preventDefault();
     try {
-      const amount = moneyInputToMinor(tendered);
+      const amount = moneyInputToMinor(tendered, session.tenant.currency);
       const shift = (await apiClient.getCurrentShift()).shift;
       if (!shift) throw new Error('Open a server shift before taking hotel checkout payment.');
       await run('hotel.checkout', {
@@ -296,7 +296,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {rooms.length === 0 ? <Empty title="No rooms configured" detail={canManage ? 'Add rooms before taking reservations or walk-ins.' : 'Ask a manager to configure this outlet.'} /> : rooms.map(room => <article key={room.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
           <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-zinc-500">{room.roomType}</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2></div><span className={`rounded-full px-2.5 py-1 text-xs ${room.status === 'READY' ? 'bg-emerald-950 text-emerald-300' : room.status === 'OCCUPIED' ? 'bg-blue-950 text-blue-300' : room.status === 'DIRTY' ? 'bg-amber-950 text-amber-300' : 'bg-rose-950 text-rose-300'}`}>{room.status.toLowerCase()}</span></div>
-          <p className="mt-4 text-sm text-zinc-300">{formatMinorMoney(room.nightlyRateMinor, room.currency)} / night <span className="ml-2 text-xs text-zinc-500">VAT {(room.taxRateBps / 100).toFixed(2)}%</span></p>
+          <p className="mt-4 text-sm text-zinc-300">{formatMinorMoney(room.nightlyRateMinor, room.currency)} / night <span className="ml-2 text-xs text-zinc-500">Tax {(room.taxRateBps / 100).toFixed(2)}%</span></p>
           {room.activeStay && <p className="mt-2 flex items-center gap-2 text-sm text-blue-200"><UserRound size={15} />{room.activeStay.guestName}</p>}
           <div className="mt-4 flex flex-wrap justify-end gap-2">{canFrontdesk && room.status === 'READY' && <button onClick={() => openWalkin(room)} disabled={!!unknownId || busy} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs font-semibold">Walk-in check-in</button>}{canHousekeep && room.status === 'DIRTY' && <button onClick={() => void markReady(room)} disabled={!!unknownId || busy} className="min-h-11 rounded-lg border border-emerald-800 px-3 text-xs text-emerald-200">Mark room ready</button>}</div>
         </article>)}</section> : view === 'reservations' ?
@@ -311,7 +311,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       <section className="space-y-3">{stays.length === 0 ? <Empty title="No current guest stays" detail="Walk-ins and reservation arrivals appear here after server confirmation." /> : stays.map(stay => <article key={stay.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div><h2 className="font-semibold">{stay.guestName} · Room {stay.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{stay.checkInDate} → {stay.checkOutDate} · {stay.nights} booked nights · estimated bill {formatMinorMoney(stay.estimatedTotalMinor, stay.currency)}</p></div><button onClick={() => openCheckout(stay)} disabled={!!unknownId || busy || stay.checkOutDate > today} title={stay.checkOutDate > today ? 'Checkout is available from the booked departure date in this release.' : undefined} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40">Review bill and check out</button></article>)}</section> :
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rooms.filter(room => room.status === 'DIRTY').length === 0 ? <Empty title="No rooms waiting for cleaning" detail="Checked-out rooms will appear here until housekeeping marks them ready." /> : rooms.filter(room => room.status === 'DIRTY').map(room => <article key={room.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><p className="text-xs uppercase tracking-widest text-amber-300">Cleaning required</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{room.roomType}</p><button onClick={() => void markReady(room)} disabled={!!unknownId || busy} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-700 font-semibold">Mark clean and ready</button></article>)}</section>}
 
-    {dialog?.type === 'room' && <Modal title="Add room"><form onSubmit={createRoom} className="space-y-3"><Field label="Room number"><input required maxLength={24} value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className={controlClass} /></Field><Field label="Room type"><input required maxLength={80} value={roomType} onChange={event => setRoomType(event.target.value)} className={controlClass} /></Field><Field label={`Nightly rate (${session.tenant.currency})`}><input required inputMode="decimal" value={nightlyRate} onChange={event => setNightlyRate(event.target.value)} className={controlClass} /></Field><Field label="Tax rate (%)"><input required inputMode="decimal" value={roomTax} onChange={event => setRoomTax(event.target.value)} className={controlClass} /></Field><Actions busy={busy || !!unknownId} close={() => setDialog(null)} action="Create room" /></form></Modal>}
+    {dialog?.type === 'room' && <Modal title="Add room"><form onSubmit={createRoom} className="space-y-3"><Field label="Room number"><input required maxLength={24} value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className={controlClass} /></Field><Field label="Room type"><input required maxLength={80} value={roomType} onChange={event => setRoomType(event.target.value)} className={controlClass} /></Field><Field label={`Nightly rate (${session.tenant.currency})`}><input required inputMode="decimal" value={nightlyRate} onChange={event => setNightlyRate(event.target.value)} className={controlClass} /></Field><Field label="Tax rate (%) ? optional override"><input placeholder="Use configured business default" inputMode="decimal" value={roomTax} onChange={event => setRoomTax(event.target.value)} className={controlClass} /></Field><Actions busy={busy || !!unknownId} close={() => setDialog(null)} action="Create room" /></form></Modal>}
     {dialog?.type === 'reservation' && <Modal title="New room reservation"><form onSubmit={createReservation} className="space-y-3"><Field label="Room"><select required value={roomId} onChange={event => setRoomId(event.target.value)} className={controlClass}>{rooms.filter(room => room.status !== 'MAINTENANCE').map(room => <option key={room.id} value={room.id}>Room {room.roomNumber} · {room.roomType} · {room.status.toLowerCase()}</option>)}</select></Field><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Check in"><input required type="date" min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Check out"><input required type="date" min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy || !!unknownId} close={() => setDialog(null)} action="Confirm reservation" /></form></Modal>}
     {dialog?.type === 'walkin' && <Modal title={`Walk-in · Room ${dialog.room.roomNumber}`}><form onSubmit={event => { event.preventDefault(); void checkIn(dialog.room); }} className="space-y-3"><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Arrival"><input type="date" required min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Expected departure"><input type="date" required min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy || !!unknownId} close={() => setDialog(null)} action="Check in guest" /></form></Modal>}
     {dialog?.type === 'checkout' && <Modal title={`Checkout · Room ${dialog.stay.roomNumber}`}><form onSubmit={event => void checkout(event, dialog.stay)} className="space-y-3"><div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3"><p className="font-semibold">{dialog.stay.guestName}</p><p className="mt-1 text-sm text-zinc-400">{dialog.stay.nights} booked nights · room revenue {formatMinorMoney(dialog.stay.estimatedSubtotalMinor, dialog.stay.currency)} · tax {formatMinorMoney(dialog.stay.estimatedTaxMinor, dialog.stay.currency)}</p><p className="mt-2 text-lg font-bold">Amount due {formatMinorMoney(dialog.stay.estimatedTotalMinor, dialog.stay.currency)}</p></div><Field label={`Cash received (${session.tenant.currency})`}><input required inputMode="decimal" value={tendered} onChange={event => setTendered(event.target.value)} className={controlClass} /></Field><p className="text-xs text-amber-200">This release settles the booked room nights in full by cash. A cashier shift must be open. Deposits, extras, partial balances and early departure recalculation are not enabled.</p><Actions busy={busy || !!unknownId} close={() => setDialog(null)} action="Take cash and checkout" /></form></Modal>}

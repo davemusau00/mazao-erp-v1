@@ -2,9 +2,27 @@ import {commandJournal,type RecoverableCommand} from './commandJournal';
 
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[]};
-  tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[]};
-  outlet:{id:string;name:string}; deviceId:string; csrfToken:string;
+  tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[];taxPolicy?:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean}};
+  outlet:{id:string;name:string;timeZone?:string}; deviceId:string; csrfToken:string;
 }
+export interface BackendBusinessConfiguration {
+  id:string;name:string;currency:string;timeZone:string;version:number;
+  legalName:string;registrationNumber:string;taxRegistrationNumber:string;
+  address:string;phone:string;email:string;website:string;logoUrl:string;
+  receiptHeader:string;receiptFooter:string;
+  taxPolicy:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean};
+}
+export interface BackendOutletConfiguration {
+  id:string;name:string;timeZone:string;version:number;address:string;phone:string;email:string;
+  receiptHeader:string;receiptFooter:string;
+}
+export interface BackendConfiguration {
+  business:BackendBusinessConfiguration;outlet:BackendOutletConfiguration;
+  capabilities:string[];supportedCapabilities:string[];currencyLocked:boolean;
+  readiness:{readyForFirstSale:boolean;checks:Array<{key:string;label:string;complete:boolean;detail:string}>};
+}
+export type BackendBusinessConfigurationInput=Omit<BackendBusinessConfiguration,'id'|'version'>;
+export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'>;
 export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number }
 export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
 export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
@@ -36,6 +54,7 @@ export interface BackendJournalLines {
 }
 export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
+  receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
   lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
   payments:Array<{method:string;amountMinor:string;currency:string;status:string}>;
@@ -63,6 +82,15 @@ class ApiClient {
   async login(email:string,password:string){const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});this.csrf=s.csrfToken;this.publish(s);return s}
   async restore(){try{const s=await this.request<BackendSession>('/auth/me');this.csrf=s.csrfToken;this.publish(s);return s}catch(error){if((error as {status?:number}).status!==401)throw error;this.csrf='';this.publish(null);return null}}
   async logout(){await this.request('/auth/logout',{method:'POST'});this.csrf='';this.publish(null)}
+  getConfiguration(){return this.request<{configuration:BackendConfiguration}>('/configuration')}
+  updateBusinessConfiguration(input:BackendBusinessConfigurationInput,version:number,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before changing business settings.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.business.update',occurredAt:new Date().toISOString(),expectedVersions:{['business:'+session.tenant.id]:version},payload:input});
+  }
+  updateOutletConfiguration(input:BackendOutletConfigurationInput,version:number,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before changing outlet settings.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.outlet.update',occurredAt:new Date().toISOString(),expectedVersions:{['outlet:'+session.outlet.id]:version},payload:input});
+  }
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
   listCustomerAccounts(){return this.request<{customers:BackendCustomerAccount[]}>('/customers')}
   getCustomerStatement(customerId:string){return this.request<BackendCustomerStatement>('/customers/'+encodeURIComponent(customerId)+'/statement')}

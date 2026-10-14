@@ -15,7 +15,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ order, tenant, onClo
   const rawSlipText = hardware.generateThermalReceiptText(order, tenant);
 
   const handlePrint = () => {
-    hardware.executeSilentPrint(order, tenant);
+    hardware.openBrowserPrintDialog(order, tenant);
   };
 
   const handleDownload = () => {

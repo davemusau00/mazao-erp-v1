@@ -2,7 +2,7 @@
 
 ## Pull request checks
 
-The GitHub Actions workflow uses Bun 1.4.3 and PostgreSQL 16. It installs from the frozen bun.lock, applies migrations to a fresh test database and reruns them to verify checksums, runs TypeScript checks and API acceptance, then builds the PWA and runs browser acceptance. A failed check prevents release artifact publication.
+The GitHub Actions workflow uses Bun 1.4.3 and PostgreSQL 16. It installs from the frozen bun.lock, applies migrations to a fresh test database and reruns them to verify checksums, runs TypeScript checks and API acceptance, then builds the PWA and runs browser acceptance. It also runs real browser-to-API-to-PostgreSQL configuration/inventory/sale/cash-up acceptance using a disposable local database. The harness rejects non-local or unnamed databases. A failed check prevents release artifact publication.
 
 ## Main-branch publication
 

@@ -37,9 +37,10 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       subtotal_minor: string; tax_minor: string; total_minor: string; status: string;
       cash_tendered_minor: string | null; change_minor: string | null;
       customer_account_id: string | null; customer_name_snapshot: string | null; customer_amount_due_minor: string;
+      receipt_profile_snapshot: Record<string, unknown>;
     }>(`SELECT o.id,o.receipt_number,o.tenant_name_snapshot,o.outlet_name_snapshot,o.outlet_time_zone_snapshot,
         o.currency,o.created_at,o.subtotal_minor::text,o.tax_minor::text,o.total_minor::text,o.status,
-        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,u.full_name operator_name
+        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,o.receipt_profile_snapshot,u.full_name operator_name
       FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
       WHERE o.id=$1 AND o.tenant_id=$2 AND o.outlet_id=$3`, [orderIdValue, session.tenantId, session.outletId]);
     if (!orderResult.rowCount) throw new DomainError('NOT_FOUND', 'Sale receipt was not found for this outlet.', 404);
@@ -78,6 +79,7 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       tenantName: order.tenant_name_snapshot,
       outletName: order.outlet_name_snapshot,
       timeZone: order.outlet_time_zone_snapshot,
+      receiptProfile: order.receipt_profile_snapshot,
       currency: order.currency,
       createdAt: order.created_at,
       operatorName: order.operator_name,

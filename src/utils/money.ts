@@ -15,6 +15,19 @@ export function currencyMinorDigits(currency: string, locale?: string): number {
   catch { return 2; }
 }
 
+/** Produce a decimal input value from exact integer minor units for its currency. */
+export function minorToMoneyInput(amountMinor: string | bigint | number, currency: string): string {
+  if (typeof amountMinor === 'number' && !Number.isSafeInteger(amountMinor)) throw new Error('Minor units must be a safe integer.');
+  if (typeof amountMinor === 'string' && !/^-?\d+$/.test(amountMinor)) throw new Error('Minor units must be an integer string.');
+  const amount = BigInt(amountMinor);
+  const digits = currencyMinorDigits(currency);
+  const scale = 10n ** BigInt(digits);
+  const absolute = amount < 0n ? -amount : amount;
+  const sign = amount < 0n ? '-' : '';
+  const fraction = (absolute % scale).toString().padStart(digits, '0');
+  return `${sign}${absolute / scale}${digits ? `.${fraction}` : ''}`;
+}
+
 /** Parse a decimal string without using binary floating point. */
 export function parseMoneyToMinor(value: string, currency: string): number | null {
   const digits = currencyMinorDigits(currency);

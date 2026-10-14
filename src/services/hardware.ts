@@ -8,58 +8,9 @@ import { SaleOrder, Shift, TenantProfile, Room } from '../types/erp';
 import { escapeHtml, safeRasterImageSource } from '../utils/html';
 
 class HardwareService {
-  private audioCtx: AudioContext | null = null;
-
-  /**
-   * Play realistic cash drawer kick pulse using Web Audio API
-   */
-  public triggerCashDrawerKick(): void {
-    try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtxClass) return;
-      if (!this.audioCtx) {
-        this.audioCtx = new AudioCtxClass();
-      }
-      if (this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume();
-      }
-
-      // Solenoid mechanical impulse (metallic thud + spring ring)
-      const now = this.audioCtx.currentTime;
-      const osc = this.audioCtx.createOscillator();
-      const gain = this.audioCtx.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(140, now);
-      osc.frequency.exponentialRampToValueAtTime(45, now + 0.08);
-
-      gain.gain.setValueAtTime(0.7, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
-
-      osc.connect(gain);
-      gain.connect(this.audioCtx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.12);
-
-      // Bell chime of traditional cash register drawer latch
-      const bell = this.audioCtx.createOscillator();
-      const bellGain = this.audioCtx.createGain();
-      bell.type = 'sine';
-      bell.frequency.setValueAtTime(1800, now + 0.04);
-      bell.frequency.exponentialRampToValueAtTime(1200, now + 0.25);
-
-      bellGain.gain.setValueAtTime(0.3, now + 0.04);
-      bellGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-
-      bell.connect(bellGain);
-      bellGain.connect(this.audioCtx.destination);
-
-      bell.start(now + 0.04);
-      bell.stop(now + 0.28);
-    } catch {
-      // Audio context might be restricted before user gesture
-    }
+  /** A drawer requires a separately paired and authorized hardware service. */
+  public triggerCashDrawerKick(): never {
+    throw new Error('No paired cash drawer service is configured.');
   }
 
   /**
@@ -109,7 +60,7 @@ class HardwareService {
     }
 
     slip += `\n${tenant.receiptFooter.padStart(Math.floor((42 + tenant.receiptFooter.length) / 2))}\n`;
-    slip += `* MAZAO SECURE LEDGER SIGNATURE: ${order.idempotencyKey.slice(0, 16)} *\n`;
+    slip += `* RECEIPT COMMAND REFERENCE: ${order.idempotencyKey.slice(0, 16)} *\n`;
     slip += `${dblDivider}\n\n`;
 
     return slip;
@@ -118,7 +69,7 @@ class HardwareService {
   /**
    * Triggers the direct browser print sequence for the thermal slip
    */
-  public executeSilentPrint(order: SaleOrder, tenant: TenantProfile): void {
+  public openBrowserPrintDialog(order: SaleOrder, tenant: TenantProfile): void {
     // Inject thermal receipt HTML into printable DOM container
     let printContainer = document.getElementById('thermal-receipt-print-area');
     if (!printContainer) {
@@ -227,7 +178,7 @@ class HardwareService {
     try {
       window.print();
     } catch {
-      console.warn('Silent print blocked by browser security policy');
+      console.warn('The browser print dialog could not be opened.');
     }
   }
 
