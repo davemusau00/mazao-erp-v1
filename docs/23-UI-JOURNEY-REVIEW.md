@@ -4,7 +4,7 @@ This review compares the current hybrid UI with the v1 workflows in the product,
 
 ## Current environment boundary
 
-The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a partial Fastify/PostgreSQL API. Authenticated server workflows cover item setup, delivery receiving, cash sales/refunds, approved customer credit and cash repayment, shifts, reports, and an initial hotel room/reservation/stay lifecycle. Restaurant, supplier/AP, administration and other unsupported modules remain local previews and are hidden while signed in. The IndexedDB command journal retains unknown command outcomes; it does not provide offline command execution or remote synchronization. There is no payment provider, outbox worker, or verified hardware authority.
+The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a partial Fastify/PostgreSQL API. Authenticated server workflows cover item setup, delivery receiving, cash sales/refunds, approved customer credit and cash repayment, shifts with source reconciliation and immutable cash close reports, reports, and an initial hotel room/reservation/stay lifecycle. Restaurant, supplier/AP, administration and other unsupported modules remain local previews and are hidden while signed in. The IndexedDB command journal retains unknown command outcomes; it does not provide offline command execution or remote synchronization. There is no payment provider, outbox worker, or verified hardware authority.
 
 ## Findings addressed in the UI and integration continuation
 
@@ -24,12 +24,12 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 | Role | Intended journey | Current UI coverage | Blocking gaps before operational use |
 |---|---|---|---|
 | Administrator | Business/outlet setup, capabilities/tax, imports, staff/devices, first shift and readiness | Local setup preview; server item setup and connected commands | Server-mode setup and Manage are hidden. No account provisioning, outlet/device administration, tax-policy review, imports or go-live command. |
-| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale and approved customer-account charge, unknown-command recovery, history and cash-up; server receipt identity/tax/tender detail and browser print preview | PostgreSQL acceptance covers the current cash slice and server receipt query. Browser acceptance remains pending. Cash repayment with oldest-charge allocation is connected. Split/provider tenders, customer-credit refund reversal, a signed fiscal artifact, verified printer delivery and complete drawer reconciliation are absent. |
+| Cashier | Open shift, basket, split tender, recovery, receipt/history, refund and close | Server cash sale and approved customer-account charge, unknown-command recovery, history and cash-up; server receipt identity/tax/tender detail and browser print preview; close report scoped to the operator | PostgreSQL acceptance covers cash close reconciliation, short variance, replay and report access. A browser test covers opening and closing a shift and displaying its server Z report. Cash repayment with oldest-charge allocation is connected. Split/provider tenders, customer-credit refund reversal, a signed fiscal artifact, verified printer delivery and revenue/tax-level Z reporting remain absent. |
 | Storekeeper | Delivery, package conversion, receipt, count, variance review and movements | Server item setup, reviewed receipt, movement history and saved full-outlet count draft; manager posts the count | No package conversion, barcode resolution, spot/blind count, physical locations or partial count adjustment flow. |
 | Waiter/cook/bartender | Table, order, fire/routing, station progress and settlement | Local tables and kitchen preview | Hidden in server mode. No persistent table/order/ticket commands, station routing, recipe consumption or settlement link. |
 | Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in, booked-night cash checkout and room-ready transitions | PostgreSQL acceptance covers the documented lifecycle; browser acceptance remains pending. No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. |
 | Housekeeper | Dirty, cleaning, inspection, ready and maintenance hold | Server dirty-room list and mark-ready command | No cleaning-start/inspection workflow or maintenance controls. Event history is not yet reviewed in an operator workflow. |
-| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; finance-view-only trial balance, partial operating summary and journal drill-through; manager customer account setup and statement | Customer sale charges and cash repayment are included in AR journals and account statements. Supplier AP, period controls, complete financial statements, expense/accrual coverage, full source reconciliation and stock valuation drill-through are not implemented. Browser acceptance remains pending. |
+| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up with outlet close-report history for `finance.view`; finance-view-only trial balance, partial operating summary and journal drill-through; manager customer account setup and statement | Cash close report and variance journal are tested. Customer sale charges and cash repayment are included in AR journals and account statements. Supplier AP, period controls, complete financial statements, expense/accrual coverage, full source reconciliation and stock valuation drill-through are not implemented. Browser report and accessibility review remains incomplete. |
 
 ## Critical slice acceptance criteria
 
@@ -40,7 +40,10 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 - [ ] Support split tenders that equal the due amount; distinguish cash, provider-confirmed payment, unverified references and customer/guest balance.
 - [ ] Keep basket and command reference available on rejection, unknown and conflict outcomes. Unknown outcomes support status and activity review without a new payment.
 - [x] Create server receipt views from confirmed sale records with snapshotted tenant/outlet identity, per-line tax and persisted cash/change evidence; print completion does not become payment authority. Browser receipt and hardware acceptance remain pending.
-- [ ] Cash-up records authoritative shift version, counted cash, variance, actor, time and reason; replay cannot close twice.
+- [x] Cash-up recomputes expected drawer cash from persisted opening float, cash sales, customer collections, paid-ins, payouts and refunds; it rejects source mismatches and atomically records count, variance, actor, time and an immutable report snapshot. Exact command replay returns the same report.
+- [x] Cashiers can review their own close reports; finance-authorized users can review outlet reports. PostgreSQL tests cover a short till variance, its balanced journal, access scope and immutable report rows.
+- [x] Shift workspace displays the latest server close report; Playwright covers open → count → close → report display.
+- [ ] Add a full sales and tax Z report with voids, tender categories, and reconciliation across non-cash providers. Current report reconciles the cash drawer only.
 - [ ] Refunds are linked reversals with policy/permission checks and a source receipt.
 
 
@@ -97,10 +100,10 @@ The stylesheet includes mobile navigation, short-height desktop rules, 44px cont
 
 ## Execution order
 
-1. Keep the current P0 source fixes and PostgreSQL CI acceptance together: fresh migrations, authenticated catalog read, exact command replay and overlapping reservation contention.
-2. Complete cashier/shift acceptance for rejected and unknown outcomes, split/provider tenders, immutable receipts, refunds and drawer reconciliation.
-3. Add spot counts, transfers and barcode/package support; customer-account credit and repayment now have a server slice. Next add supplier/AP as a separate transactional slice, then restaurant tickets.
+1. Keep fresh migrations, authenticated catalog reads, exact command replay, reservation contention and the current shift close report acceptance together in CI.
+2. Extend POS to supported split/provider tenders and finish refund/receipt/device acceptance; the current cash drawer close report is not a full sales Z report.
+3. Add spot counts, transfers and barcode/package support; customer-account credit and repayment now have a server slice. Add supplier/AP as a separate transactional slice, then restaurant tickets.
 4. Complete hotel deposits, folio charges, payment and actual-night policy before calling the hotel lifecycle complete.
-5. Build reports from authoritative records, then review viewport, keyboard, touch/scanner and screen-reader behavior on connected journeys.
+5. Build complete finance reports from authoritative sources, then review the required viewport, keyboard, touch/scanner and screen-reader matrix.
 
 No live tenant, production database, payment provider, physical device, production deployment or operator research was used for this review. See [Backend integration register](24-BACKEND-INTEGRATION.md) for route, command and module status.

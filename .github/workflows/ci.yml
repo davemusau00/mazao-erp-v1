@@ -42,8 +42,7 @@ jobs:
         run: bun run db:migrate
       - run: bun run typecheck
       - run: bun run test:api
-      - run: bun run build
       - name: Install Chromium for browser acceptance
         run: bunx playwright install --with-deps chromium
-      - name: Run browser acceptance
+      - name: Build PWA and run browser acceptance
         run: bun run test:e2e

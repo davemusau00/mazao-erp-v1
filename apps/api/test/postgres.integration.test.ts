@@ -657,6 +657,38 @@ if (!databaseUrl) {
       }) });
       assert.equal(overRepayment.json().status, 'REJECTED');
       assert.equal(overRepayment.json().code, 'VALIDATION_FAILED');
+
+      await db.pool.query(`UPDATE commerce.shifts SET expected_cash_minor=44000 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3`, [tenantId, outletId, cashierShiftId]);
+      const unbalancedShiftClose = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'shift.close',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${cashierShiftId}`]: 4 },
+        payload: { shiftId: cashierShiftId, countedCashMinor: 43000 },
+      }) });
+      assert.equal(unbalancedShiftClose.json().status, 'REJECTED');
+      assert.equal(unbalancedShiftClose.json().code, 'SHIFT_CASH_RECONCILIATION_FAILED');
+      await db.pool.query(`UPDATE commerce.shifts SET expected_cash_minor=45000 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3`, [tenantId, outletId, cashierShiftId]);
+
+      const cashierCloseCommand = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'shift.close',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${cashierShiftId}`]: 4 },
+        payload: { shiftId: cashierShiftId, countedCashMinor: 43000 },
+      };
+      const cashierClose = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(cashierCloseCommand) });
+      assert.equal(cashierClose.json().status, 'CONFIRMED', cashierClose.body);
+      assert.equal(cashierClose.json().value.expectedCashMinor, '45000');
+      assert.equal(cashierClose.json().value.varianceMinor, '-2000');
+      const cashierCloseReplay = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(cashierCloseCommand) });
+      assert.deepEqual(cashierCloseReplay.json(), cashierClose.json(), 'replayed close returns the original report identity without creating another close');
+      const cashierReports = await app.inject({ method: 'GET', url: '/api/v1/shifts/close-reports', headers: cashierHeaders });
+      assert.equal(cashierReports.statusCode, 200, cashierReports.body);
+      assert.equal(cashierReports.json().reports.length, 1, 'cashier only sees their own close reports');
+      assert.equal(cashierReports.json().reports[0].varianceMinor, '-2000');
+      const cashierVarianceJournal = await db.pool.query<{ cash_debit: string; cash_credit: string }>(`SELECT
+        COALESCE(sum(jl.debit_minor) FILTER (WHERE jl.account_code='CASH_TILL'),0)::text cash_debit,
+        COALESCE(sum(jl.credit_minor) FILTER (WHERE jl.account_code='CASH_TILL'),0)::text cash_credit
+        FROM finance.journal_entries je JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id
+        WHERE je.tenant_id=$1 AND je.source_type='SHIFT_CASH_VARIANCE' AND je.source_id=$2`, [tenantId, cashierClose.json().commandId]);
+      assert.equal(cashierVarianceJournal.rows[0].cash_credit, '2000');
       const receivableJournal = await db.pool.query<{ debit_minor: string; credit_minor: string }>(`SELECT
         COALESCE(sum(CASE WHEN jl.account_code='ACCOUNTS_RECEIVABLE' THEN jl.debit_minor ELSE 0 END),0)::text debit_minor,
         COALESCE(sum(CASE WHEN jl.account_code='ACCOUNTS_RECEIVABLE' THEN jl.credit_minor ELSE 0 END),0)::text credit_minor
@@ -734,14 +766,43 @@ if (!databaseUrl) {
       const refundReplay = await postCommand(refundCommand);
       assert.deepEqual(refundReplay.json(), refund.json());
 
-      const close = await postCommand({
+      await db.pool.query(`UPDATE commerce.shifts SET expected_cash_minor=92601 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3`, [tenantId, outletId, shiftId]);
+      const unreconciledAdminClose = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.close',
         occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 6 },
         payload: { shiftId, countedCashMinor: 92600 },
       });
+      assert.equal(unreconciledAdminClose.json().status, 'REJECTED');
+      assert.equal(unreconciledAdminClose.json().code, 'SHIFT_CASH_RECONCILIATION_FAILED');
+      await db.pool.query(`UPDATE commerce.shifts SET expected_cash_minor=92600 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3`, [tenantId, outletId, shiftId]);
+      const closeCommand = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.close',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 6 },
+        payload: { shiftId, countedCashMinor: 92600 },
+      };
+      const close = await postCommand(closeCommand);
       assert.equal(close.statusCode, 200, close.body);
       assert.equal(close.json().status, 'CONFIRMED');
-      assert.equal(close.json().value.varianceMinor, 0);
+      assert.equal(close.json().value.expectedCashMinor, '92600');
+      assert.equal(close.json().value.varianceMinor, '0');
+      assert.ok(close.json().value.closeReportId);
+      const closeReplay = await postCommand(closeCommand);
+      assert.deepEqual(closeReplay.json(), close.json(), 'same close command returns the same immutable Z report identity');
+      const closeReports = await app.inject({ method: 'GET', url: '/api/v1/shifts/close-reports', headers });
+      assert.equal(closeReports.statusCode, 200, closeReports.body);
+      assert.equal(closeReports.json().reports.length, 2, 'finance roles can review all outlet close reports');
+      const adminReport = closeReports.json().reports.find((report: { id: string }) => report.id === close.json().value.closeReportId);
+      assert.ok(adminReport);
+      assert.equal(adminReport.businessDate, close.json().value.businessDate);
+      assert.equal(adminReport.currency, 'KES');
+      assert.equal(adminReport.expectedCashMinor, '92600');
+      assert.equal(adminReport.countedCashMinor, '92600');
+      assert.equal(adminReport.varianceMinor, '0');
+      await assert.rejects(
+        () => db.pool.query('UPDATE commerce.shift_close_reports SET counted_cash_minor=1 WHERE id=$1', [adminReport.id]),
+        (error: { code?: string }) => error.code === '55000',
+        'close report snapshots cannot be edited after posting',
+      );
 
       const balances = await db.pool.query<{ quantity: string;inventory_value_minor:string;movement_quantity:string;movement_value_minor:string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,

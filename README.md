@@ -19,7 +19,7 @@ The repository includes a partial Fastify/PostgreSQL API for authenticated sessi
 
 ## Current UI
 
-- **Server-connected:** Today shift state, cash and approved customer-account POS charges, sales history/cash refunds with server-sourced receipt identity/tax/tender details, item setup, delivery receiving, full outlet stock counts with reviewed posting, shift cash-up and cash repayment collection evidence, customer statements and repayment allocation, room/reservation/check-in/checkout/housekeeping foundation, and `finance.view`-gated trial balance plus partial operating-summary reports with journal drill-through.
+- **Server-connected:** Today shift state, cash and approved customer-account POS charges, sales history/cash refunds with server-sourced receipt identity/tax/tender details, item setup, delivery receiving, full outlet stock counts with reviewed posting, reconciled shift cash-up with immutable server Z reports, customer repayment collection evidence and statements, room/reservation/check-in/checkout/housekeeping foundation, and `finance.view`-gated trial balance plus partial operating-summary reports with journal drill-through.
 - **Local preview only:** the legacy page-held count draft, restaurant tables/kitchen, customer demo accounts when no server session is active, staff/device management, onboarding, settings, and the demo finance workspace. Preview records do not become server data. Server spot counts and unknown-barcode resolution are not yet available.
 - **Help and recovery:** operator guidance, IndexedDB retention for unknown server commands, status lookup, and demo-only sync tools remain clearly separated.
 

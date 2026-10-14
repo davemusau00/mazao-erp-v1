@@ -10,7 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.api.json",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build && playwright test",
     "api:dev": "tsx watch apps/api/src/server.ts",
     "db:migrate": "tsx apps/api/src/migration.ts",
     "api:bootstrap": "tsx apps/api/scripts/bootstrap.ts",

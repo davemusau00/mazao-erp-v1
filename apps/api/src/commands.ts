@@ -629,20 +629,65 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
   const expected = versionFor(envelope, `shift:${shiftId}`);
   if (!expected) throw new DomainError('VALIDATION_FAILED', 'Expected shift version is required.');
   const counted = asMinor(envelope.payload.countedCashMinor, 'countedCashMinor');
-  const shift = await client.query<{ expected_cash_minor: string; version: string }>(
-    `SELECT expected_cash_minor,version FROM commerce.shifts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,
+  const shift = await client.query<{
+    expected_cash_minor: string; opening_float_minor: string; cash_sales_minor: string;
+    customer_collections_minor: string; cash_refunds_minor: string; version: string; opened_at: Date;
+  }>(
+    `SELECT expected_cash_minor::text,opening_float_minor::text,cash_sales_minor::text,
+        customer_collections_minor::text,cash_refunds_minor::text,version::text,opened_at
+     FROM commerce.shifts WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' FOR UPDATE`,
     [shiftId, session.tenantId, session.outletId, session.userId],
   );
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   const row = shift.rows[0];
   if (Number(row.version) !== expected) throw new DomainError('VERSION_CONFLICT', 'This shift changed. Reload its current cash-up before closing.', 409, { currentVersion: Number(row.version) });
-  const expectedCash = Number(row.expected_cash_minor);
-  const variance = counted - expectedCash;
-  await client.query(
-    `UPDATE commerce.shifts SET status='CLOSED',counted_cash_minor=$5,variance_minor=$6,closed_at=now(),version=version+1
-     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4`,
-    [shiftId, session.tenantId, session.outletId, session.userId, counted, variance],
+  const movementTotals = await client.query<{ paid_in_minor: string; payout_minor: string }>(`SELECT
+      COALESCE(sum(amount_minor) FILTER (WHERE movement_type='PAID_IN'),0)::text paid_in_minor,
+      COALESCE(sum(amount_minor) FILTER (WHERE movement_type='PAYOUT'),0)::text payout_minor
+    FROM commerce.shift_cash_movements WHERE tenant_id=$1 AND outlet_id=$2 AND shift_id=$3`,
+  [session.tenantId, session.outletId, shiftId]);
+  const openingFloat = BigInt(row.opening_float_minor);
+  const cashSales = BigInt(row.cash_sales_minor);
+  const customerCollections = BigInt(row.customer_collections_minor);
+  const cashRefunds = BigInt(row.cash_refunds_minor);
+  const cashPaidIn = BigInt(movementTotals.rows[0].paid_in_minor);
+  const cashPayout = BigInt(movementTotals.rows[0].payout_minor);
+  const expectedCashBig = BigInt(row.expected_cash_minor);
+  const reconstructedCash = openingFloat + cashSales + customerCollections + cashPaidIn - cashPayout - cashRefunds;
+  if (reconstructedCash < 0n || reconstructedCash !== expectedCashBig) {
+    throw new DomainError('SHIFT_CASH_RECONCILIATION_FAILED', 'Shift cash totals do not reconcile to the expected till balance. Review the source records before closing.', 409, {
+      expectedCashMinor: expectedCashBig.toString(),
+      reconstructedCashMinor: reconstructedCash.toString(),
+    });
+  }
+  if (expectedCashBig > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('SHIFT_CASH_AMOUNT_UNSUPPORTED', 'Shift balance exceeds the supported safe money range. Contact an administrator.', 409);
+  const varianceBig = BigInt(counted) - expectedCashBig;
+  const variance = Number(varianceBig);
+  const closedShift = await client.query<{ version: string; closed_at: Date }>(
+    `UPDATE commerce.shifts SET status='CLOSED',counted_cash_minor=$5,variance_minor=$6,closed_at=clock_timestamp(),version=version+1
+     WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND operator_id=$4 AND status='OPEN' AND version=$7
+     RETURNING version::text,closed_at`,
+    [shiftId, session.tenantId, session.outletId, session.userId, counted, variance, expected],
   );
+  if (!closedShift.rowCount) throw new DomainError('VERSION_CONFLICT', 'The shift changed while it was being closed.', 409);
+  const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,u.full_name operator_name,t.currency,
+      to_char($3::timestamptz AT TIME ZONE o.time_zone,'YYYY-MM-DD') business_date
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.users u ON u.id=$2
+    WHERE t.id=$1 AND o.id=$4`, [session.tenantId, session.userId, closedShift.rows[0].closed_at, session.outletId]);
+  const snapshot = identity.rows[0];
+  if (!snapshot) throw new DomainError('INTERNAL_ERROR', 'Shift close identity snapshot could not be loaded.', 500);
+  const reportId = randomUUID();
+  await client.query(`INSERT INTO commerce.shift_close_reports(
+      id,tenant_id,outlet_id,shift_id,command_id,operator_id,tenant_name_snapshot,outlet_name_snapshot,
+      operator_name_snapshot,time_zone_snapshot,business_date,currency,shift_version,opened_at,closed_at,
+      opening_float_minor,cash_sales_minor,customer_collections_minor,cash_refunds_minor,
+      cash_paid_in_minor,cash_payout_minor,expected_cash_minor,counted_cash_minor,variance_minor)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+  [reportId, session.tenantId, session.outletId, shiftId, envelope.commandId, session.userId,
+    snapshot.tenant_name, snapshot.outlet_name, snapshot.operator_name, snapshot.time_zone, snapshot.business_date,
+    snapshot.currency, closedShift.rows[0].version, row.opened_at, closedShift.rows[0].closed_at,
+    openingFloat.toString(), cashSales.toString(), customerCollections.toString(), cashRefunds.toString(),
+    cashPaidIn.toString(), cashPayout.toString(), expectedCashBig.toString(), counted, varianceBig.toString()]);
   if (variance) {
     const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
     await journal(client, session, envelope.commandId, 'SHIFT_CASH_VARIANCE', tenant.rows[0].currency, variance > 0 ? [
@@ -651,7 +696,7 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
       { account: 'CASH_OVER_SHORT', debit: Math.abs(variance), credit: 0 }, { account: 'CASH_TILL', debit: 0, credit: Math.abs(variance) },
     ]);
   }
-  const result = { shiftId, version: expected + 1, expectedCashMinor: expectedCash, countedCashMinor: counted, varianceMinor: variance };
+  const result = { shiftId, closeReportId: reportId, businessDate: snapshot.business_date, version: Number(closedShift.rows[0].version), expectedCashMinor: expectedCashBig.toString(), countedCashMinor: String(counted), varianceMinor: varianceBig.toString() };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;

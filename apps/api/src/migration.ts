@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { pool } from './db.js';
 
-const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality','005_shift_cash_movements','006_inventory_counts','007_weighted_average_inventory_cost','008_reconcile_inventory_value_from_movements','009_reconcile_restocked_refund_values','010_composite_tenant_foreign_keys','011_receipt_identity_snapshots','012_customer_receivables'];
+const versions=['001_initial','002_receipt_document_reference','003_cash_refunds','004_hospitality','005_shift_cash_movements','006_inventory_counts','007_weighted_average_inventory_cost','008_reconcile_inventory_value_from_movements','009_reconcile_restocked_refund_values','010_composite_tenant_foreign_keys','011_receipt_identity_snapshots','012_customer_receivables','013_shift_close_reports'];
 const migrationTarget=process.env.MIGRATION_TARGET;
 if(migrationTarget&&!versions.includes(migrationTarget))throw new Error(`MIGRATION_TARGET must be a known migration version; received ${migrationTarget}.`);
 const client=await pool.connect();

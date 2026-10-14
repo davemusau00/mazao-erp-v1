@@ -3,8 +3,8 @@ import { Shift, TenantProfile, ShiftAuditLog, ShiftAuditAction } from '../../typ
 import { storage } from '../../services/storage';
 import { hardware } from '../../services/hardware';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
-import { apiClient, type BackendShift } from '../../services/apiClient';
-import { formatMinorMoney, moneyInputToMinor } from '../../utils/money';
+import { apiClient, type BackendShift, type BackendShiftCloseReport } from '../../services/apiClient';
+import { formatMinorMoney, formatMinorMoneyText, moneyInputToMinor } from '../../utils/money';
 import {
   Clock,
   Banknote,
@@ -911,6 +911,7 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
   const canMoveCash = session.user.permissions.includes('shift.payout');
   const currency = session.tenant.currency;
   const [shift, setShift] = useState<BackendShift|null>(null);
+  const [closeReports, setCloseReports] = useState<BackendShiftCloseReport[]>([]);
   const [float, setFloat] = useState('0');
   const [counted, setCounted] = useState('0');
   const [movementType, setMovementType] = useState<ShiftCashMovementType|null>(null);
@@ -923,7 +924,11 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
   const [unknownCommandId, setUnknownCommandId] = useState<string|null>(null);
 
   const refresh = async () => {
-    try { setShift((await apiClient.getCurrentShift()).shift); }
+    try {
+      const [current, reports] = await Promise.all([apiClient.getCurrentShift(), apiClient.listShiftCloseReports()]);
+      setShift(current.shift);
+      setCloseReports(reports.reports);
+    }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to load server shift.'); }
   };
 
@@ -961,7 +966,10 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
         payload:type === 'shift.open' ? { openingFloatMinor:amountMinor } : { shiftId:shift!.id, countedCashMinor:amountMinor },
       });
       setUnknownCommandId(null);
-      setMessage(outcome.status === 'CONFIRMED' ? (type === 'shift.open' ? 'Server shift opened.' : 'Server shift closed.') : (outcome.message ?? `Shift command ${outcome.status.toLowerCase()}.`));
+      const value = outcome.value ?? {};
+      setMessage(outcome.status === 'CONFIRMED'
+        ? (type === 'shift.open' ? 'Server shift opened.' : `Server shift closed. Close report ${String(value.closeReportId ?? '')} is saved below.`)
+        : (outcome.message ?? `Shift command ${outcome.status.toLowerCase()}.`));
       await refresh();
     } catch (error) {
       setUnknownCommandId(commandId);
@@ -1063,6 +1071,14 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
             {shift.cashMovements.length === 0 ? <p className="p-4 text-sm text-zinc-500">No paid-ins or payouts recorded for this shift.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="text-xs text-zinc-500"><tr><th className="p-3">When</th><th className="p-3">Movement</th><th className="p-3">Reason / reference</th><th className="p-3">Recorded by</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-zinc-800">{shift.cashMovements.map(movement=><tr key={movement.id}><td className="p-3 text-zinc-400">{new Date(movement.createdAt).toLocaleString(undefined,{dateStyle:'short',timeStyle:'short',timeZone:session.tenant.timeZone})}</td><td className={movement.movementType==='PAID_IN'?'p-3 font-medium text-emerald-300':'p-3 font-medium text-amber-300'}>{movement.movementType==='PAID_IN'?'Cash paid-in':'Cash payout'}</td><td className="p-3"><span>{movement.reason}</span>{movement.reference&&<small className="ml-2 text-zinc-500">{movement.reference}</small>}</td><td className="p-3 text-zinc-400">{movement.actorName}</td><td className="p-3 text-right font-mono">{movement.movementType==='PAID_IN'?'+':'−'}{formatMinorMoney(movement.amountMinor,currency)}</td></tr>)}</tbody></table></div>}
           </div>
           <p className="mt-3 text-xs text-zinc-500">Till movements keep a clearing journal and do not create a supplier payment or classify a business expense.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([
+              ['Cash paid-in', shift.cashPaidInMinor],
+              ['Cash payouts', shift.cashPayoutMinor],
+              ['Cash refunds', shift.cashRefundsMinor],
+              ['Customer collections', shift.customerCollectionsMinor],
+            ] as const).map(([label, amount]) => <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3"><p className="text-xs text-zinc-400">{label}</p><p className="mt-1 text-base font-semibold">{formatMinorMoney(amount,currency)}</p></div>)}
+          </div>
         </> : <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-52 flex-1"><h2 id="server-shift-heading" className="text-lg font-semibold">No server shift is open</h2><p className="mt-1 text-sm text-zinc-400">Open a till before server-backed checkout.</p></div>
           <label className="text-xs text-zinc-400">Opening float ({currency})<input disabled={busy || !!unknownCommandId} inputMode="decimal" value={float} onChange={event=>setFloat(event.target.value)} className="mt-1 block min-h-11 w-36 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-white"/></label>
@@ -1070,6 +1086,29 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
         </div>}
         {message && <div role={unknownCommandId?'alert':'status'} className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-200"><span>{message}</span>{unknownCommandId&&<button type="button" onClick={()=>void checkUnknown()} className="min-h-9 underline">Check command status</button>}</div>}
       </section>
+
+      {closeReports[0] && <section className="rounded-2xl border border-emerald-900/70 bg-zinc-950 p-5 sm:p-6" aria-labelledby="z-report-title">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-xs uppercase tracking-widest text-emerald-300">Server close report · {closeReports[0].businessDate}</p><h2 id="z-report-title" className="mt-1 text-xl font-semibold">Z report</h2><p className="mt-1 text-sm text-zinc-400">{closeReports[0].outletName} · {closeReports[0].operatorName} · shift {closeReports[0].shiftId.slice(0,8)}</p></div>
+          <p className="text-xs text-zinc-500">Closed {new Date(closeReports[0].closedAt).toLocaleString(undefined,{timeZone:closeReports[0].timeZone})}</p>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+          {([
+            ['Opening float', closeReports[0].openingFloatMinor],
+            ['Cash sales', closeReports[0].cashSalesMinor],
+            ['Customer collections', closeReports[0].customerCollectionsMinor],
+            ['Cash paid-in', closeReports[0].cashPaidInMinor],
+            ['Cash payouts', closeReports[0].cashPayoutMinor],
+            ['Cash refunds', closeReports[0].cashRefundsMinor],
+            ['Expected cash', closeReports[0].expectedCashMinor],
+            ['Counted cash', closeReports[0].countedCashMinor],
+          ] as const).map(([label, amount]) => <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3"><p className="text-xs text-zinc-400">{label}</p><p className="mt-1 text-base font-semibold">{formatMinorMoneyText(amount,currency)}</p></div>)}
+        </div>
+        <p className={`mt-4 rounded-lg border p-3 text-sm ${BigInt(closeReports[0].varianceMinor)===0n?'border-emerald-900 bg-emerald-950/30 text-emerald-200':'border-amber-900 bg-amber-950/30 text-amber-200'}`}>
+          Cash variance: <strong className="font-mono">{formatMinorMoneyText(closeReports[0].varianceMinor,currency)}</strong>. This server report records the counted till and its cash source totals.
+        </p>
+        <p className="mt-2 text-xs text-zinc-500">Report ID {closeReports[0].id} · close command {closeReports[0].commandId}</p>
+      </section>}
 
       {movementType && shift && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy&&!unknownCommandId)setMovementType(null)}}>
         <section role="dialog" aria-modal="true" aria-labelledby="cash-movement-title" className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
