@@ -12,6 +12,7 @@ import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReport
 import { getSaleReceipt } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
+import { getConfiguration } from './configuration.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -54,7 +55,7 @@ export function buildApp() {
     const email = request.body?.email?.trim().toLowerCase();
     const password = request.body?.password;
     if (!email || typeof password !== 'string') throw new DomainError('VALIDATION_FAILED', 'Email and password are required.');
-    const result = await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,
+    const result = await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
@@ -67,7 +68,7 @@ export function buildApp() {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
   });
 
   app.addHook('preHandler', async (request, reply) => {
