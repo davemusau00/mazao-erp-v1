@@ -35,6 +35,8 @@ The v1 UI service contracts are in `src/types/ui.ts`; the current HTTP adapter i
 
 The isolated VPS target is `93.127.131.55`, with `https://mazao.davemusau.co.ke` serving the PWA and its same-origin `/api/v1` API. See [the deployment guide](docs/13-INFRA-DEPLOYMENT.md) for the verified shared-host inventory, CI release artifacts, protected services and rollback procedure, and [the backup runbook](infra/BACKUP-RUNBOOK.md) for off-host recovery checkpoints. Deployment health does not expand the server-connected module coverage listed above.
 
+Production builds require a server sign-in before opening any workspace. Local preview is enabled in the Vite development server; an explicitly isolated preview build can opt in with `VITE_ALLOW_LOCAL_PREVIEW=true`. Do not set that flag for the live pilot. [The deployment evidence](docs/25-PILOT-DEPLOYMENT-2026-10-14.md) records release identities and recovery checks.
+
 ## Product specifications
 
 The product requirements, interaction design, domain constraints, and release gates live in `docs/`. Start with `docs/01-PRODUCT-PRD.md`, `docs/02-UX-DESIGN-SYSTEM.md`, and `agents/AGENTS.md` before extending the application.
