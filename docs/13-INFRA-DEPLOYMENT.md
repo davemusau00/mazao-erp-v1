@@ -1,107 +1,62 @@
-# Production infrastructure and deploy model
+# Infrastructure and deployment
 
-## Environments
-Local developer Docker; isolated CI ephemeral PostgreSQL; staging separate DNS/database/keys; production separate credentials, backups and deployment permissions. Do not let staging migrations or OAuth callbacks target production. Illustrative DNS: `app.mazao.example`, `api.mazao.example` until the brand controls a real domain. Avoid claiming a domain is registered.
+## Verified shared host
 
-## Initial topology
-Nginx HTTPS ingress → static hashed PWA assets + Fastify API on internal listener → private PostgreSQL; private worker consumes transactional outbox. Container network private, database not exposed publicly. Start single-node VPS with external offsite backup; introduce managed DB and more API nodes as traffic and RTO require. Port assignments parameterized to avoid conflicts with co-hosted services.
+Read-only inventory was performed on 14 October 2026 before installing Mazao.
 
-## Containers
-API and worker from same immutable source digest; DB pinned supported major/minor after compatibility tests; health/readiness endpoints; nonroot users; readonly root FS where possible; resource caps; restart policies; no `latest` tag. Postgres volume separate from application release. Deployment examples under `infra/` are templates, not verified production manifests.
+| Property | Observed |
+| --- | --- |
+| VPS | **93.127.131.55**, Ubuntu 24.04.5 LTS |
+| Capacity | 4 vCPUs, 7.8 GiB RAM, 2 GiB swap, 142 GiB root volume |
+| Point-in-time availability | 5.8 GiB memory available and 111 GiB disk available |
+| Ingress | Nginx active on ports 80 and 443; Caddy inactive |
+| Database and app runtime | Docker active; existing PostgreSQL and application containers are host-local/private |
+| Mazao DNS | **mazao.davemusau.co.ke** and **mazaoapi.davemusau.co.ke** resolved to this VPS |
+| Mazao baseline | No Mazao host directories, containers, volumes, networks, Nginx vhosts, or TLS certificates were present |
 
-## CI/CD stages
-1. Format/type/lint/contracts. 2. unit/domain/property tests. 3. migration fresh + upgrade. 4. API integration. 5. offline failure tests. 6. browser desktop/tablet/mobile. 7. a11y + visual regression. 8. supply-chain/secret checks. 9. build signed/pinned images and static PWA release. 10. deploy staging + smoke. 11. human approval prod. 12. online readiness, exact release evidence and canary. 13. rollback runbook. No deployments from local uncommitted files.
+This is a single resource snapshot, not a capacity guarantee or load test. Recheck available memory, disk, and load before each release.
 
-## Database upgrades
-Backup + verified restore checkpoint. Expand schema first, deploy backward-compatible API, then PWA, migrate data in controlled job, contract schema only after compatibility window. Never downgrade database blindly via reverse SQL. Roll back binary to compatible previous API when safe; if schema requires restoring backup, perform explicit full data-loss/reconciliation review.
+The existing host contains independent ServOS projects (serveos-prod, serveos-next, serveos-replacement, serveos-stage-pos2, plus standalone POS2 containers) and SMS projects (sms-platform, sms-platform-africa). Nginx currently routes the existing SMS, business site, and ServOS names. Treat all existing containers, volumes, networks, Nginx files, and data as protected.
 
-## Resource guidance
-First hardware sizing requires load testing; do not assert fixed capacity. Start modest (e.g., 2–4 vCPU, 4–8GiB RAM) and verify against real customer mix. PostgreSQL RAM/IOPS, connection pool and backup footprint dominate decisions. PWA uses CDN/static caching. Keep database storage encrypted and monitored; no public admin port.
+Ports 80, 443, and 22 are in use. Host loopback ports 3000, 3001, 3101–3104, 3202, and 3203 are also in use. PostgreSQL containers publish no host listener on 5432. Mazao uses only 127.0.0.1:4101 for its API, with PostgreSQL private to its own Docker network.
 
-# deployment server
- at 93.127.130.9 can potentially host MAZAO ERP SaaS alongside KKA, particularly for an initial production launch with a modest number of customers.
-The important distinction is between hosting MAZAO as a small SaaS application and operating a growing, multi-tenant ERP platform with many businesses, simultaneous users, background jobs, and large databases.
-1. Current server capacity
-KKA + MAZAO shared VPS
-Pilot feasible
+## Mazao topology
 
-Processing
-3 vCPUs
-Shared between both ERPs
-Available RAM
-3.9 GiB
-After KKA repair
-Available storage
-67 GB
-Database, uploads, logs, builds
-Existing stack
-KKA ERP
-Six running containers
+The canonical application origin is https://mazao.davemusau.co.ke. The PWA calls relative /api/v1 URLs, so Nginx serves the static PWA and proxies that path to the API at 127.0.0.1:4101. This keeps browser requests same-origin and matches the API's current origin checks. mazaoapi.davemusau.co.ke is DNS-resolved but unused in this deployment; do not add a second API vhost until the client and API explicitly support cross-origin requests.
 
+    Browser
+      └─ HTTPS Nginx: mazao.davemusau.co.ke
+           ├─ / and static files → /var/www/mazao/current
+           └─ /api/v1/* → 127.0.0.1:4101
+                                └─ Mazao API container
+                                     └─ private mazao Docker network
+                                          └─ PostgreSQL 16 container
 
-I'd treat this as a shared production host suitable for a controlled MAZAO launch, not yet as a high-capacity commercial SaaS host. The next question is how much infrastructure MAZAO itself requires.
-2. I checked the current MAZAO repository
-I inspected davemusau00/mazao-erp-v1, including its application dependencies, backend architecture, integration register, and implementation gaps.
-The current stack is relatively suitable for your VPS.
-MAZAO component	Technology	Hosting requirement
-Frontend / PWA	React 19, Vite	Static web hosting
-Backend	Fastify 5, Node.js	API container
-Database	PostgreSQL	Dedicated database
-Authentication	Server sessions, cookies, CSRF	API + PostgreSQL
-Background jobs	Not yet a full worker infrastructure	Add when needed
-Reverse proxy / TLS	Production configuration needed	Existing Caddy
-The backend is a modular monolith, which is a good fit for deployment on a modest VPS. There's no need to introduce Kubernetes or a large microservices infrastructure.
-Sources: MAZAO dependencies · Backend integration
-3. Estimated MAZAO resource requirements
-These are initial resource-planning allowances, not measured MAZAO benchmarks.
-Component	RAM allowance
-Fastify API	300–600 MiB
-PostgreSQL	250–600 MiB
-Static frontend server	30–100 MiB
-Background processing, when added	100–300 MiB
-Operational headroom	300–500 MiB
-A reasonable starting budget is approximately 1–2 GiB of additional RAM, subject to testing.
-With 3.9 GiB currently available, you have a plausible path to hosting both platforms while retaining spare capacity. However, simultaneous reporting, stock imports, database queries, and backups may produce considerably higher load than the idle measurements suggest.
-4. Recommended shared-server architecture
-Internet / HTTPS
+Use Compose project mazao, files under /srv/mazao, a dedicated mazao-private network, and persistent volume mazao-postgres-data. Do not publish the database port. The API binds to 0.0.0.0:4101 inside its container and only to host loopback outside it. The Compose example applies initial memory and CPU caps; revisit them after representative load measurements.
 
-Existing Caddy reverse proxy
-Routes traffic by domain
+PostgreSQL 16 is used to match CI. The example pins the current postgres:16.15-alpine multi-platform manifest digest. The API image uses the pinned Bun 1.4.3 base digest and is tagged in GHCR with the full source commit SHA. The worker image in the old example was only a placeholder; no worker implementation exists, so the pilot does not run a worker or claim that outbox events are delivered to external systems.
 
-KKA ERP
+## Release packaging and activation
 
-Existing stack
+The CI workflow runs migration fresh-and-rerun checks, TypeScript checks, API acceptance, and browser acceptance. On a successful push to main, it uploads the PWA directory and publishes the API image as ghcr.io/davemusau00/mazao-erp-v1/api:<full-commit-sha>; it also uploads the exact image archive for deployment without registry credentials on the VPS. Do not deploy a local uncommitted tree.
 
-KKA Web + API
-KKA Worker
-KKA PostgreSQL
-KKA Redis
+For each release:
 
+1. Record the full source SHA and download that run's PWA and API image artifacts.
+2. Keep environment values in /srv/mazao/.env with owner-only read/write permissions. Set APP_ORIGINS=https://mazao.davemusau.co.ke, API_HOST=0.0.0.0, and API_PORT=4101; generate a random database password. Never commit populated environment files or bootstrap credentials.
+3. Load the API image archive, install the Compose file, and run the matching release image's migration runner. The migration runner verifies applied checksums and never edits applied migration files.
+4. Extract PWA assets into /var/www/mazao/releases/<full-commit-sha>. Switch /var/www/mazao/current atomically only after API readiness succeeds.
+5. Install only the Mazao Nginx site. Obtain a certificate for mazao.davemusau.co.ke using the existing Certbot installation and verified DNS, run nginx -t, then perform a graceful reload. Do not add an API subdomain vhost.
+6. Verify the PWA and same-origin live/readiness endpoints over HTTPS. Check existing Nginx routes and containers before and after activation.
 
-MAZAO SaaS
+The local SSH alias mazao-live points to administrator@93.127.131.55 using the existing id_ed25519 key with strict host checking. No new key needs to be installed on this server.
 
-Independent stack
+Keep the prior PWA symlink target and a dated copy of the Mazao Nginx file for rollback. Roll back only Mazao's API image, static symlink, and vhost. Never stop or recreate another Compose project, remove an existing volume, or reverse a database migration. Do not open the pilot for business data until its off-host backup and restore procedure has been verified.
 
-MAZAO PWA
+## Data and operational boundaries
 
+The initial administrator and tenant are created only through apps/api/scripts/bootstrap.ts with actual owner-provided business details and a locally entered password. Do not seed preview/demo tenants or paid orders. Authenticated server mode supports only the journeys listed as server-connected in the README and backend integration register; preview-only modules must not be presented as authoritative server data.
 
-mazao.davemusau.co.ke
+The Windows helper infra/Bootstrap-Mazao.ps1 prompts for and confirms the administrator password. The password crosses SSH through stdin and is not written to a file or command argument. Upload infra/bootstrap-initial-tenant.sh to /srv/mazao first; it rejects an initial bootstrap if a tenant already exists. The initial pilot enables only retail, inventory and commerce. Keep user credentials and business metadata out of public release evidence.
 
-MAZAO Fastify API 
-
-mazaoapi.davemusau.co.ke
-
-MAZAO PostgreSQL
-Dedicated volumes
-
-
-
-One VPS, two isolated application stacks, with a shared HTTPS entry point. Both still share the underlying physical resources.
-I'd deploy MAZAO into /srv/mazao, with its own Compose project, database credentials, Docker network, environment configuration, backups and resource limits.
-The existing Caddy proxy can route a separate MAZAO domain to its frontend and API, using a deliberately configured shared proxy network. MAZAO's PostgreSQL port should remain private.
-5. Important: MAZAO isn't yet a fully production-ready SaaS
-The current repository contains real, server-backed commerce, stock, shift, customer credit and initial hospitality functionality.
-However, its own implementation review identifies unfinished production capabilities, including server-side tenant onboarding, restaurant workflows, advanced inventory, complete accounting, real offline synchronization and browser acceptance testing.
-Sources: Current README · Implementation review
-The server is therefore closer to being ready to host MAZAO than MAZAO is to being ready for unrestricted commercial deployment.
-My recommended sequence is to finalize production packaging and migrations, test tenant isolation, verify critical transactions, establish off-server backups and restore procedures, then perform concurrent-user load testing while KKA is running.
+The database is the source of truth. A transactional outbox row proves local transaction evidence only; there is no deployed outbox worker, server-side offline replay service, or external delivery guarantee. Maintain an encrypted off-host PostgreSQL backup and perform an isolated restore before recording business transactions. See the backup runbook.

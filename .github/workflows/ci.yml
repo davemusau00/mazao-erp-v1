@@ -1,4 +1,4 @@
-name: PWA checks
+name: Mazao checks and release artifacts
 
 on:
   pull_request:
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.3
       - run: bun install --frozen-lockfile
       - name: Apply fresh database migrations
         run: bun run db:migrate
@@ -46,3 +46,69 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Build PWA and run browser acceptance
         run: bun run test:e2e
+      - name: Upload immutable PWA build for main releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mazao-pwa-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-api-image:
+    name: Validate API container and publish main releases
+    needs: typecheck-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mazao_image_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mazao_image_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API container
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+        run: docker build --pull --platform linux/amd64 --file Dockerfile.api --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$IMAGE" .
+      - name: Validate migrations and readiness in the production container
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            docker run --rm --network host -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test "$IMAGE" bun apps/api/src/migration.ts
+          done
+          docker run -d --name mazao-api-smoke --network host --read-only --tmpfs /tmp:rw,nosuid,size=64m -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test -e APP_ORIGINS=https://mazao.davemusau.co.ke "$IMAGE"
+          trap 'docker logs mazao-api-smoke; docker rm -f mazao-api-smoke' EXIT
+          curl --retry 12 --retry-delay 2 --retry-connrefused --fail http://127.0.0.1:4101/api/v1/health/ready
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Push the tested image tagged with the source commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+        run: |
+          docker push "$IMAGE"
+          docker save --output "$RUNNER_TEMP/mazao-api-image.tar" "$IMAGE"
+      - name: Upload the exact API image for SSH deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mazao-api-image-${{ github.sha }}
+          path: ${{ runner.temp }}/mazao-api-image.tar
+          if-no-files-found: error
+          retention-days: 90
