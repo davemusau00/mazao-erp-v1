@@ -23,17 +23,19 @@ function Check-NativeExit([string]$Operation) {
 
 function Restrict-Directory([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
-    $acl = New-Object System.Security.AccessControl.DirectorySecurity
+    $directory = [System.IO.DirectoryInfo]::new($Path)
+    $acl = $directory.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
     $acl.SetAccessRuleProtection($true, $false)
-    $acl.AddAccessRule($rule)
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    foreach ($existing in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($existing) }
+    $acl.SetAccessRule($rule)
+    $directory.SetAccessControl($acl)
 }
 
-Restrict-Directory $scratch
-Restrict-Directory $Destination
 $createdContainer = $false
 try {
+    Restrict-Directory $scratch
+    Restrict-Directory $Destination
     $command = 'set -eu; umask 077; mkdir -p /srv/mazao/backups; docker compose --project-name mazao --env-file /srv/mazao/.env -f /srv/mazao/compose.yml exec -T db sh -c ''pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'' > ' + $remote
     & ssh @sshArgs "$SshUser@$Server" $command
     Check-NativeExit 'Database dump'

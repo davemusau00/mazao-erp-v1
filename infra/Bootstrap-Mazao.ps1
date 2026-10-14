@@ -40,7 +40,8 @@ try {
     if ($login.tenant.name -ne $TenantName -or $login.outlet.name -ne $OutletName) { throw 'Sign-in returned unexpected tenant or outlet details.' }
     $me = Invoke-RestMethod -Uri ($origin + '/api/v1/auth/me') -WebSession $mazSession
     if ($me.user.email -ne $AdminEmail.ToLowerInvariant()) { throw 'Session verification returned an unexpected administrator.' }
-    foreach ($path in @('/catalog/items', '/shifts/current', '/reports/trial-balance')) {
+    $reportDate = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'E. Africa Standard Time').ToString('yyyy-MM-dd')
+    foreach ($path in @('/catalog/items', '/shifts/current', ('/reports/trial-balance?asOf=' + $reportDate))) {
         Invoke-RestMethod -Uri ($origin + '/api/v1' + $path) -WebSession $mazSession | Out-Null
     }
     Invoke-RestMethod -Uri ($origin + '/api/v1/auth/logout') -Method Post -WebSession $mazSession -Headers @{ Origin = $origin; 'x-csrf-token' = $login.csrfToken } | Out-Null
