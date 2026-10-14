@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import type { ApiPermission, ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { stableStringify } from './security.js';
+import { executeConfigurationCommand, receiptConfigurationSnapshot } from './configuration.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -111,6 +112,9 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   if (envelope.deviceId !== session.deviceId) throw new DomainError('FORBIDDEN', 'Command device does not match the authenticated session.', 403);
   if (envelope.tenantId && envelope.tenantId !== session.tenantId) throw new DomainError('FORBIDDEN', 'Command tenant does not match the authenticated session.', 403);
   switch (envelope.type) {
+    case 'configuration.business.update':
+    case 'configuration.outlet.update':
+    case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
     case 'catalog.product.create': return createProduct(client, session, envelope);
     case 'inventory.receive': return receiveInventory(client, session, envelope);
     case 'inventory.count.open': return openStockCount(client, session, envelope);
@@ -741,7 +745,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh and retry using the current version.', 409, { currentVersion: Number(shift.rows[0].version) });
 
-  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone
+  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile
     FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
@@ -793,11 +797,12 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   await client.query(
     `INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status,
        receipt_number,tenant_name_snapshot,outlet_name_snapshot,outlet_time_zone_snapshot,cash_tendered_minor,change_minor,
-       customer_account_id,customer_name_snapshot,customer_amount_due_minor)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+       customer_account_id,customer_name_snapshot,customer_amount_due_minor,receipt_profile_snapshot)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'CONFIRMED',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)`,
     [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
       tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone,
-      customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0],
+      customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0,
+      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile))],
   );
   for (const line of computed) {
     await client.query(

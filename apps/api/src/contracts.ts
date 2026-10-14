@@ -21,6 +21,7 @@ export interface ApiSession {
   currency: string;
   outletId: string;
   outletName: string;
+  tenantTimeZone?: string;
   timeZone: string;
   deviceId: string;
   role: ApiRole;

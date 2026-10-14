@@ -75,15 +75,15 @@ export function buildApp() {
     if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
-    const result = await pool.query(`SELECT s.id session_id,s.user_id,u.full_name,u.email,s.tenant_id,t.name tenant_name,t.currency,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
+    const result = await pool.query(`SELECT s.id session_id,s.user_id,u.full_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.sessions s JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
       JOIN core.tenants t ON t.id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
       JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id AND d.outlet_id=s.outlet_id
-      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active`, [hashToken(token)]);
+      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id`, [hashToken(token)]);
     if (!result.rowCount) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Session is expired or access was revoked.' } });
     const r = result.rows[0];
-    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.full_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
+    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.full_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
@@ -95,7 +95,8 @@ export function buildApp() {
     const token = request.cookies?.[cookieName]; if (token) await pool.query('UPDATE identity.sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL',[hashToken(token)]);
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
-  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.timeZone,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
     const permissions=ROLE_PERMISSIONS[operator.role];
