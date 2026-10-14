@@ -221,8 +221,8 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
 
   const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
   const repaymentId = randomUUID();
-  await client.query(`INSERT INTO finance.customer_repayments(id,tenant_id,outlet_id,customer_account_id,shift_id,command_id,actor_id,amount_minor,currency,reference)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [repaymentId, session.tenantId, session.outletId, customerId, shiftId, envelope.commandId, session.userId, amountMinor, tenant.rows[0].currency, typeof reference === 'string' ? reference.trim() || null : null]);
+  await client.query(`INSERT INTO finance.customer_repayments(id,tenant_id,outlet_id,customer_account_id,shift_id,command_id,actor_id,amount_minor,currency,reference,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp())`, [repaymentId, session.tenantId, session.outletId, customerId, shiftId, envelope.commandId, session.userId, amountMinor, tenant.rows[0].currency, typeof reference === 'string' ? reference.trim() || null : null]);
   let amountRemaining = BigInt(amountMinor);
   const allocations: Array<{ chargeId: string; amountMinor: string }> = [];
   for (const charge of outstanding) {
@@ -787,8 +787,8 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
       [shiftId, session.tenantId, session.outletId, session.userId]);
     await client.query(`UPDATE finance.customer_accounts SET balance_minor=$3,version=version+1,updated_at=now() WHERE id=$1 AND tenant_id=$2`,
       [customerId, session.tenantId, customer!.nextBalanceMinor.toString()]);
-    await client.query(`INSERT INTO finance.customer_charges(id,tenant_id,outlet_id,customer_account_id,order_id,amount_minor,currency)
-      VALUES($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), session.tenantId, session.outletId, customerId, orderId, total, currency]);
+    await client.query(`INSERT INTO finance.customer_charges(id,tenant_id,outlet_id,customer_account_id,order_id,amount_minor,currency,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp())`, [randomUUID(), session.tenantId, session.outletId, customerId, orderId, total, currency]);
   } else {
     await client.query(
       `UPDATE commerce.shifts SET cash_sales_minor=cash_sales_minor+$5,expected_cash_minor=expected_cash_minor+$5,version=version+1
