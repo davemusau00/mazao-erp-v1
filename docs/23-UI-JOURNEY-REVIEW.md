@@ -29,7 +29,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 | Waiter/cook/bartender | Table, order, fire/routing, station progress and settlement | Local tables and kitchen preview | Hidden in server mode. No persistent table/order/ticket commands, station routing, recipe consumption or settlement link. |
 | Receptionist | Availability, reservation/walk-in, check-in, guest bill/deposit and checkout | Server rooms, reservations, check-in, booked-night cash checkout and room-ready transitions | PostgreSQL acceptance covers the documented lifecycle; browser acceptance remains pending. No deposits, ancillary folio charges, split payment, approved balance, early checkout or complete statement. |
 | Housekeeper | Dirty, cleaning, inspection, ready and maintenance hold | Server dirty-room list and mark-ready command | No cleaning-start/inspection workflow or maintenance controls. Event history is not yet reviewed in an operator workflow. |
-| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; report/ledger preview only when not signed in | Reports are hidden in server mode. No authoritative ledger/report query, completeness/freshness metadata, period controls or full drill-through. COGS still uses mutable catalog cost. |
+| Accountant/owner/manager | Cash-up, exceptions, reports and drill-through | Server shift cash-up; report/ledger preview only when not signed in | Reports are hidden in server mode. No authoritative ledger/report query, completeness/freshness metadata, period controls or full drill-through. Sale COGS now uses moving weighted-average carrying value, but report reconciliation and valuation drill-through are not implemented. |
 
 ## Critical slice acceptance criteria
 
@@ -64,7 +64,7 @@ The repository contains a React/Vite PWA, a browser-local `StorageEngine`, and a
 
 ## Reporting and data coverage
 
-The local preview reports scope records to the selected tenant, exclude refunded records from sales totals, and use configured time zones for calendar grouping. These views are hidden in server mode because there are no authoritative report queries or coverage contracts. Local COGS and margin are estimates from mutable item cost fields, not historical cost snapshots or complete accounting statements.
+The local preview reports scope records to the selected tenant, exclude refunded records from sales totals, and use configured time zones for calendar grouping. These views are hidden in server mode because there are no authoritative report queries or coverage contracts. Local preview COGS and margin remain estimates from mutable item cost fields. Authenticated sale COGS uses moving weighted-average inventory value and exact line snapshots, but this does not provide complete accounting statements or valuation reports.
 
 - [ ] Add permission-scoped report queries with a reproducible calculation version.
 - [ ] Show business-date range, outlet scope, `asOf`, source count, completeness/partial/unavailable state, exclusions and currency.

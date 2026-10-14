@@ -164,6 +164,12 @@ if (!databaseUrl) {
       assert.equal(higherCostReceipt.json().status,'CONFIRMED',higherCostReceipt.body);
       const receivedValue = await db.pool.query<{quantity:string;inventory_value_minor:string}>('SELECT quantity::text quantity,inventory_value_minor::text inventory_value_minor FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3',[tenantId,outletId,productId]);
       assert.deepEqual(receivedValue.rows[0],{quantity:'6.000000',inventory_value_minor:'120000'},'receipt layers must build exact outlet carrying value');
+      const valuedCatalog=await app.inject({method:'GET',url:'/api/v1/catalog/items',headers});
+      const valuedItem=(valuedCatalog.json().items as Array<{sku:string;inventoryValueMinor?:string}>).find(item=>item.sku==='GAP-530CDBF');
+      assert.equal(valuedItem?.inventoryValueMinor,'120000','cost-authorized catalog reads expose carrying value');
+      const valuedMovements=await app.inject({method:'GET',url:'/api/v1/inventory/movements',headers});
+      const secondReceiptMovement=(valuedMovements.json().movements as Array<{reference?:string;valueMinor?:string}>).find(movement=>movement.reference==='CI-GRN-2');
+      assert.equal(secondReceiptMovement?.valueMinor,'60000','cost-authorized movement reads expose immutable receipt value');
 
       const countOpen = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.count.open',
@@ -422,6 +428,8 @@ if (!databaseUrl) {
       assert.ok(managerOrder, 'manager should see the confirmed sale');
       assert.equal(Number(managerOrder.lines[0].costPriceMinor), 15000, 'finance users may read historical unit cost');
       assert.equal(managerOrder.lines[0].cogsMinor,'38333','sale snapshots exact weighted-average COGS in minor units');
+      const saleCogsJournal=await db.pool.query<{debit_minor:string;credit_minor:string}>(`SELECT coalesce(sum(jl.debit_minor),0)::text debit_minor,coalesce(sum(jl.credit_minor),0)::text credit_minor FROM finance.journal_entries je JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 AND je.source_type='SALE_COGS' AND je.source_id=$2`,[tenantId,saleCommand.commandId]);
+      assert.deepEqual(saleCogsJournal.rows[0],{debit_minor:'38333',credit_minor:'38333'},'sale journal must use the same weighted-average COGS snapshot');
 
       const cashierId = randomUUID();
       const cashierDeviceId = randomUUID();
@@ -471,12 +479,14 @@ if (!databaseUrl) {
       const cashierItem = (cashierCatalog.json().items as Array<Record<string, unknown>>).find(item => item.sku === 'GAP-530CDBF');
       assert.ok(cashierItem, 'cashier should see sellable catalog items');
       assert.equal(Object.hasOwn(cashierItem, 'costPriceMinor'), false, 'cashier catalog response must omit cost');
+      assert.equal(Object.hasOwn(cashierItem, 'inventoryValueMinor'), false, 'cashier catalog response must omit carrying value');
 
       const cashierOrders = await app.inject({ method: 'GET', url: '/api/v1/sales/orders', headers: cashierHeaders });
       assert.equal(cashierOrders.statusCode, 200, cashierOrders.body);
       const cashierOrder = (cashierOrders.json().orders as Array<{ id: string; lines: Array<Record<string, unknown>> }>).find(order => order.id === saleId);
       assert.ok(cashierOrder, 'cashier may review sales history');
       assert.equal(Object.hasOwn(cashierOrder.lines[0], 'costPriceMinor'), false, 'cashier sales response must omit historical cost');
+      assert.equal(Object.hasOwn(cashierOrder.lines[0], 'cogsMinor'), false, 'cashier sales response must omit COGS');
 
       const line = await db.pool.query<{ id: string }>('SELECT id FROM commerce.order_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3', [tenantId, outletId, saleId]);
       assert.equal(line.rowCount, 1);
@@ -496,6 +506,11 @@ if (!databaseUrl) {
       assert.equal(refund.json().status, 'CONFIRMED');
       assert.equal(refund.json().value.totalMinor, 29000);
       assert.equal(refund.json().value.status,'PARTIALLY_REFUNDED');
+      const refundValue=await db.pool.query<{cogs_minor:string;movement_value_minor:string;inventory_value_minor:string}>(`SELECT
+        (SELECT sum(cogs_minor)::text FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3) cogs_minor,
+        (SELECT value_minor::text FROM inventory.movements WHERE tenant_id=$1 AND command_id=$4 AND movement_type='REFUND') movement_value_minor,
+        (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$5) inventory_value_minor`,[tenantId,outletId,saleId,refundCommand.commandId,productId]);
+      assert.deepEqual(refundValue.rows[0],{cogs_minor:'19167',movement_value_minor:'19167',inventory_value_minor:'95834'},'restocked refund restores the original sale COGS value');
       const refundReplay = await postCommand(refundCommand);
       assert.deepEqual(refundReplay.json(), refund.json());
 
@@ -508,9 +523,11 @@ if (!databaseUrl) {
       assert.equal(close.json().status, 'CONFIRMED');
       assert.equal(close.json().value.varianceMinor, 0);
 
-      const balances = await db.pool.query<{ quantity: string;inventory_value_minor:string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
+      const balances = await db.pool.query<{ quantity: string;inventory_value_minor:string;movement_quantity:string;movement_value_minor:string; unbalanced_journals: string; refunds: string; shift_status: string; expected_cash_minor: string; variance_minor: string }>(`SELECT
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) quantity,
         (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) inventory_value_minor,
+        (SELECT coalesce(sum(quantity_delta),0)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) movement_quantity,
+        (SELECT coalesce(sum(CASE WHEN quantity_delta<0 THEN -value_minor ELSE value_minor END),0)::text FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3) movement_value_minor,
         (SELECT count(*)::text FROM (SELECT je.id FROM finance.journal_entries je LEFT JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id WHERE je.tenant_id=$1 GROUP BY je.id HAVING coalesce(sum(jl.debit_minor),0)<>coalesce(sum(jl.credit_minor),0) OR coalesce(sum(jl.debit_minor),0)=0) unbalanced) unbalanced_journals,
         (SELECT count(*)::text FROM commerce.refunds WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$4) refunds,
         (SELECT status FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) shift_status,
@@ -518,6 +535,8 @@ if (!databaseUrl) {
         (SELECT variance_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) variance_minor`, [tenantId, outletId, productId, saleId, shiftId]);
       assert.equal(balances.rows[0].quantity, '5.000000');
       assert.equal(balances.rows[0].inventory_value_minor, '95834','sale and partial refund conserve the remaining moving-average carrying value');
+      assert.equal(balances.rows[0].movement_quantity,balances.rows[0].quantity,'movement quantities reconcile to the stock balance');
+      assert.equal(balances.rows[0].movement_value_minor,balances.rows[0].inventory_value_minor,'immutable movement values reconcile to the stock carrying value');
       assert.equal(balances.rows[0].unbalanced_journals, '0');
       assert.equal(balances.rows[0].refunds, '1');
       assert.equal(balances.rows[0].shift_status, 'CLOSED');
