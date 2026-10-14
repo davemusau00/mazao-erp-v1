@@ -54,7 +54,10 @@ class ApiClient {
     let response:Response; try { response=await fetch(`/api/v1${path}`,{...init,headers,credentials:'include'}); }
     catch { throw new Error('Connection outcome is unknown. Keep the command ID and check its status before retrying.'); }
     const body=await response.json().catch(()=>({}));
-    if(!response.ok)throw Object.assign(new Error(body?.error?.message??`Request failed (${response.status}).`),{status:response.status,code:body?.error?.code});
+    if(!response.ok){
+      if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
+      throw Object.assign(new Error(body?.error?.message??`Request failed (${response.status}).`),{status:response.status,code:body?.error?.code});
+    }
     return body as T;
   }
   async login(email:string,password:string){const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});this.csrf=s.csrfToken;this.publish(s);return s}

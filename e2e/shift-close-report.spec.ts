@@ -48,7 +48,7 @@ test('operator opens, closes and reviews the server Z report for a business day'
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connect backend' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in to Mazao' })).toBeVisible();
   await page.getByLabel('Email').fill(managerSession.user.email);
   await page.getByLabel('Password').fill('test-password-only');
   await page.getByRole('button', { name: 'Sign in' }).click();

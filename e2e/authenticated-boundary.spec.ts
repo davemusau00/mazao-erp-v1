@@ -29,9 +29,8 @@ test('server session restore failure blocks automatic demo fallback', async ({ p
   await expect(page.getByText('Local demo workspace')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Good day' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Open local preview only' }).click();
-  await expect(page.getByText('Local demo workspace')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Local preview (online|offline)/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open local preview only' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Local preview (online|offline)/ })).toHaveCount(0);
 });
 
 test('authenticated shell uses server identity and hides local operator, sync and diagnostics controls', async ({ page }) => {
@@ -40,7 +39,8 @@ test('authenticated shell uses server identity and hides local operator, sync an
   await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ shift: null }) }));
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connect backend' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in to Mazao' })).toBeVisible();
+  await expect(page.getByText('Local demo workspace')).toHaveCount(0);
   await page.getByLabel('Email').fill('david@example.invalid');
   await page.getByLabel('Password').fill('test-password-only');
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -54,4 +54,41 @@ test('authenticated shell uses server identity and hides local operator, sync an
   await expect(page.getByRole('button', { name: /DEMO OPERATOR/i })).toHaveCount(0);
   await expect(page.getByText('Local preview workspace.')).toHaveCount(0);
   await expect(page.getByText('This workspace is using the authenticated server outlet.')).toBeVisible();
+});
+
+test('sign-in submits password-manager autofill values without React change events', async ({ page }) => {
+  await page.route('**/api/v1/auth/me', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"shift":null}' }));
+  let credentials: { email: string; password: string } | undefined;
+  await page.route('**/api/v1/auth/login', route => {
+    credentials = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(managerSession) });
+  });
+  await page.goto('/');
+  await page.getByLabel('Email', { exact: true }).evaluate((input: HTMLInputElement) => { input.value = 'david@example.invalid'; });
+  await page.getByLabel('Password', { exact: true }).evaluate((input: HTMLInputElement) => { input.value = ' literal-$-and-&-password '; });
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByLabel('Signed in as David Kibet')).toBeVisible();
+  expect(credentials).toEqual({ email: 'david@example.invalid', password: ' literal-$-and-&-password ' });
+});
+
+test('rejected sign-in and sign-out keep production outside the demo workspace', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/v1/auth/me', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/v1/auth/login', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'Credentials rejected.' } }) }));
+  await page.goto('/');
+  await page.getByLabel('Email', { exact: true }).fill('david@example.invalid');
+  await page.getByLabel('Password', { exact: true }).fill('incorrect-test-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('The email or password was not accepted');
+  await expect(page.getByText('Local demo workspace')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open local preview only' })).toHaveCount(0);
+  await page.route('**/api/v1/auth/login', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(managerSession) }));
+  await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"shift":null}' }));
+  await page.route('**/api/v1/auth/logout', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"signed_out"}' }));
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign out of server' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out of server' }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in to Mazao' })).toBeVisible();
+  await expect(page.getByText('Local demo workspace')).toHaveCount(0);
 });
