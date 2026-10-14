@@ -50,6 +50,14 @@ jobs:
         env:
           MAZAO_E2E_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test
         run: bun run test:integration
+      - name: Preserve disposable browser acceptance screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mazao-browser-acceptance-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload immutable PWA build for main releases
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4

@@ -13,6 +13,7 @@ import { getSaleReceipt } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, readBusinessProfile } from './configuration.js';
+import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, requireProductImportAccess } from './productImport.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -22,7 +23,7 @@ export function buildApp() {
   const allowedOrigins=(process.env.APP_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);
   if(process.env.NODE_ENV==='production'&&allowedOrigins.length===0)throw new Error('APP_ORIGINS must contain the exact public application origin in production.');
   if(allowedOrigins.some(origin=>{try{return new URL(origin).origin!==origin}catch{return true}}))throw new Error('APP_ORIGINS entries must be exact origins such as https://erp.example.com.');
-  const app = Fastify({ logger: true, bodyLimit: 1_048_576 });
+  const app = Fastify({ logger: {redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576 });
   app.register(cookie);
   app.register(rateLimit, { global: false });
   app.addHook('onSend', async (_request, reply, payload) => {
@@ -40,6 +41,7 @@ export function buildApp() {
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof DomainError) return reply.code(error.statusCode).send({ error:{code:error.code,message:error.message,details:error.details} });
+    if((error as {code?:string}).code==='FST_ERR_CTP_BODY_TOO_LARGE')return reply.code(413).send({error:{code:'PAYLOAD_TOO_LARGE',message:'The request exceeds the upload limit. CSV source must be 512 KiB or smaller.'}});
     request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'The request could not be completed.' } });
@@ -97,6 +99,13 @@ export function buildApp() {
   });
   app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
+  app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
+  app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
+  app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{
+    const csv=await productImportErrorsCsv(request.operator!,request.params.batchId);
+    reply.header('content-type','text/csv; charset=utf-8').header('content-disposition','attachment; filename="product-import-errors.csv"');
+    return csv;
+  });
   const requireEnabledCapability = (operator: ApiSession, capability: string) => {
     if (!operator.capabilities.includes(capability)) throw new DomainError('CAPABILITY_DISABLED', `The ${capability} capability is not enabled for this tenant.`, 403);
   };
@@ -106,10 +115,10 @@ export function buildApp() {
     const permissions=ROLE_PERMISSIONS[operator.role];
     if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.category,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
   app.get('/api/v1/inventory/movements', async request => {
     const operator=request.operator!;
@@ -239,17 +248,23 @@ export function buildApp() {
       FROM hospitality.stays s JOIN hospitality.rooms r ON r.id=s.room_id AND r.tenant_id=s.tenant_id AND r.outlet_id=s.outlet_id WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND s.status='CHECKED_IN' ORDER BY s.checked_in_at`,[operator.tenantId,operator.outletId]);
     return {stays:result.rows.map(r=>{const subtotal=BigInt(r.nightly_rate_minor)*BigInt(r.nights);const tax=(subtotal*BigInt(r.tax_rate_bps)+5000n)/10000n;if(subtotal+tax>BigInt(Number.MAX_SAFE_INTEGER))throw new DomainError('VALIDATION_FAILED','Stay estimate exceeds the supported money range.');return {id:r.id,roomId:r.room_id,roomNumber:r.room_number,roomVersion:Number(r.room_version),guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.expected_check_out_date,checkedInAt:r.checked_in_at,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),nights:r.nights,estimatedSubtotalMinor:Number(subtotal),estimatedTaxMinor:Number(tax),estimatedTotalMinor:Number(subtotal+tax)}})};
   });
-  app.post<{ Body: CommandEnvelope }>('/api/v1/commands', async (request, reply) => {
+  app.post<{ Body: CommandEnvelope }>('/api/v1/commands',{bodyLimit:2_097_152}, async (request, reply) => {
     const envelope=request.body; const s=request.operator!;
     if (!envelope || envelope.protocolVersion!==1 || !/^[0-9a-f-]{36}$/i.test(envelope.commandId ?? '') || typeof envelope.type!=='string' || typeof envelope.deviceId!=='string' || !Number.isFinite(Date.parse(envelope.occurredAt)) || !envelope.expectedVersions || typeof envelope.expectedVersions!=='object' || !envelope.payload || typeof envelope.payload!=='object') throw new DomainError('VALIDATION_FAILED','Command envelope is invalid.');
     if (envelope.tenantId && envelope.tenantId!==s.tenantId) throw new DomainError('FORBIDDEN','Command tenant differs from authenticated tenant.',403);
+    if(envelope.deviceId!==s.deviceId)throw new DomainError('FORBIDDEN','Command device differs from the authenticated assignment.',403);
+    assertImportSourceSafe(envelope);
     envelope.tenantId=s.tenantId;
     const digest=hashCommand(envelope); const hashText=digest.toString('hex');
     const outcome=await inTransaction(async client=>{
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
-        const old=await client.query('SELECT request_hash,status,response FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
+        if(envelope.type.startsWith('catalog.import.')){
+          try{requireProductImportAccess(s);}catch(error){if(!(error instanceof DomainError))throw error;return {status:'REJECTED',code:error.code,message:error.message};}
+        }
+        const old=await client.query('SELECT request_hash,status,response,actor_id FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
+        if(envelope.type.startsWith('catalog.import.')&&old.rows[0].actor_id!==s.userId)return {status:'REJECTED',code:'FORBIDDEN',message:'This import operation belongs to another operator.'};
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
@@ -264,7 +279,7 @@ export function buildApp() {
       } catch (error) {
         await client.query('ROLLBACK TO SAVEPOINT business_command');
         if (!(error instanceof DomainError)) throw error;
-        const status=error.code==='VERSION_CONFLICT'?'CONFLICT':'REJECTED';
+        const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT'].includes(error.code)?'CONFLICT':'REJECTED';
         const response={status,code:error.code,message:error.message,details:error.details};
         await client.query('UPDATE system.commands SET status=$3,response=$4::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2',[s.tenantId,envelope.commandId,status,JSON.stringify(response)]);
         return response;
@@ -273,9 +288,16 @@ export function buildApp() {
     return reply.code(200).send({commandId:envelope.commandId,...outcome});
   });
   app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async (request,reply) => {
-    const r=await pool.query('SELECT status,response,created_at,completed_at FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[request.operator!.tenantId,request.params.commandId]);
+    const r=await pool.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
+      FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
+      WHERE c.tenant_id=$1 AND c.command_id=$2`,[request.operator!.tenantId,request.params.commandId]);
     if (!r.rowCount) return reply.code(404).send({error:{code:'NOT_FOUND',message:'Command was not found.'}});
-    return {commandId:request.params.commandId,...r.rows[0]};
+    if(r.rows[0].command_type.startsWith('catalog.import.')){
+      requireProductImportAccess(request.operator!);
+      if(r.rows[0].outlet_id!==request.operator!.outletId||r.rows[0].actor_id!==request.operator!.userId)throw new DomainError('NOT_FOUND','Import operation was not found in your operator/outlet scope.',404);
+    }
+    const {command_type:_,actor_id:__,outlet_id:___,...status}=r.rows[0];
+    return {commandId:request.params.commandId,...status};
   });
   return app;
 }

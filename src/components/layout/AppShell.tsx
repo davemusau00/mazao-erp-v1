@@ -1,9 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays } from 'lucide-react';
 import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
 import type { RecoverableCommand } from '../../services/commandJournal';
+import type { ImportValidationRecovery } from '../../services/importValidationJournal';
 
 export type ActiveTab=WorkspaceId;
 const workspaceItems:Array<WorkspaceDefinition&{icon:React.ReactNode}>=[
@@ -45,6 +46,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [session,setSession]=useState(apiClient.getSession());
   const [online,setOnline]=useState(navigator.onLine);
   const [recoverableCommands,setRecoverableCommands]=useState<RecoverableCommand[]>([]);
+  const [importRecoveries,setImportRecoveries]=useState<ImportValidationRecovery[]>([]);
   const [logoutError,setLogoutError]=useState('');
   const {isInstallable,isInstalled,install}=usePWAInstall();
   useEffect(()=>apiClient.subscribe(setSession),[]);
@@ -58,6 +60,11 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     void apiClient.listRecoverableCommands(session.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));
     return apiClient.subscribeRecovery(setRecoverableCommands);
   },[session?.tenant.id]);
+  useEffect(()=>{
+    if(!session){setImportRecoveries([]);return;}
+    void apiClient.listImportValidationRecovery().then(setImportRecoveries).catch(()=>setImportRecoveries([]));
+    return apiClient.subscribeImportRecovery(setImportRecoveries);
+  },[session?.tenant.id,session?.user.id,session?.deviceId]);
   const available=useMemo(()=>session?workspaceItems.filter(item=>canOpenWorkspace(session,item.id)):[],[session]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
@@ -71,8 +78,9 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     setLogoutError('');try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
   const openRecovery=()=>{
+    if(importRecoveries.length){selectWorkspace('stock');return;}
     const type=recoverableCommands[0]?.command.type??'';
-    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type==='catalog.product.create'?'stock':'shifts';
+    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
     selectWorkspace(destination);
   };
   return <div className="app-shell">
@@ -88,7 +96,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Server actions require a connection. Unconfirmed commands remain available for status review.</div>}
         {logoutError&&<div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {logoutError}</div>}
-        {recoverableCommands.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length} server command{recoverableCommands.length===1?'':'s'} need status review.</strong> The exact command is retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open recovery workspace</button></div>}
+        {recoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length+importRecoveries.length} server command{recoverableCommands.length+importRecoveries.length===1?'':'s'} need status review.</strong> Command IDs and recovery evidence are retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open recovery workspace</button></div>}
         <div className="workspace-interaction-boundary">{children}</div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">{(['today','sell','stock'] as WorkspaceId[]).map(id=>{const item=available.find(entry=>entry.id===id);return item?<button type="button" key={id} className={activeTab===id?'active':''} onClick={()=>selectWorkspace(id)} aria-current={activeTab===id?'page':undefined}>{item.icon}<span>{item.label}</span></button>:null;})}<button type="button" className={moreOpen?'active':''} onClick={()=>setMoreOpen(value=>!value)} aria-expanded={moreOpen}><Menu/><span>More</span></button></nav>

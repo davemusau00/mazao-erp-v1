@@ -102,7 +102,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   const readyToConfirm = loaded && recoveryChecked && !!shift && validBasket && totalMinor > 0n && !locked && (
     paymentMethod === 'cash' ? tenderMinor !== null && tenderMinor >= totalMinor : canChargeAccount && creditAllowed
   );
-  const filteredProducts = products.filter(product => `${product.name} ${product.sku}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const filteredProducts = products.filter(product => `${product.name} ${product.sku} ${product.barcode??''} ${product.category??''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const filteredCustomers = customers.filter(customer => `${customer.name} ${customer.phone} ${customer.email ?? ''}`.toLocaleLowerCase().includes(customerQuery.toLocaleLowerCase()));
   const addProduct = (product: BackendProduct) => {
     if (locked || !loaded) return;
@@ -114,9 +114,9 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   };
   const scan = (event: React.FormEvent) => {
     event.preventDefault();
-    const match = products.find(product => product.sku.toLocaleLowerCase() === query.trim().toLocaleLowerCase() || product.name.toLocaleLowerCase() === query.trim().toLocaleLowerCase());
+    const match = products.find(product => product.barcode === query.trim() || product.sku.toLocaleLowerCase() === query.trim().toLocaleLowerCase() || product.name.toLocaleLowerCase() === query.trim().toLocaleLowerCase());
     if (match) { addProduct(match); setQuery(''); }
-    else setNotice('No exact SKU or item name found. Choose a search result or review the catalog.');
+    else setNotice('No exact barcode, SKU or item name found. Choose a search result or review the catalog.');
     searchInput.current?.focus();
   };
   const changeQuantity = (productId: string, value: string) => {
@@ -134,7 +134,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
     if (inFlight.current || !readyToConfirm || !shift) return;
     const command: BackendCommand = {
       protocolVersion: 1, commandId: crypto.randomUUID(), tenantId: session.tenant.id, deviceId: session.deviceId,
-      type: 'sales.order.settle', occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shift.id}`]: shift.version },
+      type: 'sales.order.settle', occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shift.id}`]: shift.version, ...Object.fromEntries(basket.map(line => [`product:${line.productId}`, productById.get(line.productId)?.productVersion ?? 1])) },
       payload: { shiftId: shift.id, lines: basket.map(line => ({ productId: line.productId, quantity: line.quantity })), ...(paymentMethod === 'customer_credit' ? { customerId } : {}), tenders: paymentMethod === 'cash' ? [{ method: 'CASH', amountMinor: Number(tenderMinor!), currency }] : [] },
     };
     pending.current = command; inFlight.current = true; setBusy(true); setNotice('');
