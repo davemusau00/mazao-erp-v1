@@ -14,7 +14,7 @@ if (!databaseUrl) {
     import('../src/app.js'), import('../src/security.js'), import('../src/db.js'),
   ]);
 
-  test('fresh migrations support authenticated catalog reads and canonical command replay', async () => {
+  test('fresh migrations support authenticated commands, canonical replay, and role-scoped cost projections', async () => {
     const tenantId = randomUUID();
     const outletId = randomUUID();
     const userId = randomUUID();
@@ -73,10 +73,11 @@ if (!databaseUrl) {
 
       const catalog = await app.inject({ method: 'GET', url: '/api/v1/catalog/items', headers });
       assert.equal(catalog.statusCode, 200, catalog.body);
-      const items = catalog.json().items as Array<{ id: string; sku: string; quantity: string }>;
+      const items = catalog.json().items as Array<{ id: string; sku: string; quantity: string; costPriceMinor?: number }>;
       assert.equal(items.length, 1);
       assert.equal(items[0].sku, 'GAP-530CDBF');
       assert.equal(items[0].quantity, '0.000000');
+      assert.equal(items[0].costPriceMinor, 15000, 'catalog managers may read unit cost');
       const productId = String(first.json().value.productId);
 
       const persisted = await db.pool.query<{ command_count: string; product_count: string }>(`SELECT
@@ -161,6 +162,45 @@ if (!databaseUrl) {
       const saleReplay = await postCommand(saleCommand);
       assert.deepEqual(saleReplay.json(), sale.json());
       const saleId = String(sale.json().value.saleId);
+
+      const managerOrders = await app.inject({ method: 'GET', url: '/api/v1/sales/orders', headers });
+      assert.equal(managerOrders.statusCode, 200, managerOrders.body);
+      const managerOrder = (managerOrders.json().orders as Array<{ id: string; lines: Array<{ costPriceMinor?: number | string }> }>).find(order => order.id === saleId);
+      assert.ok(managerOrder, 'manager should see the confirmed sale');
+      assert.equal(Number(managerOrder.lines[0].costPriceMinor), 15000, 'finance users may read historical unit cost');
+
+      const cashierId = randomUUID();
+      const cashierDeviceId = randomUUID();
+      const cashierEmail = `cashier-${cashierId}@example.invalid`;
+      const cashierPassword = 'cashier-only-integration-password';
+      await db.pool.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,$3,$4)', [cashierId, cashierEmail, await hashPassword(cashierPassword), 'Integration Cashier']);
+      await db.pool.query("INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,'cashier')", [tenantId, cashierId]);
+      await db.pool.query('INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,$5)', [cashierDeviceId, tenantId, outletId, cashierId, 'Disposable cashier device']);
+      const cashierLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email: cashierEmail, password: cashierPassword } });
+      assert.equal(cashierLogin.statusCode, 200, cashierLogin.body);
+      const cashierSession = cashierLogin.json() as { csrfToken: string; user: { permissions: string[] } };
+      assert.ok(cashierSession.user.permissions.includes('commerce.sell'));
+      assert.ok(!cashierSession.user.permissions.includes('catalog.manage'));
+      assert.ok(!cashierSession.user.permissions.includes('finance.view'));
+      const cashierRawCookies = cashierLogin.headers['set-cookie'];
+      const cashierCookies = (Array.isArray(cashierRawCookies) ? cashierRawCookies : [cashierRawCookies])
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => value.split(';', 1)[0])
+        .join('; ');
+      const cashierHeaders = { cookie: cashierCookies, origin: 'http://localhost:3000', 'x-csrf-token': cashierSession.csrfToken };
+
+      const cashierCatalog = await app.inject({ method: 'GET', url: '/api/v1/catalog/items', headers: cashierHeaders });
+      assert.equal(cashierCatalog.statusCode, 200, cashierCatalog.body);
+      const cashierItem = (cashierCatalog.json().items as Array<Record<string, unknown>>).find(item => item.sku === 'GAP-530CDBF');
+      assert.ok(cashierItem, 'cashier should see sellable catalog items');
+      assert.equal(Object.hasOwn(cashierItem, 'costPriceMinor'), false, 'cashier catalog response must omit cost');
+
+      const cashierOrders = await app.inject({ method: 'GET', url: '/api/v1/sales/orders', headers: cashierHeaders });
+      assert.equal(cashierOrders.statusCode, 200, cashierOrders.body);
+      const cashierOrder = (cashierOrders.json().orders as Array<{ id: string; lines: Array<Record<string, unknown>> }>).find(order => order.id === saleId);
+      assert.ok(cashierOrder, 'cashier may review sales history');
+      assert.equal(Object.hasOwn(cashierOrder.lines[0], 'costPriceMinor'), false, 'cashier sales response must omit historical cost');
+
       const line = await db.pool.query<{ id: string }>('SELECT id FROM commerce.order_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3', [tenantId, outletId, saleId]);
       assert.equal(line.rowCount, 1);
 
