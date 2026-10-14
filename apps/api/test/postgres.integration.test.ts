@@ -144,11 +144,48 @@ if (!databaseUrl) {
       const foreignTenantId = randomUUID();
       const foreignOutletId = randomUUID();
       const foreignProductId = randomUUID();
+      const foreignUserId = randomUUID();
+      const foreignShiftId = randomUUID();
+      const foreignOrderId = randomUUID();
+      const foreignJournalEntryId = randomUUID();
       await db.pool.query('INSERT INTO core.tenants(id,name,currency,time_zone) VALUES($1,$2,$3,$4)', [foreignTenantId, 'Foreign integration tenant', 'KES', 'Africa/Nairobi']);
       await db.pool.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone) VALUES($1,$2,$3,$4)', [foreignOutletId, foreignTenantId, 'Foreign outlet', 'Africa/Nairobi']);
+      await db.pool.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,$3,$4)', [foreignUserId, `foreign-${foreignUserId}@example.invalid`, await hashPassword('foreign-tenant-integration-password'), 'Foreign integration user']);
+      await db.pool.query("INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')", [foreignTenantId, foreignUserId]);
       await db.pool.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps)
         VALUES($1,$2,$3,'FOREIGN-ITEM','Foreign item','each','KES',25000,15000,1600)`, [foreignProductId, foreignTenantId, foreignOutletId]);
       await db.pool.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,5)', [foreignTenantId, foreignOutletId, foreignProductId]);
+      await db.pool.query(`INSERT INTO commerce.shifts(id,tenant_id,outlet_id,operator_id,status,opening_float_minor,expected_cash_minor)
+        VALUES($1,$2,$3,$4,'OPEN',0,0)`, [foreignShiftId, foreignTenantId, foreignOutletId, foreignUserId]);
+      await db.pool.query(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`, [foreignOrderId, foreignTenantId, foreignOutletId, foreignShiftId, foreignUserId]);
+      await db.pool.query(`INSERT INTO finance.journal_entries(id,tenant_id,source_type,source_id,currency,created_by)
+        VALUES($1,$2,'INTEGRATION_FIXTURE',$3,'KES',$4)`, [foreignJournalEntryId, foreignTenantId, randomUUID(), foreignUserId]);
+
+      const expectForeignKeyViolation = async (query: string, values: unknown[], label: string) => {
+        await assert.rejects(db.pool.query(query, values), (error: unknown) => (error as { code?: string }).code === '23503', label);
+      };
+      await expectForeignKeyViolation(
+        'INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,$5)',
+        [randomUUID(), foreignTenantId, foreignOutletId, userId, 'Cross-tenant assignment must fail'],
+        'device assignment must reference a user membership in the same tenant',
+      );
+      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`,
+      [randomUUID(), tenantId, outletId, foreignShiftId, userId],
+      'an order must reference a shift from the same tenant and outlet');
+      await expectForeignKeyViolation(`INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor)
+        VALUES($1,$2,$3,$4,$5,'SKU','Item',1,1,0,0,1,0)`,
+      [randomUUID(), tenantId, outletId, foreignOrderId, productId],
+      'an order line must reference an order from the same tenant and outlet');
+      await expectForeignKeyViolation(`INSERT INTO commerce.payments(id,tenant_id,outlet_id,order_id,method,amount_minor,currency,status)
+        VALUES($1,$2,$3,$4,'CASH',1,'KES','CONFIRMED')`,
+      [randomUUID(), tenantId, outletId, foreignOrderId],
+      'a payment must reference an order from the same tenant and outlet');
+      await expectForeignKeyViolation(`INSERT INTO finance.journal_lines(id,tenant_id,journal_entry_id,account_code,debit_minor,credit_minor)
+        VALUES($1,$2,$3,'TEST-CROSS-TENANT',1,0)`,
+      [randomUUID(), tenantId, foreignJournalEntryId],
+      'a journal line must reference an entry from the same tenant');
 
       const receipt = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'inventory.receive',
@@ -319,6 +356,10 @@ if (!databaseUrl) {
       });
       assert.equal(shiftOpen.json().status, 'CONFIRMED');
       const shiftId = String(shiftOpen.json().value.shiftId);
+      await expectForeignKeyViolation(`INSERT INTO commerce.orders(id,tenant_id,outlet_id,shift_id,operator_id,currency,subtotal_minor,tax_minor,total_minor,status)
+        VALUES($1,$2,$3,$4,$5,'KES',100,0,100,'CONFIRMED')`,
+      [randomUUID(), tenantId, outletId, shiftId, foreignUserId],
+      'an order operator must be a member of the same tenant');
 
       const paidIn = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'shift.cash.movement',
