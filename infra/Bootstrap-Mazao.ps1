@@ -34,11 +34,26 @@ try {
     }
     $config | ConvertTo-Json -Compress | & ssh @sshArgs "$SshUser@$Server" 'bash /srv/mazao/bootstrap-initial-tenant.sh'
     if ($LASTEXITCODE -ne 0) { throw "Initial bootstrap failed (exit $LASTEXITCODE)." }
+    $origin = 'https://mazao.davemusau.co.ke'
+    $body = @{ email = $AdminEmail.ToLowerInvariant(); password = $password } | ConvertTo-Json -Compress
+    $login = Invoke-RestMethod -Uri ($origin + '/api/v1/auth/login') -Method Post -ContentType 'application/json' -Headers @{ Origin = $origin } -Body $body -SessionVariable mazSession
+    if ($login.tenant.name -ne $TenantName -or $login.outlet.name -ne $OutletName) { throw 'Sign-in returned unexpected tenant or outlet details.' }
+    $me = Invoke-RestMethod -Uri ($origin + '/api/v1/auth/me') -WebSession $mazSession
+    if ($me.user.email -ne $AdminEmail.ToLowerInvariant()) { throw 'Session verification returned an unexpected administrator.' }
+    foreach ($path in @('/catalog/items', '/shifts/current', '/reports/trial-balance')) {
+        Invoke-RestMethod -Uri ($origin + '/api/v1' + $path) -WebSession $mazSession | Out-Null
+    }
+    Invoke-RestMethod -Uri ($origin + '/api/v1/auth/logout') -Method Post -WebSession $mazSession -Headers @{ Origin = $origin; 'x-csrf-token' = $login.csrfToken } | Out-Null
+    Write-Host 'HTTPS sign-in, session, catalog, shift and trial balance reads verified.'
     Write-Host 'Initial administrator created. Sign in at https://mazao.davemusau.co.ke.'
 } finally {
     $password = $null
     $confirmation = $null
     $config = $null
+    $body = $null
+    $login = $null
+    $me = $null
+    $mazSession = $null
     $secret.Dispose()
     $confirm.Dispose()
 }
