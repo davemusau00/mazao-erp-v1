@@ -1,8 +1,39 @@
-# Backup and restore runbook
-1. Confirm target DB, environment and encryption destination; block accidental production-to-staging reverse restore.
-2. Take transaction-consistent dump/base backup plus configured WAL archive; record SHA256, schema migration head, timestamp and object storage version.
-3. Encrypt with separately controlled keys and upload to offsite bucket with lifecycle retention/immutability.
-4. Once a month, restore into isolated PostgreSQL container using separate credentials; apply no production side effects, disable workers/webhooks/provider calls.
-5. Run integrity queries: tenant totals, order/tender/journal count, balanced journal, stock movement recon, all migration checksums.
-6. Time recovery and update RPO/RTO evidence. Never claim restore works based only on presence of a `.sql` file.
-7. In an actual incident fence writes, determine authoritative recovery point, communicate potential unacknowledged local offline commands, restore, reconcile by original command IDs, unlock deliberately, document audit.
+# Mazao backup and restore runbook
+
+## Gate before business data
+
+No Mazao off-host backup target is configured by this repository. Before creating a real pilot tenant or recording business transactions, configure an off-host destination and an age encryption recipient. Keep the age private key offline; keep only its public recipient and the restricted rclone destination credentials on the backup runner. Never store provider credentials or database dumps in Git.
+
+## Create an encrypted backup
+
+Run from a restricted backup runner with Docker Compose, age, and rclone configured. The database is private to the Mazao Compose network; no PostgreSQL host port is needed.
+
+```sh
+set -euo pipefail
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+file="mazao/postgres/$stamp.dump.age"
+
+docker compose --project-name mazao \
+  --env-file /srv/mazao/.env \
+  -f /srv/mazao/compose.yml \
+  exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+  | age -r "$MAZAO_AGE_RECIPIENT" \
+  | rclone rcat "$MAZAO_BACKUP_REMOTE/$file"
+
+rclone lsjson "$MAZAO_BACKUP_REMOTE/$file" --stat
+```
+
+The backup runner must fail the job on any pipeline error, record the object version and timestamp, and alert if the newest verified object exceeds the agreed interval. Retain encrypted backups off-host with provider-side lifecycle and immutability controls. Do not treat a successful upload or checksum as a restore test.
+
+## Restore verification
+
+At least monthly, retrieve one encrypted backup to an isolated workstation or recovery host, decrypt with the offline-controlled age private key, and restore into a disposable PostgreSQL 16 container on a private network. Use separate temporary credentials; do not point the restore job at the live Compose project or enable workers, webhooks, or external providers.
+
+After restore:
+
+1. Confirm PostgreSQL starts and the recorded migration head/checksums match the release.
+2. Run integrity checks for tenant totals, order/tender/journal counts, balanced journal entries, inventory movement totals, and customer account allocations.
+3. Record elapsed recovery time, backup object version, database migration head, and any discrepancies.
+4. Remove only the disposable restore container and its temporary volume after evidence is recorded.
+
+Never use reverse SQL migrations as a restore strategy. For a real incident, fence writes, select the authoritative recovery point, preserve unknown command IDs for reconciliation, restore and validate, then deliberately reopen writes and document the audit trail.

@@ -1,0 +1,16 @@
+FROM oven/bun:1.4.3-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288
+
+WORKDIR /app
+ENV NODE_ENV=production API_HOST=0.0.0.0 API_PORT=4101 HOME=/tmp
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+COPY --chown=bun:bun apps/api/src ./apps/api/src
+COPY --chown=bun:bun apps/api/migrations ./apps/api/migrations
+COPY --chown=bun:bun apps/api/scripts ./apps/api/scripts
+
+USER bun
+EXPOSE 4101
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD ["bun", "-e", "fetch('http://127.0.0.1:4101/api/v1/health/live').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+CMD ["bun", "apps/api/src/server.ts"]
