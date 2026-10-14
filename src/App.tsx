@@ -183,7 +183,7 @@ export default function App() {
           <SalesHistoryView tenant={activeTenant} onReprintOrder={handleOrderCompleted} />
         )}
 
-        {activeTab === 'service' && <FoodServiceWorkspace />}
+        {activeTab === 'service' && !backendSession && <FoodServiceWorkspace />}
 
         {activeTab === 'hotel' && (backendSession
           ? <BackendHotelWorkspace />
@@ -221,9 +221,9 @@ export default function App() {
             : <AnalyticsView currentTenant={activeTenant} onOpenSales={() => setActiveTab('sales')} />
         )}
 
-        {activeTab === 'manage' && <ManageWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}
+        {activeTab === 'manage' && !backendSession && <ManageWorkspace tenant={activeTenant} onNavigate={setActiveTab} />}
 
-        {activeTab === 'onboarding' && <OnboardingWorkspace tenant={activeTenant} />}
+        {activeTab === 'onboarding' && !backendSession && <OnboardingWorkspace tenant={activeTenant} />}
 
       {activeTab === 'help' && <HelpWorkspace onNavigate={setActiveTab} onOpenSyncCenter={() => setIsSyncCenterOpen(true)} />}
       </AppShell>

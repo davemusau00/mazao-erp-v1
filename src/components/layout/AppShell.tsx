@@ -54,6 +54,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const [backendEmail, setBackendEmail] = useState('');
   const [backendPassword, setBackendPassword] = useState('');
   const [backendError, setBackendError] = useState('');
+  const [backendLogoutError, setBackendLogoutError] = useState('');
   const [backendBusy, setBackendBusy] = useState(false);
   const [, setStorageRevision] = useState(0);
   useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
@@ -65,9 +66,14 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
     catch(error) { setBackendError(error instanceof Error ? error.message : 'Could not sign in.'); }
     finally { setBackendBusy(false); }
   };
+  const signOutBackend = async () => {
+    setBackendLogoutError('');
+    try { await apiClient.logout(); }
+    catch (error) { setBackendLogoutError(error instanceof Error ? error.message : 'Server sign-out could not be confirmed.'); }
+  };
   const isOnline = storage.isOnline();
   const pendingOutbox = storage.getOutboxCount();
-  const persistenceError = storage.getPersistenceError();
+  const persistenceError = backendSession ? null : storage.getPersistenceError();
   const staffUsers = storage.getStaffUsers();
   const activeStaff = storage.getActiveStaff();
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -122,34 +128,40 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
           </button>)}</section>;
         })}
       </nav>
-      <div className="sidebar-footer"><span className="demo-indicator"><span />{backendSession?`Server · ${backendSession.outlet.name}`:'Local demo workspace'}</span>{storage.hasPermission('settings.view') && <button type="button" className="sidebar-tool" onClick={onOpenDiagnostics}><Wrench size={16} /> Diagnostics</button>}</div>
+      <div className="sidebar-footer"><span className="demo-indicator"><span />{backendSession?`Server · ${backendSession.outlet.name}`:'Local demo workspace'}</span>{!backendSession && storage.hasPermission('settings.view') && <button type="button" className="sidebar-tool" onClick={onOpenDiagnostics}><Wrench size={16} /> Diagnostics</button>}</div>
     </aside>
 
     <div className="app-main-column">
       <header className="topbar">
         <div className="topbar-context">
-          <label className="tenant-select-wrap"><Building2 size={15} /><span className="sr-only">Business</span><select disabled={!!backendSession} value={activeTenant.id} onChange={event => onTenantChange(event.target.value)} aria-label="Select business">
-            {tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
-          </select><ChevronDown size={13} /></label>
-          <span className="topbar-divider" />
-          <div className="operator-wrap"><button className="operator-button" type="button" onClick={() => setOperatorOpen(value => !value)} aria-expanded={operatorOpen}>
-            <span className="operator-avatar">{activeStaff.name.slice(0, 1)}</span><span className="operator-copy"><strong>{activeStaff.name}</strong><small>{activeStaff.title} · {activeStaff.role}</small></span><ChevronDown size={14} />
-          </button>{operatorOpen && <div className="operator-menu" role="menu"><span className="menu-caption">DEMO OPERATOR</span>{staffUsers.map(staff => <button role="menuitem" type="button" key={staff.id} onClick={() => changeStaff(staff.id)} className={staff.id === activeStaff.id ? 'selected' : ''}><span>{staff.name}</span><small>{staff.title} · {staff.role}</small></button>)}</div>}</div>
+          {backendSession ? <div className="operator-button" aria-label={`Signed in as ${backendSession.user.name}`}>
+            <span className="operator-avatar">{backendSession.user.name.slice(0, 1)}</span><span className="operator-copy"><strong>{backendSession.tenant.name}</strong><small>{backendSession.outlet.name} · {backendSession.user.name} · {backendSession.user.role}</small></span>
+          </div> : <>
+            <label className="tenant-select-wrap"><Building2 size={15} /><span className="sr-only">Business</span><select value={activeTenant.id} onChange={event => onTenantChange(event.target.value)} aria-label="Select business">
+              {tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+            </select><ChevronDown size={13} /></label>
+            <span className="topbar-divider" />
+            <div className="operator-wrap"><button className="operator-button" type="button" onClick={() => setOperatorOpen(value => !value)} aria-expanded={operatorOpen}>
+              <span className="operator-avatar">{activeStaff.name.slice(0, 1)}</span><span className="operator-copy"><strong>{activeStaff.name}</strong><small>{activeStaff.title} · {activeStaff.role}</small></span><ChevronDown size={14} />
+            </button>{operatorOpen && <div className="operator-menu" role="menu"><span className="menu-caption">DEMO OPERATOR</span>{staffUsers.map(staff => <button role="menuitem" type="button" key={staff.id} onClick={() => changeStaff(staff.id)} className={staff.id === activeStaff.id ? 'selected' : ''}><span>{staff.name}</span><small>{staff.title} · {staff.role}</small></button>)}</div>}</div>
+          </>}
         </div>
         <div className="topbar-actions">
-          {backendSession ? <div className="connection-pill online" title={`${backendSession.tenant.name} · ${backendSession.outlet.name}`}><Wifi size={15}/><span>Server · {backendSession.user.name}</span><button type="button" onClick={() => void apiClient.logout()} aria-label="Sign out of server">Sign out</button></div> : <button className="connection-pill offline" type="button" onClick={() => setBackendLoginOpen(true)}><WifiOff size={15}/><span>Connect backend</span></button>}
-          <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Local preview online' : 'Local preview offline'}${pendingOutbox ? `, ${pendingOutbox} waiting in the local preview` : ''}`}>
-            {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Local preview online' : 'Local preview offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
-          </button>
+          {backendSession ? <div className="connection-pill online" title={`${backendSession.tenant.name} · ${backendSession.outlet.name}`}><Wifi size={15}/><span>Server account</span><button type="button" onClick={() => void signOutBackend()} aria-label="Sign out of server">Sign out</button></div> : <>
+            <button className="connection-pill offline" type="button" onClick={() => setBackendLoginOpen(true)}><WifiOff size={15}/><span>Connect backend</span></button>
+            <button className={`connection-pill ${isOnline ? 'online' : 'offline'}`} type="button" onClick={onOpenSyncCenter} aria-label={`${isOnline ? 'Local preview online' : 'Local preview offline'}${pendingOutbox ? `, ${pendingOutbox} waiting in the local preview` : ''}`}>
+              {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{isOnline ? 'Local preview online' : 'Local preview offline'}</span>{pendingOutbox > 0 && <b>{pendingOutbox}</b>}
+            </button>
+          </>}
           {isInstallable && !isInstalled && <button type="button" className="icon-action install-action" onClick={install}><Download size={16} /><span>Install app</span></button>}
-          {storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}
+          {!backendSession && storage.hasPermission('settings.view') && <button type="button" className="icon-action mobile-diagnostics" onClick={onOpenDiagnostics} aria-label="Open diagnostics"><Wrench size={16} /></button>}
         </div>
       </header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {persistenceError && <div role="alert" className="persistence-error-banner"><strong>Local save failed.</strong> {persistenceError}</div>}
-        {backendSession&&['today','manage','onboarding','help'].includes(activeTab)&&<div role="status" className="persistence-error-banner"><strong>Local preview workspace.</strong> This screen is not connected to the signed-in server account.</div>}
+        {backendLogoutError && <div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {backendLogoutError} Your authenticated workspace remains open.</div>}
         {backendSession&&recoverableCommands.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length} server command{recoverableCommands.length===1?'':'s'} need status review.</strong> The exact command is safely retained on this device. <button type="button" className="ml-2 underline" onClick={()=>{const type=recoverableCommands[0].command.type;onTabChange(type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type==='catalog.product.create'?'stock':'shifts')}}>Open recovery workspace</button></div>}
-        <div className="workspace-interaction-boundary" inert={persistenceError ? true : undefined}>{children}</div>
+        <div className="workspace-interaction-boundary" inert={!backendSession && persistenceError ? true : undefined}>{children}</div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
         {(['today', 'sell', 'stock'] as WorkspaceId[]).map(id => {
