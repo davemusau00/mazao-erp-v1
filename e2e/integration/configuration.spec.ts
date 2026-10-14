@@ -29,6 +29,7 @@ async function signIn(page: Page) {
   await expect(page.getByLabel('Signed in as Browser Admin')).toBeVisible();
 }
 async function manage(page: Page) {
+  await expect(page.getByLabel('Signed in as Browser Admin')).toBeVisible();
   const settings = page.getByRole('button', { name: 'Manage', exact: true });
   if (!await settings.isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('button', { name: 'Manage', exact: true }).last().click();
@@ -107,6 +108,19 @@ test('settings work across the specified desktop, tablet and mobile viewports', 
 
 test('configured outlet adds and receives inventory, confirms a taxed sale and reconciles cash-up', async ({ page }) => {
   await signIn(page);
+  await manage(page);
+  await page.getByLabel('Legal business name', { exact: true }).fill('Configured Legal Business');
+  await page.getByLabel('Receipt footer', { exact: true }).fill('Configured receipt footer for sale');
+  await page.getByLabel('Default tax rate (%)').fill('16.00');
+  await page.getByLabel('I have reviewed this business tax policy').check();
+  await page.getByRole('button', { name: 'Save business settings' }).click();
+  await expect(page.getByRole('status')).toContainText('Settings saved and confirmed by the server');
+  await page.getByRole('button', { name: 'Outlet and receipts', exact: true }).click();
+  await page.getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet for sale');
+  await page.getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
+  await page.getByLabel('Outlet receipt header', { exact: true }).fill('Configured outlet receipt');
+  await page.getByRole('button', { name: 'Save outlet settings' }).click();
+  await expect(page.getByRole('status')).toContainText('Settings saved and confirmed by the server');
   await page.getByRole('button', { name: 'Stock', exact: true }).first().click();
   await page.getByRole('button', { name: 'Add item', exact: true }).click();
   await page.getByLabel('Item name', { exact: true }).fill('Browser sale item');

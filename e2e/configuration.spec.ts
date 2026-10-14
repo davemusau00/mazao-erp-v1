@@ -21,6 +21,7 @@ async function routeReads(page:Page,configuration:Configuration,access=permissio
 }
 async function openManage(page:Page) {
   await page.goto('/');
+  await expect(page.getByLabel('Signed in as KITULI KASINA')).toBeVisible();
   const manage=page.getByRole('button',{name:'Manage',exact:true});
   if(!await manage.isVisible())await page.getByRole('button',{name:'More',exact:true}).click();
   await page.getByRole('button',{name:'Manage',exact:true}).last().click();
