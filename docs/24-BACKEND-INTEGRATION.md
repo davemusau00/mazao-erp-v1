@@ -1,5 +1,7 @@
 # Backend integration register (v1 foundation)
 
+The deployed administration/configuration gaps are recorded in [the server configuration gap report](26-SERVER-CONFIGURATION-GAPS.md). Manage and onboarding remain preview-only and are hidden even for server administrators because their administration services are absent.
+
 This register describes the actual authenticated API boundary. Browser demo storage is not a backend; a local draft is not committed state; an outbox row is not remote delivery; and a cash command is not a card or mobile-money provider confirmation.
 
 ## Runtime and first operator
