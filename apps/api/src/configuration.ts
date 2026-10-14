@@ -14,6 +14,10 @@ export interface BusinessProfile {
 export interface OutletProfile { address: string; phone: string; email: string; receiptHeader: string; receiptFooter: string }
 export interface BusinessConfiguration extends BusinessProfile { id: string; name: string; currency: string; timeZone: string; version: number }
 export interface OutletConfiguration extends OutletProfile { id: string; name: string; timeZone: string; version: number }
+export interface BusinessUpdateInput extends BusinessProfile { name: string; currency: string; timeZone: string }
+export interface OutletUpdateInput extends OutletProfile { name: string; timeZone: string }
+export interface CapabilitiesUpdateInput { capabilities: Array<typeof SUPPORTED_CAPABILITIES[number]> }
+export type ConfigurationUpdateOutcome = { tenantId: string; version: number; capabilities?: string[] } | { outletId: string; version: number };
 export interface ConfigurationRead {
   business: BusinessConfiguration; outlet: OutletConfiguration; capabilities: string[];
   supportedCapabilities: typeof SUPPORTED_CAPABILITIES; currencyLocked: boolean;
@@ -158,7 +162,7 @@ export async function executeConfigurationCommand(client: PoolClient, session: A
     if (Number(current.rows[0].version) !== expected) throw new DomainError('VERSION_CONFLICT', 'Outlet configuration changed. Review current settings before saving.', 409, { currentVersion: Number(current.rows[0].version) });
     const result = await client.query('UPDATE core.outlets SET name=$3,time_zone=$4,outlet_profile=$5::jsonb,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING version', [session.tenantId, session.outletId, input.name, input.timeZone, JSON.stringify(input.profile)]);
     const value = { outletId: session.outletId, version: Number(result.rows[0].version) };
-    await recordEvidence(client, session, envelope, current.rows[0], input);
+    await recordEvidence(client, session, envelope, current.rows[0], { ...input, ...value });
     return value;
   }
   const expected = expectedVersion(envelope, `business:${session.tenantId}`);
@@ -169,8 +173,9 @@ export async function executeConfigurationCommand(client: PoolClient, session: A
     const input = validateBusinessInput(envelope.payload);
     if (input.currency !== current.rows[0].currency && await currencyLocked(client, session.tenantId)) throw new DomainError('CURRENCY_LOCKED', 'Currency cannot change after monetary setup or posted evidence exists. Existing prices, balances and receipts retain their currency.', 409);
     const result = await client.query('UPDATE core.tenants SET name=$2,currency=$3,time_zone=$4,business_profile=$5::jsonb,version=version+1 WHERE id=$1 RETURNING version', [session.tenantId, input.name, input.currency, input.timeZone, JSON.stringify(input.profile)]);
-    await recordEvidence(client, session, envelope, current.rows[0], input);
-    return { tenantId: session.tenantId, version: Number(result.rows[0].version) };
+    const value = { tenantId: session.tenantId, version: Number(result.rows[0].version) };
+    await recordEvidence(client, session, envelope, current.rows[0], { ...input, ...value });
+    return value;
   }
   if (envelope.type !== 'configuration.capabilities.update') throw new DomainError('VALIDATION_FAILED', 'Unsupported configuration command.');
   const capabilities = validateCapabilities(envelope.payload.capabilities);
@@ -191,8 +196,9 @@ export async function executeConfigurationCommand(client: PoolClient, session: A
   await client.query('DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND NOT (capability=ANY($2::text[]))', [session.tenantId, capabilities]);
   for (const capability of capabilities) await client.query('INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,$2) ON CONFLICT DO NOTHING', [session.tenantId, capability]);
   const updated = await client.query('UPDATE core.tenants SET version=version+1 WHERE id=$1 RETURNING version', [session.tenantId]);
-  await recordEvidence(client, session, envelope, { capabilities: old.rows.map(row => row.capability) }, { capabilities });
-  return { tenantId: session.tenantId, version: Number(updated.rows[0].version), capabilities };
+  const value = { tenantId: session.tenantId, version: Number(updated.rows[0].version), capabilities };
+  await recordEvidence(client, session, envelope, { capabilities: old.rows.map(row => row.capability), version: Number(current.rows[0].version) }, value);
+  return value;
 }
 
 export function receiptConfigurationSnapshot(businessValue: unknown, outletValue: unknown) {

@@ -30,7 +30,7 @@ function reportError(error: unknown) {
 
 export function BackendFinancialReportsWorkspace({ initialView = 'operating-summary' }: { initialView?: ReportView }) {
   const session = apiClient.getSession();
-  const outletTimeZone = session?.tenant.timeZone ?? 'Africa/Nairobi';
+  const outletTimeZone = session?.outlet.timeZone ?? session?.tenant.timeZone ?? 'Africa/Nairobi';
   const today = useMemo(() => businessDate(outletTimeZone), [outletTimeZone]);
   const [view, setView] = useState<ReportView>(initialView);
   const [asOfInput, setAsOfInput] = useState(today);
@@ -76,6 +76,7 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
   }, [selectedAccount, view, asOf, period, journalOffset]);
 
   const currency = trialBalance?.currency ?? summary?.currency ?? session?.tenant.currency ?? 'KES';
+  const reportTimeZone = (view === 'trial-balance' ? trialBalance?.timeZone : summary?.timeZone) ?? session?.tenant.timeZone ?? outletTimeZone;
   const generatedAt = view === 'trial-balance' ? trialBalance?.generatedAt : summary?.generatedAt;
   const sourceTypes = view === 'trial-balance' ? trialBalance?.coverage.sourceTypes : summary?.coverage.sourceTypes;
   const refreshTrial = () => {
@@ -95,8 +96,8 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
     setSelectedAccount(value => value === accountCode ? '' : accountCode);
   };
   const selectedDescription = view === 'trial-balance'
-    ? `Posted journal lines through ${asOf} in ${outletTimeZone}`
-    : `Posted journal lines from ${period.from} through ${period.to} in ${outletTimeZone}`;
+    ? `Posted journal lines through ${asOf} in ${reportTimeZone}`
+    : `Posted journal lines from ${period.from} through ${period.to} in ${reportTimeZone}`;
 
   return <section className="h-full overflow-y-auto px-4 py-5 sm:px-6 lg:px-8" aria-labelledby="finance-reports-title">
     <div className="mx-auto max-w-7xl space-y-5">
@@ -104,10 +105,10 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-300"><Scale size={15} /> Finance · server ledger</div>
           <h1 id="finance-reports-title" className="text-2xl font-semibold tracking-tight text-zinc-50">Financial reports</h1>
-          <p className="mt-1 text-sm text-zinc-400">{session?.tenant.name} · all outlets · {currency} · business dates use {outletTimeZone}</p>
+          <p className="mt-1 text-sm text-zinc-400">{session?.tenant.name} · all outlets · {currency} · business dates use {reportTimeZone}</p>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-xs text-zinc-400">
-          {generatedAt ? <>Snapshot generated <time dateTime={generatedAt}>{new Date(generatedAt).toLocaleString()}</time></> : 'Reports read posted server journal entries'}
+          {generatedAt ? <>Snapshot generated <time dateTime={generatedAt}>{new Date(generatedAt).toLocaleString(undefined, { timeZone: reportTimeZone })}</time></> : 'Reports read posted server journal entries'}
         </div>
       </header>
 
@@ -190,7 +191,7 @@ export function BackendFinancialReportsWorkspace({ initialView = 'operating-summ
                   <tbody className="divide-y divide-zinc-900">
                     {journalLines.entries.map(line => (
                       <tr key={`${line.journalEntryId}-${line.accountCode}`}>
-                        <td className="px-4 py-3 text-zinc-300">{new Date(line.postedAt).toLocaleString(undefined, { timeZone: outletTimeZone })}</td>
+                        <td className="px-4 py-3 text-zinc-300">{new Date(line.postedAt).toLocaleString(undefined, { timeZone: reportTimeZone })}</td>
                         <td className="px-4 py-3 text-zinc-300">{line.sourceType}{line.sourceId ? ` - ${line.sourceId.slice(0, 8)}` : ''}</td>
                         <td className="px-4 py-3 font-mono text-xs text-zinc-500">{line.journalEntryId}</td>
                         <td className="px-4 py-3 text-right font-mono">{formatMinor(line.debitMinor, currency)}</td>

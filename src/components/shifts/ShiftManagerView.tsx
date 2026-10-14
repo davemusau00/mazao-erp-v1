@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient, type BackendShift, type BackendShiftCloseReport } from '../../services/apiClient';
-import { formatMinorMoney, formatMinorMoneyText, moneyInputToMinor } from '../../utils/money';
+import { formatMinorMoney, formatMinorMoneyText, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
 import { MinusCircle, PlusCircle } from 'lucide-react';
 
 type ShiftCashMovementType = 'PAID_IN' | 'PAYOUT';
@@ -42,7 +42,7 @@ export const ShiftManagerView: React.FC = () => {
       if (pending.command.type === 'shift.cash.movement') {
         const payload = pending.command.payload;
         setMovementType(payload.movementType === 'PAID_IN' ? 'PAID_IN' : 'PAYOUT');
-        setMovementAmount(`${Math.floor(Number(payload.amountMinor ?? 0) / 100)}.${String(Number(payload.amountMinor ?? 0) % 100).padStart(2,'0')}`);
+        setMovementAmount(minorToMoneyInput(String(payload.amountMinor ?? '0'), currency));
         setMovementReason(String(payload.reason ?? ''));
         setMovementReference(String(payload.reference ?? ''));
         setMovementMessage('This movement has an unknown result. Check its status before editing or resubmitting.');
@@ -55,7 +55,7 @@ export const ShiftManagerView: React.FC = () => {
     setBusy(true);
     setMessage('');
     let amountMinor: number;
-    try { amountMinor = moneyInputToMinor(type === 'shift.open' ? (float || '0') : (counted || '0')); }
+    try { amountMinor = moneyInputToMinor(type === 'shift.open' ? (float || '0') : (counted || '0'), currency); }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Enter a valid amount.'); setBusy(false); return; }
     const commandId = crypto.randomUUID();
     try {
@@ -81,7 +81,7 @@ export const ShiftManagerView: React.FC = () => {
     if (!movementType || !shift || unknownCommandId) return;
     let amountMinor: number;
     try {
-      amountMinor = moneyInputToMinor(movementAmount);
+      amountMinor = moneyInputToMinor(movementAmount, currency);
       if (amountMinor <= 0) throw new Error('Enter an amount greater than zero.');
       if (!movementReason.trim()) throw new Error('Enter a reason for this till movement.');
     } catch (error) { setMovementMessage(error instanceof Error ? error.message : 'Enter valid movement details.'); return; }
@@ -153,7 +153,7 @@ export const ShiftManagerView: React.FC = () => {
               <p className="text-sm text-emerald-300">Shift open</p>
               <h2 id="server-shift-heading" className="mt-1 text-2xl font-semibold">Expected cash {formatMinorMoney(shift.expectedCashMinor, currency)}</h2>
               <p className="mt-1 text-sm text-zinc-400">Opening float {formatMinorMoney(shift.openingFloatMinor, currency)} · Cash sales {formatMinorMoney(shift.cashSalesMinor, currency)} · Customer repayments {formatMinorMoney(shift.customerCollectionsMinor, currency)}</p>
-              <p className="mt-1 text-xs text-zinc-500">Version {shift.version} · opened {new Date(shift.openedAt).toLocaleString(undefined,{timeZone:session.tenant.timeZone})}</p>
+              <p className="mt-1 text-xs text-zinc-500">Version {shift.version} · opened {new Date(shift.openedAt).toLocaleString(undefined,{timeZone:(session.outlet.timeZone ?? session.tenant.timeZone)})}</p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
               {canMoveCash && <>
@@ -167,7 +167,7 @@ export const ShiftManagerView: React.FC = () => {
 
           <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800">
             <div className="border-b border-zinc-800 px-4 py-3"><h3 className="font-semibold">Till cash movements</h3><p className="mt-1 text-xs text-zinc-500">Paid-ins and payouts update expected cash and keep a reason and reference.</p></div>
-            {shift.cashMovements.length === 0 ? <p className="p-4 text-sm text-zinc-500">No paid-ins or payouts recorded for this shift.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="text-xs text-zinc-500"><tr><th className="p-3">When</th><th className="p-3">Movement</th><th className="p-3">Reason / reference</th><th className="p-3">Recorded by</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-zinc-800">{shift.cashMovements.map(movement=><tr key={movement.id}><td className="p-3 text-zinc-400">{new Date(movement.createdAt).toLocaleString(undefined,{dateStyle:'short',timeStyle:'short',timeZone:session.tenant.timeZone})}</td><td className={movement.movementType==='PAID_IN'?'p-3 font-medium text-emerald-300':'p-3 font-medium text-amber-300'}>{movement.movementType==='PAID_IN'?'Cash paid-in':'Cash payout'}</td><td className="p-3"><span>{movement.reason}</span>{movement.reference&&<small className="ml-2 text-zinc-500">{movement.reference}</small>}</td><td className="p-3 text-zinc-400">{movement.actorName}</td><td className="p-3 text-right font-mono">{movement.movementType==='PAID_IN'?'+':'−'}{formatMinorMoney(movement.amountMinor,currency)}</td></tr>)}</tbody></table></div>}
+            {shift.cashMovements.length === 0 ? <p className="p-4 text-sm text-zinc-500">No paid-ins or payouts recorded for this shift.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="text-xs text-zinc-500"><tr><th className="p-3">When</th><th className="p-3">Movement</th><th className="p-3">Reason / reference</th><th className="p-3">Recorded by</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-zinc-800">{shift.cashMovements.map(movement=><tr key={movement.id}><td className="p-3 text-zinc-400">{new Date(movement.createdAt).toLocaleString(undefined,{dateStyle:'short',timeStyle:'short',timeZone:(session.outlet.timeZone ?? session.tenant.timeZone)})}</td><td className={movement.movementType==='PAID_IN'?'p-3 font-medium text-emerald-300':'p-3 font-medium text-amber-300'}>{movement.movementType==='PAID_IN'?'Cash paid-in':'Cash payout'}</td><td className="p-3"><span>{movement.reason}</span>{movement.reference&&<small className="ml-2 text-zinc-500">{movement.reference}</small>}</td><td className="p-3 text-zinc-400">{movement.actorName}</td><td className="p-3 text-right font-mono">{movement.movementType==='PAID_IN'?'+':'−'}{formatMinorMoney(movement.amountMinor,currency)}</td></tr>)}</tbody></table></div>}
           </div>
           <p className="mt-3 text-xs text-zinc-500">Till movements keep a clearing journal and do not create a supplier payment or classify a business expense.</p>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

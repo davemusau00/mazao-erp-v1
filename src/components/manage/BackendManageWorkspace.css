@@ -1,0 +1,14 @@
+.configuration-workspace fieldset { min-width: 0; }
+.configuration-workspace .form-field > span { font-size: 12px; color: var(--text-secondary); }
+.configuration-workspace .form-field input { min-height: 44px; font-size: 14px; }
+.configuration-workspace .form-field textarea {
+  width: 100%; min-width: 0; min-height: 88px; resize: vertical;
+  padding: 10px; border: 1px solid var(--border-strong); border-radius: 7px;
+  background: var(--surface-app); color: var(--text-primary); font-size: 14px;
+}
+.configuration-workspace .form-field input:disabled,
+.configuration-workspace .form-field textarea:disabled { opacity: .65; cursor: not-allowed; }
+.configuration-workspace .primary-action,
+.configuration-workspace .secondary-action { min-height: 44px; font-size: 13px; white-space: normal; }
+.configuration-workspace input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 20px; accent-color: var(--accent); }
+.configuration-workspace .form-field small { color: var(--text-muted); font-size: 11px; }

@@ -2,7 +2,7 @@ import {commandJournal,type RecoverableCommand} from './commandJournal';
 
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[]};
-  tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[]};
+  tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[];taxPolicy?:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean}};
   outlet:{id:string;name:string;timeZone?:string}; deviceId:string; csrfToken:string;
 }
 export interface BackendBusinessConfiguration {

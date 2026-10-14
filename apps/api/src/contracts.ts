@@ -22,6 +22,7 @@ export interface ApiSession {
   outletId: string;
   outletName: string;
   tenantTimeZone?: string;
+  taxPolicy?: { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean };
   timeZone: string;
   deviceId: string;
   role: ApiRole;

@@ -73,7 +73,7 @@ export default function App() {
       {visibleTab==='money'&&<BackendFinancialReportsWorkspace initialView="trial-balance"/>}
       {visibleTab==='reports'&&<BackendFinancialReportsWorkspace initialView="operating-summary"/>}
       {visibleTab==='manage'&&<BackendManageWorkspace/>}
-      {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate} onOpenSyncCenter={()=>undefined}/>}
+      {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>
     {receiptOrderId&&<BackendReceiptModal receipt={receipt} loading={receiptLoading} error={receiptError} onRetry={()=>openReceipt(receiptOrderId)} onClose={closeReceipt}/>}
   </div>;

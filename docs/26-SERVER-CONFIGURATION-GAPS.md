@@ -4,7 +4,7 @@
 
 Checked the live pilot at https://mazao.davemusau.co.ke, release 15aaa9b64690e28d48e32db7ca3290434a61f5a2, against navigation, API routes/commands, migrations, preview settings screens and v1 requirements. The owner's screenshot confirms an authenticated administrator workspace. The live database contains one outlet, one administrator and one assigned device. Enabled tenant capabilities are commerce, inventory and retail.
 
-## Why Manage is missing
+## Why Manage was missing in release 15aaa9b
 
 This is an implementation gap. AppShell's server navigation explicitly sets manage=false and onboarding=false. App.tsx also renders ManageWorkspace and OnboardingWorkspace only without a backend session. The preview Manage screen reads browser storage and contains local profiles/drafts or static information. Even its business section does not save profile or tax changes.
 
@@ -26,7 +26,7 @@ The API has no administration/configuration query or command handlers. Its permi
 
 The current administrator can already use Stock → Add item and Stock → Receive stock. Those create server records. They do not replace business administration or advanced inventory configuration.
 
-## Next implementation order
+## Original implementation order
 
 1. Build a server Manage workspace for owner/admin business and current-outlet settings, with a configuration read endpoint, versioned/audited/idempotent update commands, migration and authoritative form outcomes. Return tenant and outlet time zones explicitly. Preserve posted financial history and receipt snapshots when configuration changes.
 2. Add staff/device administration with server permissions, assignments, revocation and local password entry. Resolve the login requirement of exactly one active device/outlet assignment before allowing multiple assignments or outlet switching.
@@ -34,3 +34,9 @@ The current administrator can already use Stock → Add item and Stock → Recei
 4. Add staged inventory import/editing/packages and capability administration as separately accepted slices. Enable hotel through a reviewed tenant change; implement restaurant services before exposing restaurant navigation.
 
 Each slice needs tenant isolation, role checks, version conflicts, exact command replay, validation, unknown-save recovery and reload persistence. This investigation did not change tenant capabilities, permissions, currency, tax or business records.
+
+## Configuration slice resolution
+
+The new configuration slice implements item 1 and supported capability/tax/receipt settings from items 3-4. Manage now reads PostgreSQL business/outlet profiles and sends versioned, audited, idempotent commands. It includes computed setup checks and preserves existing receipt/tax snapshots. The server rechecks capabilities for reads/mutations; the browser has no reachable preview workflows or seeded storage initialization.
+
+See [configuration integration and acceptance](28-BUSINESS-CONFIGURATION-INTEGRATION.md) and the [complete remaining v1 register](27-V1-COMPLETION-REGISTER.md). Staff/device administration, extra outlets, tender policies, imports and restaurant operations are still missing. The deployment evidence records the exact activated release; this dated investigation remains a record of the original defect.

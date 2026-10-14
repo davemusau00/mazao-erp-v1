@@ -63,7 +63,7 @@ class StorageEngine {
     // for an explicit recovery/export; never load, seed, or overwrite them.
   }
 
-  private persist(): never {
+  private persist(): void {
     throw new Error('Browser preview storage is retired. Sign in and use server commands.');
   }
 

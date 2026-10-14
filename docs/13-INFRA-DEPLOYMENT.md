@@ -24,7 +24,7 @@ Ports 80, 443, and 22 are in use. Host loopback ports 3000, 3001, 3101–3104, 3
 
 The canonical application origin is https://mazao.davemusau.co.ke. The PWA calls relative /api/v1 URLs, so Nginx serves the static PWA and proxies that path to the API at 127.0.0.1:4101. This keeps browser requests same-origin and matches the API's current origin checks. mazaoapi.davemusau.co.ke is DNS-resolved but unused in this deployment; do not add a second API vhost until the client and API explicitly support cross-origin requests.
 
-Production builds require an authenticated server session. A missing session shows the sign-in screen; a failed session lookup offers retry without a demo fallback. Sign-out and rejected/expired sessions return to sign-in. Browser password-manager values are read directly from the form controls. The local Vite development server retains preview workflows; the live release must never set VITE_ALLOW_LOCAL_PREVIEW=true.
+Production builds require an authenticated server session. A missing session shows the sign-in screen; a failed session lookup offers retry without a demo fallback. Sign-out and rejected/expired sessions return to sign-in. Browser password-manager values are read directly from the form controls. Every build, including the local Vite server, now requires a server session. There is no VITE_ALLOW_LOCAL_PREVIEW escape. The entry graph excludes archived preview workspaces and browser financial storage.
 
     Browser
       └─ HTTPS Nginx: mazao.davemusau.co.ke
@@ -57,10 +57,16 @@ Keep the prior PWA symlink target and a dated copy of the Mazao Nginx file for r
 
 ## Data and operational boundaries
 
-The initial administrator and tenant are created only through apps/api/scripts/bootstrap.ts with actual owner-provided business details and a locally entered password. Do not seed preview/demo tenants or paid orders. Authenticated server mode supports only the journeys listed as server-connected in the README and backend integration register; preview-only modules must not be presented as authoritative server data.
+The initial administrator and tenant are created only through apps/api/scripts/bootstrap.ts with actual owner-provided business details and a locally entered password. Do not seed preview/demo tenants or paid orders. Authenticated server mode supports only the journeys listed as server-connected in the README and backend integration register; unimplemented modules are unavailable and tracked in the v1 completion register. Manage uses versioned PostgreSQL settings commands described in docs/28-BUSINESS-CONFIGURATION-INTEGRATION.md.
 
 The Windows helper infra/Bootstrap-Mazao.ps1 prompts for and confirms the administrator password. The password crosses SSH through stdin and is not written to a file or command argument. Upload infra/bootstrap-initial-tenant.sh to /srv/mazao first; it rejects an initial bootstrap if a tenant already exists. The initial pilot enables only retail, inventory and commerce. Keep user credentials and business metadata out of public release evidence.
 
 For an existing account, use infra/Verify-Mazao.ps1 to validate HTTPS login, session identity, catalog, shift and date-scoped trial balance without creating another tenant. Its password prompt is local, and its temporary session is logged out on completion. A trial balance requires an asOf date in YYYY-MM-DD format.
 
 The database is the source of truth. A transactional outbox row proves local transaction evidence only; there is no deployed outbox worker, server-side offline replay service, or external delivery guarantee. Maintain an encrypted off-host PostgreSQL backup and perform an isolated restore before recording business transactions. See the backup runbook.
+
+## Subsequent immutable release activation
+
+`infra/activate-release.sh` activates a passing release in the existing isolated project. Before invoking it, verify the main CI run is successful for the exact full SHA, verify the GitHub API image artifact ZIP digest, package/download that run's PWA artifact, and complete an off-host restore checkpoint. Upload them as `/srv/mazao/incoming/api-<full-sha>.zip` and `pwa-<full-sha>.tar.gz`.
+
+Run `bash /srv/mazao/incoming/activate-release.sh <full-sha> <api-zip-sha256> <pwa-tar-sha256>`. The script checks both hashes and archive paths, validates the image revision, retains prior Mazao environment/static references, runs the matching image migrations twice, updates only the Mazao API, verifies readiness and atomically switches the PWA symlink. Failure restores the previous compatible API/static release without reversing migrations. Existing Nginx routes, PostgreSQL volume and unrelated projects are unchanged. Public-origin checks and the protected-service comparison remain required after activation.

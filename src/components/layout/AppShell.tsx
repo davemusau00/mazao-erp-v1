@@ -30,11 +30,11 @@ export function canOpenWorkspace(session:BackendSession,workspace:WorkspaceId):b
   const enabled=(capability:string)=>session.tenant.capabilities.includes(capability);
   const allowed:Record<WorkspaceId,boolean>={
     today:true,help:true,sell:enabled('commerce')&&has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),
-    service:false,stock:has('catalog.manage','inventory.receive'),
-    'stock-count':has('inventory.count','inventory.count.approve'),purchasing:has('inventory.receive'),
+    service:false,stock:enabled('inventory')&&has('catalog.manage','inventory.receive'),
+    'stock-count':enabled('inventory')&&has('inventory.count','inventory.count.approve'),purchasing:enabled('inventory')&&has('inventory.receive'),
     hotel:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),
     reservations:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage'),
-    customers:enabled('commerce')&&has('customers.view'),shifts:has('shift.open','shift.close'),
+    customers:enabled('commerce')&&has('customers.view'),shifts:enabled('commerce')&&has('shift.open','shift.close'),
     money:has('finance.view'),reports:has('finance.view'),manage:has('config.view','config.manage'),onboarding:false,
   };
   return allowed[workspace];

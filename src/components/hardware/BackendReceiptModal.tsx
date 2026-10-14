@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, CheckCircle2, Download, Printer, RefreshCw, X } from 'lucide-react';
 import type { BackendSaleReceipt } from '../../services/apiClient';
+import { safeRasterImageSource } from '../../utils/html';
 
 function money(minorText: string, currency: string) {
   const amount = BigInt(minorText);
@@ -19,22 +20,28 @@ function formatDate(value: string, timeZone: string) {
 }
 
 function textReceipt(receipt: BackendSaleReceipt) {
+  const profile = receipt.receiptProfile ?? {};
   return [
     receipt.tenantName,
     receipt.outletName,
+    ...(profile.legalName ? [profile.legalName] : []),
+    ...(profile.registrationNumber ? [`Registration: ${profile.registrationNumber}`] : []),
+    ...(profile.taxRegistrationNumber ? [`Tax registration: ${profile.taxRegistrationNumber}`] : []),
+    ...[profile.address, profile.phone, profile.email, profile.website, profile.receiptHeader].filter(Boolean),
     `Receipt: ${receipt.receiptNumber}`,
     `Date: ${formatDate(receipt.createdAt, receipt.timeZone)}`,
     `Operator: ${receipt.operatorName}`,
     '',
-    ...receipt.lines.map(line => `${line.name} | ${line.quantity} x ${money(line.unitPriceMinor, receipt.currency)} | tax ${(line.taxRateBps / 100).toFixed(2)}% ${money(line.taxMinor, receipt.currency)} | total ${money(line.totalMinor, receipt.currency)}`),
+    ...receipt.lines.map(line => `${line.name} | ${line.quantity} x ${money(line.unitPriceMinor, receipt.currency)} | ${profile.taxLabel || 'Tax'} ${(line.taxRateBps / 100).toFixed(2)}% ${money(line.taxMinor, receipt.currency)} | total ${money(line.totalMinor, receipt.currency)}`),
     '',
     `Subtotal: ${money(receipt.subtotalMinor, receipt.currency)}`,
-    `Tax: ${money(receipt.taxMinor, receipt.currency)}`,
+    `${profile.taxLabel || 'Tax'}: ${money(receipt.taxMinor, receipt.currency)}`,
     `Total: ${money(receipt.totalMinor, receipt.currency)}`,
     `Paid: ${money(receipt.amountPaidMinor, receipt.currency)}`,
     ...(receipt.customerAccountCharge ? [`Charged to account: ${receipt.customerAccountCharge.customerName}`, `Amount due: ${money(receipt.customerAccountCharge.amountDueMinor, receipt.currency)}`] : []),
     ...(receipt.cashTenderedMinor === null ? [] : [`Cash received: ${money(receipt.cashTenderedMinor, receipt.currency)}`, `Change: ${money(receipt.changeMinor ?? '0', receipt.currency)}`]),
     '',
+    ...(profile.receiptFooter ? [profile.receiptFooter] : []),
     'Sale receipt. Electronic tax invoice integration is not connected.',
   ].join('\n');
 }
@@ -42,6 +49,11 @@ function textReceipt(receipt: BackendSaleReceipt) {
 export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose }: {
   receipt: BackendSaleReceipt | null; loading: boolean; error: string; onRetry: () => void; onClose: () => void;
 }) {
+  // Existing receipts with an empty snapshot retain their historical content.
+  const profile = receipt?.receiptProfile ?? {};
+  // JSX performs HTML escaping. Use the shared validator as a gate, then pass the
+  // original URL to React to avoid encoding a URL twice.
+  const logoUrl = typeof profile.logoUrl === 'string' && safeRasterImageSource(profile.logoUrl) ? profile.logoUrl.trim() : '';
   const download = () => {
     if (!receipt) return;
     const url = URL.createObjectURL(new Blob([textReceipt(receipt)], { type: 'text/plain;charset=utf-8' }));
@@ -66,8 +78,15 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
         {loading && <div role="status" className="flex min-h-48 items-center justify-center gap-3 text-sm text-zinc-400"><RefreshCw className="animate-spin" size={17} />Loading confirmed receipt...</div>}
         {error && <div role="alert" className="mx-auto max-w-md rounded-xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-100"><div className="flex items-start gap-2"><AlertCircle className="mt-0.5 shrink-0" size={17} /><p>The sale is confirmed, but the server receipt could not be retrieved. The local basket is not used as a receipt record. {error}</p></div><button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-lg border border-rose-700 px-3 font-medium hover:bg-rose-900/50">Retry receipt lookup</button></div>}
         {receipt && !loading && <article id="backend-receipt-paper" className="mx-auto max-w-sm rounded-sm border-t-4 border-dashed border-zinc-400 bg-white p-5 font-mono text-[11px] leading-relaxed text-zinc-950 shadow-xl">
+          {logoUrl && <img src={logoUrl} alt={`${receipt.tenantName} logo`} referrerPolicy="no-referrer" className="mx-auto mb-2 max-h-16 max-w-40 object-contain grayscale" />}
           <div className="text-center text-xs font-bold uppercase tracking-wide">{receipt.tenantName}</div>
           <div className="text-center text-[10px] text-zinc-700">{receipt.outletName}</div>
+          {profile.legalName && <div className="text-center text-[10px]">{profile.legalName}</div>}
+          {profile.registrationNumber && <div className="text-center text-[9px]">Registration: {profile.registrationNumber}</div>}
+          {profile.taxRegistrationNumber && <div className="text-center text-[9px]">Tax registration: {profile.taxRegistrationNumber}</div>}
+          {profile.address && <div className="whitespace-pre-line text-center text-[9px]">{profile.address}</div>}
+          {[profile.phone, profile.email, profile.website].filter(Boolean).map((value, index) => <div key={index} className="break-words text-center text-[9px]">{value}</div>)}
+          {profile.receiptHeader && <div className="mt-2 whitespace-pre-line text-center text-[10px]">{profile.receiptHeader}</div>}
           <div className="text-center text-[9px] text-zinc-500">{receipt.currency} · {receipt.timeZone}</div>
           <div className="my-3 border-t border-dashed border-zinc-400" />
           <div className="flex justify-between gap-2"><span>RECEIPT</span><span className="break-all text-right">{receipt.receiptNumber}</span></div>
@@ -78,20 +97,21 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
             {receipt.lines.map(line => <div key={line.lineId} className="border-b border-dotted border-zinc-300 pb-2">
               <div className="font-bold">{line.name}</div><div className="text-[9px] text-zinc-600">{line.sku}</div>
               <div className="mt-1 flex justify-between gap-2"><span>{line.quantity} x {money(line.unitPriceMinor, receipt.currency)}</span><span>{money(line.subtotalMinor, receipt.currency)}</span></div>
-              <div className="flex justify-between gap-2 text-zinc-600"><span>Tax {(line.taxRateBps / 100).toFixed(2)}%</span><span>{money(line.taxMinor, receipt.currency)}</span></div>
+              <div className="flex justify-between gap-2 text-zinc-600"><span>{profile.taxLabel || 'Tax'} {(line.taxRateBps / 100).toFixed(2)}%</span><span>{money(line.taxMinor, receipt.currency)}</span></div>
               <div className="flex justify-between gap-2 font-semibold"><span>Line total</span><span>{money(line.totalMinor, receipt.currency)}</span></div>
             </div>)}
           </div>
           <div className="my-2 border-t border-dashed border-zinc-400" />
           <dl className="space-y-1">
             <div className="flex justify-between gap-2"><dt>Subtotal</dt><dd>{money(receipt.subtotalMinor, receipt.currency)}</dd></div>
-            <div className="flex justify-between gap-2"><dt>Tax total</dt><dd>{money(receipt.taxMinor, receipt.currency)}</dd></div>
+            <div className="flex justify-between gap-2"><dt>{profile.taxLabel || 'Tax'} total</dt><dd>{money(receipt.taxMinor, receipt.currency)}</dd></div>
             <div className="flex justify-between gap-2 border-t border-zinc-300 pt-1 text-xs font-bold"><dt>TOTAL</dt><dd>{money(receipt.totalMinor, receipt.currency)}</dd></div>
             <div className="flex justify-between gap-2 pt-1"><dt>Paid</dt><dd>{money(receipt.amountPaidMinor, receipt.currency)}</dd></div>
             {receipt.customerAccountCharge && <><div className="flex justify-between gap-2"><dt>Customer account</dt><dd className="text-right">{receipt.customerAccountCharge.customerName}</dd></div><div className="flex justify-between gap-2 font-semibold"><dt>Account amount due</dt><dd>{money(receipt.customerAccountCharge.amountDueMinor, receipt.currency)}</dd></div></>}
             {receipt.cashTenderedMinor !== null && <><div className="flex justify-between gap-2"><dt>Cash received</dt><dd>{money(receipt.cashTenderedMinor, receipt.currency)}</dd></div><div className="flex justify-between gap-2"><dt>Change</dt><dd>{money(receipt.changeMinor ?? '0', receipt.currency)}</dd></div></>}
           </dl>
           <div className="my-3 border-t border-dashed border-zinc-400" />
+          {profile.receiptFooter && <div className="mb-2 whitespace-pre-line text-center text-[10px]">{profile.receiptFooter}</div>}
           <div className="text-center text-[9px] text-zinc-600">SALE RECEIPT · ELECTRONIC TAX INVOICE INTEGRATION IS NOT CONNECTED</div>
           <div className="mt-2 break-all text-center text-[8px] text-zinc-400">Sale reference: {receipt.receiptId}</div>
         </article>}
