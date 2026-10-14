@@ -6,6 +6,7 @@ import { storage } from '../../services/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
 import type {RecoverableCommand} from '../../services/commandJournal';
+import { SignInForm } from '../auth/SignInForm';
 
 export type ActiveTab = WorkspaceId;
 
@@ -51,21 +52,11 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, onTabChange, acti
   const [backendSession, setBackendSession] = useState<BackendSession | null>(apiClient.getSession());
   const [recoverableCommands,setRecoverableCommands]=useState<RecoverableCommand[]>([]);
   const [backendLoginOpen, setBackendLoginOpen] = useState(false);
-  const [backendEmail, setBackendEmail] = useState('');
-  const [backendPassword, setBackendPassword] = useState('');
-  const [backendError, setBackendError] = useState('');
   const [backendLogoutError, setBackendLogoutError] = useState('');
-  const [backendBusy, setBackendBusy] = useState(false);
   const [, setStorageRevision] = useState(0);
   useEffect(() => storage.subscribe(() => setStorageRevision(revision => revision + 1)), []);
   useEffect(() => apiClient.subscribe(setBackendSession), []);
   useEffect(()=>{if(!backendSession){setRecoverableCommands([]);return}void apiClient.listRecoverableCommands(backendSession.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));return apiClient.subscribeRecovery(setRecoverableCommands)},[backendSession?.tenant.id]);
-  const connectBackend = async (event: React.FormEvent) => {
-    event.preventDefault(); setBackendBusy(true); setBackendError('');
-    try { await apiClient.login(backendEmail,backendPassword); setBackendPassword(''); setBackendLoginOpen(false); }
-    catch(error) { setBackendError(error instanceof Error ? error.message : 'Could not sign in.'); }
-    finally { setBackendBusy(false); }
-  };
   const signOutBackend = async () => {
     setBackendLogoutError('');
     try { await apiClient.logout(); }

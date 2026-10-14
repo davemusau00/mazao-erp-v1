@@ -34,6 +34,9 @@ import { StockCountWorkspace } from './components/inventory/StockCountWorkspace'
 import { BackendStockCountWorkspace } from './components/inventory/BackendStockCountWorkspace';
 import { apiClient } from './services/apiClient';
 import type { BackendSaleReceipt } from './services/apiClient';
+import { SignInForm } from './components/auth/SignInForm';
+
+const allowLocalPreview = import.meta.env.DEV || import.meta.env.VITE_ALLOW_LOCAL_PREVIEW === 'true';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
@@ -147,8 +150,12 @@ export default function App() {
         setSessionBootstrap('error');
       });
     }}
-    onOpenLocalPreview={() => setExplicitLocalPreview(true)}
+    onOpenLocalPreview={allowLocalPreview ? () => setExplicitLocalPreview(true) : undefined}
   />;
+
+  if (!backendSession && !allowLocalPreview) return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100">
+    <SignInForm />
+  </main>;
 
   const handleBarcodeFromDiagnostics = (barcode: string) => {
     setDiagnosticsBarcode(barcode);
@@ -270,9 +277,9 @@ function SessionBootstrapScreen({
       </p>
       {status === 'error' && <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <button type="button" onClick={onRetry} className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold">Retry server check</button>
-        <button type="button" onClick={onOpenLocalPreview} className="min-h-11 rounded-lg border border-zinc-700 px-4 text-zinc-200">Open local preview only</button>
+        {onOpenLocalPreview && <button type="button" onClick={onOpenLocalPreview} className="min-h-11 rounded-lg border border-zinc-700 px-4 text-zinc-200">Open local preview only</button>}
       </div>}
-      {status === 'error' && <p className="mt-4 text-xs leading-5 text-amber-200">The local preview uses separate browser demo records. Do not use it to record real business transactions.</p>}
+      {status === 'error' && onOpenLocalPreview && <p className="mt-4 text-xs leading-5 text-amber-200">The local preview uses separate browser demo records. Do not use it to record real business transactions.</p>}
     </section>
   </main>;
 }
