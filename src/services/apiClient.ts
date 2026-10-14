@@ -3,7 +3,7 @@ import {commandJournal,type RecoverableCommand} from './commandJournal';
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[]};
   tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[]};
-  outlet:{id:string;name:string}; deviceId:string; csrfToken:string;
+  outlet:{id:string;name:string;timeZone?:string}; deviceId:string; csrfToken:string;
 }
 export interface BackendBusinessConfiguration {
   id:string;name:string;currency:string;timeZone:string;version:number;
@@ -54,6 +54,7 @@ export interface BackendJournalLines {
 }
 export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
+  receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
   lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
   payments:Array<{method:string;amountMinor:string;currency:string;status:string}>;
