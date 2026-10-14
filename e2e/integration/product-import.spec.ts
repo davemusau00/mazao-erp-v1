@@ -38,6 +38,7 @@ async function signIn(page: Page) {
   await importWorkspace(page);
 }
 async function upload(page: Page, name: string, source: string, columns = headers) {
+  await expect(page.getByLabel('Product CSV file', {exact:true})).toBeEnabled();
   await page.getByLabel('Product CSV file', {exact:true}).setInputFiles({name,mimeType:'text/csv',buffer:Buffer.from(source)});
   for (const [index, column] of headers.entries()) {
     if (columns.includes(column)) await page.getByLabel('CSV column for '+mappingLabels[index], {exact:true}).selectOption({label:column});
