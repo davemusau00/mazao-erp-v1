@@ -31,6 +31,10 @@ The app has both seeded browser-local preview data and authenticated server-back
 
 The v1 UI service contracts are in `src/types/ui.ts`; the current HTTP adapter is `src/services/apiClient.ts`, and backend domain commands live in `apps/api/`. Server reports read posted journal evidence tenant-wide; the operating summary is explicitly partial. Customer receivables are now represented in the journal and account subledger, but supplier AP, period controls, full source reconciliation and complete financial statements are not implemented. Contract types for modules without server endpoints remain design boundaries, not implemented services.
 
+## Deployment pilot
+
+The isolated VPS target is `93.127.131.55`, with `https://mazao.davemusau.co.ke` serving the PWA and its same-origin `/api/v1` API. See [the deployment guide](docs/13-INFRA-DEPLOYMENT.md) for the verified shared-host inventory, CI release artifacts, protected services and rollback procedure, and [the backup runbook](infra/BACKUP-RUNBOOK.md) for off-host recovery checkpoints. Deployment health does not expand the server-connected module coverage listed above.
+
 ## Product specifications
 
 The product requirements, interaction design, domain constraints, and release gates live in `docs/`. Start with `docs/01-PRODUCT-PRD.md`, `docs/02-UX-DESIGN-SYSTEM.md`, and `agents/AGENTS.md` before extending the application.

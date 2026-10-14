@@ -34,7 +34,7 @@ Restrict-Directory $scratch
 Restrict-Directory $Destination
 $createdContainer = $false
 try {
-    $command = "set -eu; umask 077; mkdir -p /srv/mazao/backups; docker compose --project-name mazao --env-file /srv/mazao/.env -f /srv/mazao/compose.yml exec -T db sh -c 'pg_dump -U `\"`$POSTGRES_USER`\" -d `\"`$POSTGRES_DB`\" -Fc' > $remote"
+    $command = 'set -eu; umask 077; mkdir -p /srv/mazao/backups; docker compose --project-name mazao --env-file /srv/mazao/.env -f /srv/mazao/compose.yml exec -T db sh -c ''pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'' > ' + $remote
     & ssh @sshArgs "$SshUser@$Server" $command
     Check-NativeExit 'Database dump'
     & scp @sshArgs "${SshUser}@${Server}:$remote" $raw

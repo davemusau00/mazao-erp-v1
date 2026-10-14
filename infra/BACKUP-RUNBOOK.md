@@ -2,7 +2,9 @@
 
 ## Gate before business data
 
-No Mazao off-host backup target is configured by this repository. Before creating a real pilot tenant or recording business transactions, configure an off-host destination and an age encryption recipient. Keep the age private key offline; keep only its public recipient and the restricted rclone destination credentials on the backup runner. Never store provider credentials or database dumps in Git.
+The pilot supports an off-host checkpoint on the operator's Windows PC using infra/Backup-Mazao.ps1 -VerifyRestore. It downloads a PostgreSQL custom-format dump over verified SSH, encrypts it with Windows DPAPI for the current Windows account, decrypts that encrypted file, and restores it into a disposable PostgreSQL 16 container with no network. It records migration, tenant, order and journal totals and rejects unbalanced journals. Temporary plaintext dumps are removed on the VPS and Windows PC. The encrypted files are saved under %LOCALAPPDATA%/Mazao/Backups with owner-only permissions. Recovery requires this Windows account and its DPAPI recovery material; the copy is not portable to another account.
+
+Run this verified checkpoint before creating a real pilot tenant, then again after initial setup. A daily Windows scheduled task can run the script while this PC is on and its account is available; missed runs and offline PCs must be monitored. This interim arrangement has no claimed RPO or unattended cloud retention. Configure a continuously available off-host destination before routine business use. For object storage, configure age and rclone as below; keep the age private key offline and never store credentials or dumps in Git.
 
 ## Create an encrypted backup
 
