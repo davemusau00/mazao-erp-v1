@@ -1,4 +1,5 @@
 import {commandJournal,type RecoverableCommand} from './commandJournal';
+import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[]};
@@ -23,7 +24,30 @@ export interface BackendConfiguration {
 }
 export type BackendBusinessConfigurationInput=Omit<BackendBusinessConfiguration,'id'|'version'>;
 export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'>;
-export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number }
+export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number;productVersion?:number;barcode?:string|null;category?:string;reorderLevel?:string }
+export type ProductImportField='sku'|'name'|'baseUnit'|'sellingPrice'|'costPrice'|'taxRatePercent'|'currency'|'barcode'|'category'|'reorderLevel'|'openingQuantity'|'openingUnitCost';
+export type ProductImportMapping=Partial<Record<ProductImportField,string|null>>;
+export type ProductImportMode='CREATE_ONLY'|'UPSERT';
+export interface ProductImportIssue { row:number;field:string;code:string;rawValue:string;message:string }
+export interface ProductImportNormalized {
+  sku:string;name:string;baseUnit:string;currency:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;
+  barcode:string|null;category:string;reorderLevel:string;openingQuantity:string;openingUnitCostMinor:number|null;openingValueMinor:string;
+}
+export interface ProductImportRow {
+  rowNumber:number;action:'CREATE'|'UPDATE'|'UNCHANGED'|'INVALID';sku:string;productId?:string;expectedProductVersion?:number;
+  normalized?:ProductImportNormalized;changes:Array<{field:string;before:string|null;after:string}>;
+  defaults:{currency:'TENANT_DEFAULT'|'EXISTING'|'CSV';tax:'BUSINESS_DEFAULT'|'EXISTING'|'CSV'};
+}
+export interface ProductImportSummary {
+  rowCount:number;createCount:number;updateCount:number;unchangedCount:number;errorCount:number;warningCount:number;openingQuantityLines:number;openingValueMinor:string;
+}
+export interface ProductImportBatchSummary {
+  id:string;fileName:string;mode:ProductImportMode;status:'READY'|'INVALID'|'APPLIED';version:number;sourceHash:string;sourceBytes:number;
+  businessVersion:number;currency:string;defaultTaxRateBps:number;createdAt:string;createdBy:string;appliedAt:string|null;summary:ProductImportSummary;
+}
+export interface ProductImportBatch extends ProductImportBatchSummary {
+  source:{csv:string;mapping:ProductImportMapping};errors:ProductImportIssue[];warnings:ProductImportIssue[];rows:ProductImportRow[];
+}
 export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
 export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
 export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string}
@@ -63,8 +87,10 @@ export interface BackendSaleReceipt {
 
 class ApiClient {
   private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();private recoveryListeners=new Set<(records:RecoverableCommand[])=>void>();
+  private importRecoveryListeners=new Set<(records:ImportValidationRecovery[])=>void>();
   subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
   subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
+  subscribeImportRecovery(listener:(records:ImportValidationRecovery[])=>void){this.importRecoveryListeners.add(listener);return()=>{this.importRecoveryListeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
   private async request<T>(path:string,init:RequestInit={}):Promise<T>{
@@ -75,7 +101,7 @@ class ApiClient {
     const body=await response.json().catch(()=>({}));
     if(!response.ok){
       if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
-      throw Object.assign(new Error(body?.error?.message??`Request failed (${response.status}).`),{status:response.status,code:body?.error?.code});
+      throw Object.assign(new Error(body?.error?.message??`Request failed (${response.status}).`),{status:response.status,code:body?.error?.code,details:body?.error?.details});
     }
     return body as T;
   }
@@ -92,6 +118,15 @@ class ApiClient {
     return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.outlet.update',occurredAt:new Date().toISOString(),expectedVersions:{['outlet:'+session.outlet.id]:version},payload:input});
   }
   listCatalog(){return this.request<{items:BackendProduct[]}>('/catalog/items')}
+  listProductImports(){return this.request<{batches:ProductImportBatchSummary[]}>('/catalog/imports')}
+  getProductImport(batchId:string){return this.request<{batch:ProductImportBatch}>('/catalog/imports/'+encodeURIComponent(batchId))}
+  async getProductImportErrorsCsv(batchId:string):Promise<string>{
+    let response:Response;
+    try{response=await fetch('/api/v1/catalog/imports/'+encodeURIComponent(batchId)+'/errors.csv',{credentials:'include'});}
+    catch{throw new Error('The error report could not be downloaded. Check the connection and try again.');}
+    if(!response.ok){const body=await response.json().catch(()=>({}));if(response.status===401){this.csrf='';this.publish(null);}throw new Error(body?.error?.message??'The error report could not be downloaded.');}
+    return response.text();
+  }
   listCustomerAccounts(){return this.request<{customers:BackendCustomerAccount[]}>('/customers')}
   getCustomerStatement(customerId:string){return this.request<BackendCustomerStatement>('/customers/'+encodeURIComponent(customerId)+'/statement')}
   listInventoryMovements(){return this.request<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string;valueMinor?:string}>}>('/inventory/movements')}
@@ -109,10 +144,42 @@ class ApiClient {
   listHotelReservations(){return this.request<{reservations:BackendReservation[]}>('/hospitality/reservations')}
   listHotelStays(){return this.request<{stays:BackendStay[]}>('/hospitality/stays')}
   async submitCommand(command:BackendCommand){
-    await commandJournal.save(command,'sending');await this.emitRecovery();
+    if(command.type==='catalog.import.validate'||command.type==='catalog.import.revalidate')throw new Error('Use import validation transport; CSV source must not enter the command journal.');
+    try{await commandJournal.save(command,'sending');}
+    catch{throw Object.assign(new Error('The command was not sent because recovery data could not be saved. Restore browser storage before retrying.'),{code:'COMMAND_NOT_SENT'});}
+    await this.emitRecovery();
     try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await commandJournal.remove(command.commandId);else await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();return result}
     catch(error){await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();throw error}
   }
+  async submitImportValidation(command:BackendCommand,fileName:string,sourceHash:string){
+    const session=this.session;if(!session)throw new Error('Sign in before validating an import.');
+    if(command.type!=='catalog.import.validate'&&command.type!=='catalog.import.revalidate')throw new Error('Unsupported import validation request.');
+    const metadata:ImportValidationRecovery={commandId:command.commandId,type:command.type,tenantId:session.tenant.id,deviceId:session.deviceId,actorId:session.user.id,fileName,sourceHash,state:'sending',savedAt:new Date().toISOString()};
+    try{await importValidationJournal.save(metadata);}
+    catch{throw Object.assign(new Error('Validation was not sent because recovery metadata could not be saved. Retry after restoring browser storage.'),{code:'IMPORT_NOT_SENT'});}
+    await this.emitImportRecovery();
+    try{
+      const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});
+      if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await importValidationJournal.remove(command.commandId);
+      else await importValidationJournal.save({...metadata,state:'outcome_unknown'});
+      await this.emitImportRecovery();return result;
+    }catch(error){
+      const failure=error as {status?:number;details?:unknown};
+      if(typeof failure.status==='number'&&failure.status>=400&&failure.status<500){
+        await importValidationJournal.remove(command.commandId);await this.emitImportRecovery();
+        throw Object.assign(new Error(error instanceof Error?error.message:'The server rejected this file before validation.'),{code:'IMPORT_NOT_SENT',status:failure.status,details:failure.details});
+      }
+      await importValidationJournal.save({...metadata,state:'outcome_unknown'});await this.emitImportRecovery();throw error;
+    }
+  }
+  async checkImportValidationStatus(commandId:string){
+    const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));
+    if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
+    return result;
+  }
+  listImportValidationRecovery():Promise<ImportValidationRecovery[]>{const session=this.session;return session?importValidationJournal.list(session.tenant.id,session.deviceId,session.user.id):Promise.resolve([]);}
+  async discardUnconfirmedValidation(commandId:string){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
+  private async emitImportRecovery(){const records=await this.listImportValidationRecovery();this.importRecoveryListeners.forEach(listener=>listener(records));}
   async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await commandJournal.remove(commandId);await this.emitRecovery()}return result}
   listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{return commandJournal.list(tenantId)}
   private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}

@@ -4,6 +4,7 @@ import type { ApiPermission, ApiSession, CommandEnvelope } from './contracts.js'
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { stableStringify } from './security.js';
 import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationSnapshot } from './configuration.js';
+import { executeProductImportCommand, validateCatalogMetadata } from './productImport.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -111,6 +112,17 @@ async function journal(client: PoolClient, session: ApiSession, commandId: strin
 export async function executeCommand(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   if (envelope.deviceId !== session.deviceId) throw new DomainError('FORBIDDEN', 'Command device does not match the authenticated session.', 403);
   if (envelope.tenantId && envelope.tenantId !== session.tenantId) throw new DomainError('FORBIDDEN', 'Command tenant does not match the authenticated session.', 403);
+  // Permissions and assignment authority are rechecked inside the transaction,
+  // so an earlier HTTP preflight cannot preserve a revoked or changed role.
+  const actor=await client.query<{role:ApiSession['role']}>(`SELECT m.role FROM identity.sessions s
+    JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
+    JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id AND d.outlet_id=s.outlet_id
+    JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
+    WHERE s.id=$1 AND s.user_id=$2 AND s.tenant_id=$3 AND s.outlet_id=$4 AND s.device_id=$5 AND s.revoked_at IS NULL AND s.expires_at>now()
+      AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id FOR SHARE OF s,u,m,d,o`,
+    [session.sessionId,session.userId,session.tenantId,session.outletId,session.deviceId]);
+  if(!actor.rowCount)throw new DomainError('UNAUTHENTICATED','The operator session or assignment changed. Sign in again.',401);
+  session={...session,role:actor.rows[0].role};
   // Configuration changes must be observed within the command transaction,
   // including when a capability changed after authentication preflight.
   const capabilities = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1', [session.tenantId]);
@@ -122,6 +134,9 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     requireCapability(session, 'inventory');
   }
   switch (envelope.type) {
+    case 'catalog.import.validate':
+    case 'catalog.import.revalidate':
+    case 'catalog.import.apply': return executeProductImportCommand(client,session,envelope);
     case 'configuration.business.update':
     case 'configuration.outlet.update':
     case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
@@ -278,15 +293,18 @@ async function createProduct(client: PoolClient, session: ApiSession, envelope: 
   const taxRateBps = envelope.payload.taxRateBps === undefined ? readBusinessProfile(currencyResult.rows[0].business_profile).taxPolicy.defaultRateBps : envelope.payload.taxRateBps;
   if (!Number.isInteger(taxRateBps) || Number(taxRateBps) < 0 || Number(taxRateBps) > 10_000) throw new DomainError('VALIDATION_FAILED', 'taxRateBps must be from 0 through 10000.');
   if (currency !== currencyResult.rows[0]?.currency) throw new DomainError('VALIDATION_FAILED', 'Product currency must match the tenant currency.');
+  const metadata=validateCatalogMetadata(envelope.payload);
+  const duplicate=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND upper(trim(sku))=upper($3) LIMIT 1',[session.tenantId,session.outletId,sku.trim()]);
+  if(duplicate.rowCount)throw new DomainError('VALIDATION_FAILED','That SKU already exists at this outlet, ignoring case.');
   const productId = randomUUID();
   try {
     await client.query(
-      `INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [productId, session.tenantId, session.outletId, sku.trim(), name.trim(), baseUnit, currency, sell, cost, taxRateBps],
+      `INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric)`,
+      [productId, session.tenantId, session.outletId, sku.trim(), name.trim(), baseUnit, currency, sell, cost, taxRateBps,metadata.category,metadata.barcode,metadata.reorderLevel],
     );
   } catch (error) {
-    if ((error as { code?: string }).code === '23505') throw new DomainError('VALIDATION_FAILED', 'That SKU already exists at this outlet.');
+    if ((error as { code?: string }).code === '23505') throw new DomainError('VALIDATION_FAILED', 'That SKU or barcode already exists at this outlet.');
     throw error;
   }
   await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,0)', [session.tenantId, session.outletId, productId]);
@@ -760,16 +778,24 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
-  const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string }> = [];
+  const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string; product_version: string }> = [];
   for (const line of normalized) {
     const result = await client.query(
-      `SELECT p.id,p.sku,p.name,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,b.quantity,b.inventory_value_minor::text inventory_value_minor
+      `SELECT p.id,p.sku,p.name,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,p.version::text product_version,b.quantity,b.inventory_value_minor::text inventory_value_minor
        FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
        WHERE p.id=$1 AND p.tenant_id=$2 AND p.outlet_id=$3 AND p.active FOR UPDATE OF p,b`,
       [line.productId, session.tenantId, session.outletId],
     );
     if (!result.rowCount) throw new DomainError('NOT_FOUND', 'A sale item is unavailable at this outlet.', 404);
     const product = result.rows[0] as typeof productRows[number];
+    const productVersion = Number(product.product_version);
+    const quotedVersion = versionFor(envelope, `product:${product.id}`);
+    if (Object.hasOwn(envelope.expectedVersions, `product:${product.id}`) && quotedVersion === undefined) throw new DomainError('VALIDATION_FAILED', 'Quoted product versions must be positive safe integers.');
+    // Earlier clients could only sell revision-one items. After metadata imports,
+    // a fresh catalog quote must be reviewed before charging its changed prices.
+    if ((quotedVersion === undefined && productVersion !== 1) || (quotedVersion !== undefined && quotedVersion !== productVersion)) {
+      throw new DomainError('VERSION_CONFLICT', `${product.name} changed after this basket was reviewed. Refresh the catalog and review the new price and tax before payment.`, 409, { productId: product.id, currentVersion: productVersion });
+    }
     if (product.currency !== currency) throw new DomainError('VALIDATION_FAILED', 'Item price currency differs from tenant currency.');
     if (databaseQuantityMicros(product.quantity) < line.quantity) throw new DomainError('INSUFFICIENT_STOCK', `${product.name} does not have enough available stock.`, 409, { productId: product.id });
     productRows.push(product);
