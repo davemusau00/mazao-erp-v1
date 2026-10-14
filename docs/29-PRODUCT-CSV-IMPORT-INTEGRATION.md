@@ -8,6 +8,8 @@ Review the row errors, warning explanations, normalized values and proposed crea
 
 An interrupted request is an **unknown outcome**. Preserve its command ID and use status lookup or retry the original command. Do not upload and apply a second batch to resolve uncertainty. Confirmed imports remain accessible in import history after refresh.
 
+History lists the latest 50 batches; all batch evidence remains on the server. Review totals use the currency and tax default captured by server validation, including when another operator changed configuration after this session signed in.
+
 ## CSV boundary
 
 - UTF-8 CSV only for this slice; limits are 512 KiB, 1,000 data rows, 50 columns and 2,048 characters per cell.
@@ -33,6 +35,7 @@ The batch retains its source hash, mapped validation snapshot, actor and commit 
 | Surface | Contract | Authority |
 | --- | --- | --- |
 | Validate source and mapping | `catalog.import.validate` | Authenticated `catalog.manage`, inventory capability, current tenant/outlet; creates a staged validation batch only |
+| Revalidate stored source | `catalog.import.revalidate` with batch/version | Creates a new review under the current operator and current business/catalog records; does not reuse the old approval |
 | Apply reviewed batch | `catalog.import.apply` with batch/version, review and warning acknowledgment | Server revalidation, transaction, idempotency, audit/outbox; opening stock additionally requires `inventory.receive` |
 | History and reviewed batch | `GET /api/v1/catalog/imports`, `GET /api/v1/catalog/imports/:id` | Tenant/outlet and catalog permission scoped; durable server records |
 | Error report | `GET /api/v1/catalog/imports/:id/errors.csv` | Same scope and permission; formula-safe CSV |

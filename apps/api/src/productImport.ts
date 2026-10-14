@@ -266,7 +266,7 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   return value;
 }
 function batchMetadata(row:Record<string,any>){
-  return {id:row.id,fileName:row.file_name,mode:row.import_mode,status:row.status,version:Number(row.version),sourceHash:row.source_sha256,sourceBytes:row.source_bytes,businessVersion:row.configuration_snapshot.businessVersion,createdAt:row.created_at,createdBy:row.created_by,appliedAt:row.applied_at,summary:row.validation_report.summary};
+  return {id:row.id,fileName:row.file_name,mode:row.import_mode,status:row.status,version:Number(row.version),sourceHash:row.source_sha256,sourceBytes:row.source_bytes,businessVersion:row.configuration_snapshot.businessVersion,currency:row.configuration_snapshot.currency,defaultTaxRateBps:row.configuration_snapshot.taxRateBps,createdAt:row.created_at,createdBy:row.created_by,appliedAt:row.applied_at,summary:row.validation_report.summary};
 }
 export async function listProductImports(session:ApiSession){
   requireProductImportAccess(session);

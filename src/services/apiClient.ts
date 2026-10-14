@@ -43,7 +43,7 @@ export interface ProductImportSummary {
 }
 export interface ProductImportBatchSummary {
   id:string;fileName:string;mode:ProductImportMode;status:'READY'|'INVALID'|'APPLIED';version:number;sourceHash:string;sourceBytes:number;
-  businessVersion:number;createdAt:string;createdBy:string;appliedAt:string|null;summary:ProductImportSummary;
+  businessVersion:number;currency:string;defaultTaxRateBps:number;createdAt:string;createdBy:string;appliedAt:string|null;summary:ProductImportSummary;
 }
 export interface ProductImportBatch extends ProductImportBatchSummary {
   source:{csv:string;mapping:ProductImportMapping};errors:ProductImportIssue[];warnings:ProductImportIssue[];rows:ProductImportRow[];

@@ -113,11 +113,21 @@ if (!databaseUrl) {
         assert.equal((await authority(foreign)).products, 0);
         await db.pool.query('UPDATE identity.memberships SET role=\'cashier\' WHERE tenant_id=$1 AND user_id=$2', [owner.tenantId, owner.userId]);
         const demotedReplay = await submit(app, owner, preview.command);
-        assert.equal(demotedReplay.statusCode, 403, 'replaying a stored import validation cannot bypass a fresh permission denial');
+        assert.equal(demotedReplay.statusCode, 200);
+        assert.equal(demotedReplay.json().status, 'REJECTED', 'replaying a stored import validation cannot bypass a fresh permission denial');
+        assert.equal(demotedReplay.json().code, 'FORBIDDEN');
+        assert.equal(demotedReplay.json().value, undefined, 'the cached authorized result must not be returned after role removal');
+        assert.equal((await app.inject({url:`/api/v1/commands/${preview.command.commandId}`,headers:owner.headers})).statusCode,403);
         assert.equal((await app.inject({ url: `/api/v1/catalog/imports/${preview.batch.id}`, headers: owner.headers })).statusCode, 403);
         await db.pool.query('UPDATE identity.memberships SET role=\'admin\' WHERE tenant_id=$1 AND user_id=$2', [owner.tenantId, owner.userId]);
         await db.pool.query('DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability=\'inventory\'', [owner.tenantId]);
-        assert.equal((await submit(app, owner, preview.command)).statusCode, 403, 'replaying an old validation cannot bypass a disabled capability');
+        const disabledReplay = await submit(app, owner, preview.command);
+        assert.equal(disabledReplay.statusCode, 200);
+        assert.equal(disabledReplay.json().status, 'REJECTED', 'replaying an old validation cannot bypass a disabled capability');
+        assert.equal(disabledReplay.json().code, 'CAPABILITY_DISABLED');
+        assert.equal(disabledReplay.json().value, undefined);
+        assert.equal((await app.inject({url:`/api/v1/commands/${preview.command.commandId}`,headers:owner.headers})).statusCode,403);
+        assert.equal((await db.pool.query('SELECT status FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[owner.tenantId,preview.command.commandId])).rows[0].status,'CONFIRMED','denial must preserve the original confirmed command evidence');
         assert.deepEqual(await authority(owner), before);
       } finally { await app.close(); }
     });
@@ -177,10 +187,22 @@ if (!databaseUrl) {
         assert.equal((await submit(app, owner, applyEnvelope(owner, preview.batch))).json().status, 'CONFIRMED');
         const totals = await authority(owner);
         assert.equal(totals.products, 1); assert.equal(totals.movements, 0); assert.equal(totals.journals, 0); assert.equal(totals.value, '0'); assert.match(totals.quantity, /^0(?:\.0+)?$/);
-        const unsupportedFreeOpening = await stage(app, owner, csv([row({ SKU: 'FREE-OPENING', Cost: '0', Opening: '1', 'Opening cost': '0' })]));
-        assert.equal(unsupportedFreeOpening.batch.status, 'INVALID');
-        assert.equal((await submit(app, owner, applyEnvelope(owner, unsupportedFreeOpening.batch))).json().code, 'IMPORT_INVALID');
+        const missingOpeningCost = await stage(app, owner, csv([row({ SKU: 'MISSING-OPENING-COST', Cost: '1', Opening: '1', 'Opening cost': '' })]));
+        assert.equal(missingOpeningCost.batch.status, 'INVALID');
+        assert.ok(missingOpeningCost.batch.errors.some((error:{code:string})=>error.code==='OPENING_COST_REQUIRED'));
+        assert.equal((await submit(app, owner, applyEnvelope(owner, missingOpeningCost.batch))).json().code, 'IMPORT_INVALID');
         assert.deepEqual(await authority(owner), totals);
+        const zeroValueOpening = await stage(app, owner, csv([row({ SKU: 'ZERO-VALUE-OPENING', Cost: '0', Opening: '1', 'Opening cost': '0' })]));
+        assert.equal(zeroValueOpening.batch.status, 'READY');
+        assert.ok(zeroValueOpening.batch.warnings.some((warning:{code:string})=>warning.code==='ZERO_OPENING_VALUE'));
+        assert.equal(zeroValueOpening.batch.summary.openingValueMinor,'0');
+        assert.equal((await submit(app, owner, applyEnvelope(owner, zeroValueOpening.batch,{acknowledgedWarnings:false}))).json().code,'WARNINGS_NOT_ACKNOWLEDGED');
+        assert.deepEqual(await authority(owner),totals,'zero-value stock must not apply before its evidence is acknowledged');
+        assert.equal((await submit(app, owner, applyEnvelope(owner, zeroValueOpening.batch))).json().status,'CONFIRMED');
+        const zeroValueTotals=await authority(owner);
+        assert.equal(zeroValueTotals.products,2);assert.equal(zeroValueTotals.movements,1);assert.equal(zeroValueTotals.journals,0);assert.equal(zeroValueTotals.value,'0');assert.match(zeroValueTotals.quantity,/^1(?:\.0+)?$/);
+        const zeroMovement=await db.pool.query('SELECT movement_type,quantity_delta::text,unit_cost_minor::text,value_minor::text,reference_id FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2',[owner.tenantId,owner.outletId]);
+        assert.deepEqual(zeroMovement.rows[0],{movement_type:'OPENING_IMPORT',quantity_delta:'1.000000',unit_cost_minor:'0',value_minor:'0',reference_id:zeroValueOpening.batch.id});
       } finally { await app.close(); }
     });
 
