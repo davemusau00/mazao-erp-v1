@@ -226,7 +226,7 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
         unbalancedJournalEntryCount: snapshot.unbalancedJournalEntryCount,
         sourceTypes: snapshot.sourceTypes,
         unknownAccountCodes,
-        omittedSources: ['supplier invoices and AP', 'customer credit and repayments', 'operating expense postings', 'payroll and accruals', 'depreciation', 'payment-provider settlement', 'period adjustments and close'],
+        omittedSources: ['supplier invoices and AP', 'operating expense postings', 'payroll and accruals', 'depreciation', 'payment-provider settlement', 'period adjustments and close'],
         explanation: 'This operating summary covers only recognized account codes in posted journal entries. It is partial and must not be presented as net profit or a complete P&L.',
       },
       totals: {

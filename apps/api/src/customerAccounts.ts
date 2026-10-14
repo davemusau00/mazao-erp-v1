@@ -3,6 +3,7 @@ import type { ApiSession } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 
 function requireCustomerView(session: ApiSession) {
+  if (!session.capabilities.includes('commerce')) throw new DomainError('CAPABILITY_DISABLED', 'Customer accounts are not enabled for this tenant.', 403);
   if (!ROLE_PERMISSIONS[session.role].includes('customers.view')) {
     throw new DomainError('FORBIDDEN', 'Your role cannot view customer accounts.', 403);
   }
@@ -64,6 +65,13 @@ export async function getCustomerStatement(session: ApiSession, idValue: unknown
   const entries = eventResult.rows.map(row => {
     const amount = BigInt(row.amount_minor);
     const debit = row.event_type === 'CHARGE';
+    const allocations = row.allocations as Array<{ amountMinor: string; receiptNumber: string; orderId: string }>;
+    if (!debit) {
+      const allocatedAmount = allocations.reduce((sum, allocation) => sum + BigInt(allocation.amountMinor), 0n);
+      if (allocatedAmount !== amount) {
+        throw new DomainError('CUSTOMER_LEDGER_INTEGRITY_FAILED', 'Customer repayment allocations do not match the recorded collection.', 500);
+      }
+    }
     balance += debit ? amount : -amount;
     if (balance < 0n) throw new DomainError('CUSTOMER_LEDGER_INTEGRITY_FAILED', 'Customer statement balance is inconsistent.', 500);
     return {
@@ -75,7 +83,7 @@ export async function getCustomerStatement(session: ApiSession, idValue: unknown
       reference: row.reference,
       orderId: row.order_id,
       receiptNumber: row.receipt_number,
-      allocations: row.allocations as Array<{ amountMinor: string; receiptNumber: string; orderId: string }>,
+      allocations,
     };
   });
   const account = accountResult.rows[0];

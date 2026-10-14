@@ -884,6 +884,7 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
 
             <button
               type="button"
+              disabled={apiClient.getSession() !== null}
               onClick={() => setPaymentMethod('card')}
               className={`p-2.5 sm:p-3 rounded-lg border flex flex-col items-center justify-center gap-1 text-xs font-medium transition-all min-h-[50px] ${
                 paymentMethod === 'card'
@@ -892,11 +893,12 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
               }`}
             >
               <CreditCard className="w-5 h-5" />
-              <span>Card POS</span>
+              <span>{apiClient.getSession() ? 'Card unavailable' : 'Card POS'}</span>
             </button>
 
             <button
               type="button"
+              disabled={apiClient.getSession() !== null}
               onClick={() => setPaymentMethod('mobile_money')}
               className={`p-2.5 sm:p-3 rounded-lg border flex flex-col items-center justify-center gap-1 text-xs font-medium transition-all min-h-[50px] ${
                 paymentMethod === 'mobile_money'
@@ -905,11 +907,12 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
               }`}
             >
               <Smartphone className="w-5 h-5" />
-              <span>M-Pesa</span>
+              <span>{apiClient.getSession() ? 'M-Pesa unavailable' : 'M-Pesa'}</span>
             </button>
 
             <button
               type="button"
+              disabled={apiClient.getSession() !== null}
               onClick={() => setPaymentMethod('room_folio')}
               className={`p-2.5 sm:p-3 rounded-lg border flex flex-col items-center justify-center gap-1 text-xs font-medium transition-all min-h-[50px] ${
                 paymentMethod === 'room_folio'
@@ -918,11 +921,12 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
               }`}
             >
               <Hotel className="w-5 h-5" />
-              <span>Room Folio</span>
+              <span>{apiClient.getSession() ? 'Folio unavailable' : 'Room Folio'}</span>
             </button>
 
             <button
               type="button"
+              disabled={!!apiClient.getSession() && !apiClient.getSession()?.user.permissions.includes('customers.charge')}
               onClick={() => setPaymentMethod('customer_credit')}
               className={`p-2.5 sm:p-3 rounded-lg border flex flex-col items-center justify-center gap-1 text-xs font-medium transition-all min-h-[50px] ${
                 paymentMethod === 'customer_credit'
@@ -934,6 +938,8 @@ export const PointOfSaleView: React.FC<PointOfSaleViewProps> = ({
               <span>Charge Account</span>
             </button>
           </div>
+          {apiClient.getSession() && paymentMethod !== 'cash' && paymentMethod !== 'customer_credit' && <p role="status" className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">This payment route is not connected to the server. Use cash or an approved customer account.</p>}
+          {apiClient.getSession() && paymentMethod === 'customer_credit' && !apiClient.getSession()?.user.permissions.includes('customers.charge') && <p role="status" className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">Your server role cannot charge customer accounts. Ask a manager to review access.</p>}
 
           {/* Cash Details */}
           {paymentMethod === 'cash' && (

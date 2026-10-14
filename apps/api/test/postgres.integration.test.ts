@@ -558,6 +558,115 @@ if (!databaseUrl) {
       const cashierSaleReceipt = await app.inject({ method: 'GET', url: `/api/v1/sales/orders/${saleId}/receipt`, headers: cashierHeaders });
       assert.equal(cashierSaleReceipt.statusCode, 200, cashierSaleReceipt.body);
       assert.equal(cashierSaleReceipt.json().receiptId, saleId);
+
+      const customerCreated = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'customers.account.create',
+        occurredAt: new Date().toISOString(), expectedVersions: {},
+        payload: { name: 'Account Test Customer', phone: '+254700000091', creditLimitMinor: 100000 },
+      });
+      assert.equal(customerCreated.json().status, 'CONFIRMED', customerCreated.body);
+      const customerId = String(customerCreated.json().value.customerId);
+      const cashierCreateAccount = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'customers.account.create',
+        occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { name: 'Unauthorized', phone: '+254700000092', creditLimitMinor: 5000 },
+      }) });
+      assert.equal(cashierCreateAccount.json().status, 'REJECTED');
+      assert.equal(cashierCreateAccount.json().code, 'FORBIDDEN');
+      const cashierCustomers = await app.inject({ method: 'GET', url: '/api/v1/customers', headers: cashierHeaders });
+      assert.equal(cashierCustomers.statusCode, 200, cashierCustomers.body);
+      assert.equal(cashierCustomers.json().customers[0].id, customerId);
+
+      const cashierShiftOpen = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'shift.open',
+        occurredAt: new Date().toISOString(), expectedVersions: {}, payload: { openingFloatMinor: 5000 },
+      }) });
+      assert.equal(cashierShiftOpen.json().status, 'CONFIRMED', cashierShiftOpen.body);
+      const cashierShiftId = String(cashierShiftOpen.json().value.shiftId);
+      const creditSaleCommand = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'sales.order.settle',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${cashierShiftId}`]: 1 },
+        payload: { shiftId: cashierShiftId, customerId, lines: [{ productId, quantity: '1' }], tenders: [] },
+      };
+      const creditSale = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(creditSaleCommand) });
+      assert.equal(creditSale.json().status, 'CONFIRMED', creditSale.body);
+      assert.equal(creditSale.json().value.totalMinor, 29000);
+      assert.equal(creditSale.json().value.customerBalanceMinor, '29000');
+      const creditSaleReplay = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(creditSaleCommand) });
+      assert.deepEqual(creditSaleReplay.json(), creditSale.json(), 'replayed credit sale must not charge the account twice');
+      const creditOrderId = String(creditSale.json().value.saleId);
+      const secondCreditSaleCommand = { ...creditSaleCommand, commandId: randomUUID(), expectedVersions: { [`shift:${cashierShiftId}`]: 2 } };
+      const secondCreditSale = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(secondCreditSaleCommand) });
+      assert.equal(secondCreditSale.json().status, 'CONFIRMED', secondCreditSale.body);
+      assert.equal(secondCreditSale.json().value.customerBalanceMinor, '58000');
+      const limitBelowBalance = await postCommand({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'customers.account.update',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`customer:${customerId}`]: 3 },
+        payload: { customerId, name: 'Account Test Customer', phone: '+254700000091', creditLimitMinor: 50000, status: 'ACTIVE' },
+      });
+      assert.equal(limitBelowBalance.json().status, 'REJECTED');
+      assert.equal(limitBelowBalance.json().code, 'CUSTOMER_CREDIT_LIMIT_BELOW_BALANCE');
+      const creditReceipt = await app.inject({ method: 'GET', url: `/api/v1/sales/orders/${creditOrderId}/receipt`, headers: cashierHeaders });
+      assert.equal(creditReceipt.statusCode, 200, creditReceipt.body);
+      assert.equal(creditReceipt.json().amountPaidMinor, '0');
+      assert.equal(creditReceipt.json().customerAccountCharge.amountDueMinor, '29000');
+      assert.equal(creditReceipt.json().customerAccountCharge.customerName, 'Account Test Customer');
+
+      const excessCreditSale = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        ...creditSaleCommand, commandId: randomUUID(), expectedVersions: { [`shift:${cashierShiftId}`]: 3 }, payload: { ...creditSaleCommand.payload, lines: [{ productId, quantity: '2' }] },
+      }) });
+      assert.equal(excessCreditSale.json().status, 'REJECTED');
+      assert.equal(excessCreditSale.json().code, 'CUSTOMER_CREDIT_LIMIT_EXCEEDED');
+
+      const creditRefund = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...headers, 'content-type': 'application/json' }, payload: JSON.stringify({
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'sales.order.refund',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 5 },
+        payload: { orderId: creditOrderId, shiftId, reason: 'Credit refund guard', lines: [{ orderLineId: randomUUID(), quantity: '1', restock: true }] },
+      }) });
+      assert.equal(creditRefund.json().status, 'REJECTED');
+      assert.equal(creditRefund.json().code, 'CUSTOMER_CREDIT_REFUND_UNAVAILABLE');
+
+      const repaymentCommand = {
+        protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'customers.repayment',
+        occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${cashierShiftId}`]: 3 },
+        payload: { customerId, shiftId: cashierShiftId, amountMinor: 40000, reference: 'CASH-AR-1' },
+      };
+      const unverifiedMpesa = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        ...repaymentCommand, commandId: randomUUID(), payload: { ...repaymentCommand.payload, amountMinor: 1000, tenderMethod: 'MPESA' },
+      }) });
+      assert.equal(unverifiedMpesa.json().status, 'REJECTED');
+      assert.equal(unverifiedMpesa.json().code, 'REQUIRES_ONLINE');
+      const repayment = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(repaymentCommand) });
+      assert.equal(repayment.json().status, 'CONFIRMED', repayment.body);
+      assert.equal(repayment.json().value.balanceMinor, '18000');
+      assert.equal(repayment.json().value.allocationCount, 2);
+      assert.deepEqual(repayment.json().value.allocations.map((allocation: { amountMinor: string }) => allocation.amountMinor), ['29000', '11000']);
+      const repaymentReplay = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify(repaymentCommand) });
+      assert.deepEqual(repaymentReplay.json(), repayment.json(), 'replayed repayment must not collect or allocate a second time');
+      const statement = await app.inject({ method: 'GET', url: `/api/v1/customers/${customerId}/statement`, headers: cashierHeaders });
+      assert.equal(statement.statusCode, 200, statement.body);
+      assert.equal(statement.json().customer.balanceMinor, '18000');
+      assert.deepEqual(statement.json().entries.map((entry: { type: string; amountMinor: string; balanceAfterMinor: string }) => [entry.type, entry.amountMinor, entry.balanceAfterMinor]), [
+        ['CHARGE', '29000', '29000'], ['CHARGE', '29000', '58000'], ['REPAYMENT', '40000', '18000'],
+      ]);
+      const cashierTill = await app.inject({ method: 'GET', url: '/api/v1/shifts/current', headers: cashierHeaders });
+      assert.equal(cashierTill.json().shift.customerCollectionsMinor, 40000);
+      assert.equal(cashierTill.json().shift.expectedCashMinor, 45000);
+      assert.equal(cashierTill.json().shift.cashSalesMinor, 0);
+      const overRepayment = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...cashierHeaders, 'content-type': 'application/json' }, payload: JSON.stringify({
+        ...repaymentCommand, commandId: randomUUID(), expectedVersions: { [`shift:${cashierShiftId}`]: 4 }, payload: { customerId, shiftId: cashierShiftId, amountMinor: 20000, reference: 'OVER-AR-1' },
+      }) });
+      assert.equal(overRepayment.json().status, 'REJECTED');
+      assert.equal(overRepayment.json().code, 'VALIDATION_FAILED');
+      const receivableJournal = await db.pool.query<{ debit_minor: string; credit_minor: string }>(`SELECT
+        COALESCE(sum(CASE WHEN jl.account_code='ACCOUNTS_RECEIVABLE' THEN jl.debit_minor ELSE 0 END),0)::text debit_minor,
+        COALESCE(sum(CASE WHEN jl.account_code='ACCOUNTS_RECEIVABLE' THEN jl.credit_minor ELSE 0 END),0)::text credit_minor
+        FROM finance.journal_entries je JOIN finance.journal_lines jl ON jl.journal_entry_id=je.id
+        WHERE je.tenant_id=$1 AND jl.account_code='ACCOUNTS_RECEIVABLE'`, [tenantId]);
+      assert.equal((BigInt(receivableJournal.rows[0].debit_minor) - BigInt(receivableJournal.rows[0].credit_minor)).toString(), '18000');
+      const currentTrialBalance = await app.inject({ method: 'GET', url: `/api/v1/reports/trial-balance?asOf=${reportBusinessDate}`, headers });
+      const receivableBalance = (currentTrialBalance.json().accounts as Array<{ accountCode: string; netDebitMinor: string }>).find(account => account.accountCode === 'ACCOUNTS_RECEIVABLE');
+      assert.equal(receivableBalance?.netDebitMinor, '18000', 'trial balance reflects the remaining customer receivable');
+
       const cashierTrialBalance = await app.inject({ method: 'GET', url: `/api/v1/reports/trial-balance?asOf=${reportBusinessDate}`, headers: cashierHeaders });
       assert.equal(cashierTrialBalance.statusCode, 403);
       const cashierOperatingSummary = await app.inject({ method: 'GET', url: `/api/v1/reports/profit-loss?from=${reportBusinessDate}&to=${reportBusinessDate}`, headers: cashierHeaders });
@@ -621,7 +730,7 @@ if (!databaseUrl) {
         (SELECT sum(cogs_minor)::text FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3) cogs_minor,
         (SELECT value_minor::text FROM inventory.movements WHERE tenant_id=$1 AND command_id=$4 AND movement_type='REFUND') movement_value_minor,
         (SELECT inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$5) inventory_value_minor`,[tenantId,outletId,saleId,refundCommand.commandId,productId]);
-      assert.deepEqual(refundValue.rows[0],{cogs_minor:'19167',movement_value_minor:'19167',inventory_value_minor:'95834'},'restocked refund restores the original sale COGS value');
+      assert.deepEqual(refundValue.rows[0],{cogs_minor:'19167',movement_value_minor:'19167',inventory_value_minor:'57500'},'restocked refund restores the original sale COGS value after later account-charge sales');
       const refundReplay = await postCommand(refundCommand);
       assert.deepEqual(refundReplay.json(), refund.json());
 
@@ -644,8 +753,8 @@ if (!databaseUrl) {
         (SELECT status FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) shift_status,
         (SELECT expected_cash_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) expected_cash_minor,
         (SELECT variance_minor::text FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$5) variance_minor`, [tenantId, outletId, productId, saleId, shiftId]);
-      assert.equal(balances.rows[0].quantity, '5.000000');
-      assert.equal(balances.rows[0].inventory_value_minor, '95834','sale and partial refund conserve the remaining moving-average carrying value');
+      assert.equal(balances.rows[0].quantity, '3.000000');
+      assert.equal(balances.rows[0].inventory_value_minor, '57500','cash/account sales and partial refund conserve the remaining moving-average carrying value');
       assert.equal(balances.rows[0].movement_quantity,balances.rows[0].quantity,'movement quantities reconcile to the stock balance');
       assert.equal(balances.rows[0].movement_value_minor,balances.rows[0].inventory_value_minor,'immutable movement values reconcile to the stock carrying value');
       assert.equal(balances.rows[0].unbalanced_journals, '0');

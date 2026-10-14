@@ -1045,7 +1045,7 @@ const BackendShiftWorkspace: React.FC<{tenant:TenantProfile}> = ({tenant:_tenant
             <div>
               <p className="text-sm text-emerald-300">Shift open</p>
               <h2 id="server-shift-heading" className="mt-1 text-2xl font-semibold">Expected cash {formatMinorMoney(shift.expectedCashMinor, currency)}</h2>
-              <p className="mt-1 text-sm text-zinc-400">Opening float {formatMinorMoney(shift.openingFloatMinor, currency)} · Cash sales {formatMinorMoney(shift.cashSalesMinor, currency)}</p>
+              <p className="mt-1 text-sm text-zinc-400">Opening float {formatMinorMoney(shift.openingFloatMinor, currency)} · Cash sales {formatMinorMoney(shift.cashSalesMinor, currency)} · Customer repayments {formatMinorMoney(shift.customerCollectionsMinor, currency)}</p>
               <p className="mt-1 text-xs text-zinc-500">Version {shift.version} · opened {new Date(shift.openedAt).toLocaleString(undefined,{timeZone:session.tenant.timeZone})}</p>
             </div>
             <div className="flex flex-wrap items-end gap-2">

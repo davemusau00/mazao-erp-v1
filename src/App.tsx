@@ -16,6 +16,7 @@ import { FinanceWorkspace } from './components/finance/FinanceWorkspace';
 import { BackendFinancialReportsWorkspace } from './components/finance/BackendFinancialReportsWorkspace';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { CustomerDirectoryView } from './components/customers/CustomerDirectoryView';
+import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { ReceiptModal } from './components/hardware/ReceiptModal';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SyncCenterModal } from './components/sync/SyncCenterModal';
@@ -156,9 +157,9 @@ export default function App() {
 
         {activeTab === 'purchasing' && <ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={() => setPurchaseStartTab('orders')} />}
 
-        {activeTab === 'customers' && (
-          <CustomerDirectoryView tenant={activeTenant} />
-        )}
+        {activeTab === 'customers' && (backendSession
+          ? <BackendCustomerWorkspace onNavigate={tab => setActiveTab(tab)} />
+          : <CustomerDirectoryView tenant={activeTenant} />)}
 
         {activeTab === 'shifts' && (
           <ShiftManagerView tenant={activeTenant} />

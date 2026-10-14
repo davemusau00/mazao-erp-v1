@@ -136,6 +136,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
 }
 
 async function createCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requireCapability(session, 'commerce');
   requirePermission(session, 'customers.manage');
   const name = envelope.payload.name;
   const phone = envelope.payload.phone;
@@ -154,6 +155,7 @@ async function createCustomerAccount(client: PoolClient, session: ApiSession, en
 }
 
 async function updateCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requireCapability(session, 'commerce');
   requirePermission(session, 'customers.manage');
   const id = envelope.payload.customerId;
   if (typeof id !== 'string') throw new DomainError('VALIDATION_FAILED', 'customerId is required.');
@@ -172,6 +174,7 @@ async function updateCustomerAccount(client: PoolClient, session: ApiSession, en
     WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, [id, session.tenantId]);
   if (!current.rowCount) throw new DomainError('NOT_FOUND', 'Customer account was not found.', 404);
   if (Number(current.rows[0].version) !== expectedVersion) throw new DomainError('VERSION_CONFLICT', 'The customer account changed. Reload it before saving.', 409, { currentVersion: Number(current.rows[0].version) });
+  if (BigInt(creditLimitMinor) < BigInt(current.rows[0].balance_minor)) throw new DomainError('CUSTOMER_CREDIT_LIMIT_BELOW_BALANCE', 'Credit limit cannot be lower than the current account balance.', 409, { balanceMinor: current.rows[0].balance_minor });
   await client.query(`UPDATE finance.customer_accounts SET display_name=$3,phone=$4,email=$5,credit_limit_minor=$6,status=$7,version=version+1,updated_at=now()
     WHERE id=$1 AND tenant_id=$2`, [id, session.tenantId, name.trim(), phone.trim(), typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null, creditLimitMinor, status]);
   const result = { customerId: id, balanceMinor: current.rows[0].balance_minor, creditLimitMinor: String(creditLimitMinor), status, version: expectedVersion + 1 };
@@ -181,12 +184,15 @@ async function updateCustomerAccount(client: PoolClient, session: ApiSession, en
 }
 
 async function recordCustomerRepayment(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
+  requireCapability(session, 'commerce');
   requirePermission(session, 'customers.settle');
   const customerId = envelope.payload.customerId;
   const shiftId = envelope.payload.shiftId;
   const amountMinor = asMinor(envelope.payload.amountMinor, 'amountMinor');
   const reference = envelope.payload.reference;
+  const tenderMethod = envelope.payload.tenderMethod ?? 'CASH';
   if (typeof customerId !== 'string' || typeof shiftId !== 'string' || amountMinor <= 0) throw new DomainError('VALIDATION_FAILED', 'Customer, open shift and a positive cash amount are required.');
+  if (tenderMethod !== 'CASH') throw new DomainError('REQUIRES_ONLINE', 'Only cash repayments can be confirmed. Card and mobile-money provider verification is not connected.', 409);
   if (reference !== undefined && reference !== null && (typeof reference !== 'string' || reference.trim().length > 120)) throw new DomainError('VALIDATION_FAILED', 'Payment reference must be 120 characters or fewer.');
   const expectedShift = versionFor(envelope, `shift:${shiftId}`);
   if (!expectedShift) throw new DomainError('VALIDATION_FAILED', 'Expected shift version is required.');
@@ -209,7 +215,7 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
       ON a.tenant_id=c.tenant_id AND a.charge_id=c.id
     WHERE c.tenant_id=$1 AND c.customer_account_id=$2
     GROUP BY c.id,c.amount_minor,c.created_at ORDER BY c.created_at,c.id`, [session.tenantId, customerId]);
-  const outstanding = charges.map(charge => ({ id: charge.id, amount: BigInt(charge.amount_minor) - BigInt(charge.allocated_minor) }));
+  const outstanding = charges.rows.map(charge => ({ id: charge.id, amount: BigInt(charge.amount_minor) - BigInt(charge.allocated_minor) }));
   const ledgerBalance = outstanding.reduce((sum, charge) => sum + charge.amount, 0n);
   if (ledgerBalance !== currentBalance) throw new DomainError('CUSTOMER_LEDGER_INTEGRITY_FAILED', 'Customer charges do not reconcile to the account balance.', 500);
 
@@ -223,8 +229,8 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
     if (amountRemaining === 0n) break;
     if (charge.amount <= 0n) continue;
     const allocation = charge.amount < amountRemaining ? charge.amount : amountRemaining;
-    await client.query(`INSERT INTO finance.customer_repayment_allocations(id,tenant_id,repayment_id,charge_id,amount_minor)
-      VALUES($1,$2,$3,$4,$5)`, [randomUUID(), session.tenantId, repaymentId, charge.id, allocation.toString()]);
+    await client.query(`INSERT INTO finance.customer_repayment_allocations(id,tenant_id,repayment_id,charge_id,customer_account_id,amount_minor)
+      VALUES($1,$2,$3,$4,$5,$6)`, [randomUUID(), session.tenantId, repaymentId, charge.id, customerId, allocation.toString()]);
     allocations.push({ chargeId: charge.id, amountMinor: allocation.toString() });
     amountRemaining -= allocation;
   }
@@ -659,6 +665,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   const customerId = typeof customerIdValue === 'string' ? customerIdValue : null;
   if (customerIdValue !== undefined && customerId === null) throw new DomainError('VALIDATION_FAILED', 'customerId must be a valid customer account identifier.');
   if (customerId) requirePermission(session, 'customers.charge');
+  if (customerId) requireCapability(session, 'commerce');
   if (!Array.isArray(lines) || lines.length < 1 || lines.length > 100) throw new DomainError('VALIDATION_FAILED', 'Sale must contain between 1 and 100 lines.');
   if (!Array.isArray(tenders) || tenders.length > 10 || (!customerId && tenders.length < 1) || (customerId && tenders.length !== 0)) {
     throw new DomainError('VALIDATION_FAILED', customerId ? 'This account-charge checkout must not include cash tender.' : 'Provide between 1 and 10 cash tender allocations.');

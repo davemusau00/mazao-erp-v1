@@ -22,6 +22,7 @@ CREATE TABLE finance.customer_accounts (
 );
 
 ALTER TABLE commerce.orders
+  ADD CONSTRAINT commerce_orders_customer_reference_key UNIQUE (tenant_id, outlet_id, id, customer_account_id),
   ADD CONSTRAINT commerce_orders_customer_account_fk
     FOREIGN KEY (tenant_id, customer_account_id) REFERENCES finance.customer_accounts(tenant_id, id),
   ADD CONSTRAINT commerce_orders_customer_charge_snapshot_check CHECK (
@@ -39,9 +40,9 @@ CREATE TABLE finance.customer_charges (
   currency char(3) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, outlet_id, order_id),
-  UNIQUE (tenant_id, id),
+  UNIQUE (tenant_id, id, customer_account_id),
   FOREIGN KEY (tenant_id, customer_account_id) REFERENCES finance.customer_accounts(tenant_id, id),
-  FOREIGN KEY (tenant_id, outlet_id, order_id) REFERENCES commerce.orders(tenant_id, outlet_id, id)
+  FOREIGN KEY (tenant_id, outlet_id, order_id, customer_account_id) REFERENCES commerce.orders(tenant_id, outlet_id, id, customer_account_id)
 );
 
 CREATE TABLE finance.customer_repayments (
@@ -57,7 +58,7 @@ CREATE TABLE finance.customer_repayments (
   reference text CHECK (reference IS NULL OR length(reference) <= 120),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, command_id),
-  UNIQUE (tenant_id, id),
+  UNIQUE (tenant_id, id, customer_account_id),
   FOREIGN KEY (tenant_id, outlet_id) REFERENCES core.outlets(tenant_id, id),
   FOREIGN KEY (tenant_id, customer_account_id) REFERENCES finance.customer_accounts(tenant_id, id),
   FOREIGN KEY (tenant_id, outlet_id, shift_id) REFERENCES commerce.shifts(tenant_id, outlet_id, id)
@@ -68,11 +69,12 @@ CREATE TABLE finance.customer_repayment_allocations (
   tenant_id uuid NOT NULL,
   repayment_id uuid NOT NULL,
   charge_id uuid NOT NULL,
+  customer_account_id uuid NOT NULL,
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, repayment_id, charge_id),
-  FOREIGN KEY (tenant_id, repayment_id) REFERENCES finance.customer_repayments(tenant_id, id),
-  FOREIGN KEY (tenant_id, charge_id) REFERENCES finance.customer_charges(tenant_id, id)
+  FOREIGN KEY (tenant_id, repayment_id, customer_account_id) REFERENCES finance.customer_repayments(tenant_id, id, customer_account_id),
+  FOREIGN KEY (tenant_id, charge_id, customer_account_id) REFERENCES finance.customer_charges(tenant_id, id, customer_account_id)
 );
 
 CREATE INDEX finance_customer_accounts_name_idx
