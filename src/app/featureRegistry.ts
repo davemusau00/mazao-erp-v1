@@ -34,7 +34,7 @@ export const workspaceFeatures: WorkspaceFeature[] = [
   { id: 'help', label: 'Help', description: 'Guides and recovery steps', group: 'support', discoverability: 'all', availability: 'connected' },
 ];
 
-export type ManagementFeatureId = 'business' | 'staff' | 'permissions' | 'devices' | 'imports' | 'assets' | 'capabilities' | 'readiness' | 'outlet';
+export type ManagementFeatureId = 'business' | 'staff' | 'permissions' | 'devices' | 'imports' | 'assets' | 'suppliers' | 'offline' | 'payments' | 'capabilities' | 'readiness' | 'outlet';
 export interface ManagementFeature {
   id: ManagementFeatureId;
   title: string;
@@ -45,17 +45,20 @@ export interface ManagementFeature {
   requiredPermissions?: string[];
   discoverability: Discoverability;
   route?: WorkspaceId;
-  section?: 'business' | 'outlet' | 'capabilities' | 'readiness' | 'permissions';
+  section?: 'business' | 'outlet' | 'capabilities' | 'readiness' | 'permissions' | 'staff' | 'devices';
   explanation: string;
 }
 
 export const managementFeatures: ManagementFeature[] = [
   { id: 'business', title: 'Business and outlets', description: 'Business identity and current outlet settings', status: 'Partial', availability: 'partial', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'business', explanation: 'Business profile and the current outlet are connected. Additional outlet creation and switching are not connected.' },
-  { id: 'staff', title: 'Staff', description: 'Operator profiles and staff access', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'Staff records and create, edit, and suspend actions are unavailable until the server provides authorized staff commands.' },
+  { id: 'staff', title: 'Staff', description: 'Tenant-scoped operator profiles and access', status: 'Connected', availability: 'connected', requiredPermissions: ['staff.view'], discoverability: 'authorized', section: 'staff', explanation: 'Staff directory, coarse server roles, membership status, credential setup, and session review use authenticated tenant-scoped server operations. Role grant editing is not connected.' },
   { id: 'permissions', title: 'Roles and permissions', description: 'Role access and permission administration', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', explanation: 'Role grant editing is not connected. This card cannot inspect or change another operator’s access.' },
-  { id: 'devices', title: 'Devices and printing', description: 'Device enrollment and printer setup', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'This browser can use its print dialog. Device enrollment, revocation, and paired-printer confirmation are not connected.' },
+  { id: 'devices', title: 'Workspace assignments', description: 'Assign operators to business outlets', status: 'Connected', availability: 'connected', requiredPermissions: ['devices.view'], discoverability: 'authorized', section: 'devices', explanation: 'Outlet assignments are server-backed and audited. Printer enrollment, local device health, and physical print acknowledgement are not connected.' },
   { id: 'imports', title: 'Data import', description: 'Review and import stock CSV files', status: 'Connected · CSV', availability: 'connected', capability: 'inventory', requiredPermissions: ['catalog.manage'], discoverability: 'authorized', route: 'stock', explanation: 'Reviewed product CSV import is available from Stock. XLSX, packages, and variants are not connected.' },
   { id: 'assets', title: 'Assets and maintenance', description: 'Equipment, custody, and repair', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'Asset records and maintenance workflows are not connected. No sample asset data is shown.' },
+  { id: 'suppliers', title: 'Supplier accounts and payables', description: 'Supplier balances, bills, and settlements', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'Supplier records and accounts payable are not connected. Purchasing only covers the available catalog and delivery workflows.' },
+  { id: 'offline', title: 'Offline sales and sync', description: 'Work without a connection and reconcile later', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'Offline sale creation and synchronization are not connected. No queue or synchronization status is simulated.' },
+  { id: 'payments', title: 'Advanced payment providers', description: 'Card, mobile money, and provider settlements', status: 'Not connected', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'External provider authorization and settlement confirmation are not connected. Cash and customer account charges remain separate.' },
   { id: 'capabilities', title: 'Business capabilities', description: 'Services enabled for this business', status: 'Connected', availability: 'connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'capabilities', explanation: 'Supported business capabilities are read from and saved through server configuration.' },
   { id: 'readiness', title: 'Setup checklist', description: 'First-sale setup readiness', status: 'Connected · limited', availability: 'partial', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'readiness', explanation: 'The server provides first-sale checks. Broader operational sign-off is not connected.' },
   { id: 'outlet', title: 'Outlet and receipts', description: 'Current outlet details and receipt text', status: 'Connected', availability: 'connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'outlet', explanation: 'Current outlet contact and receipt text are server-backed. Logo upload and payment QR integrations are not connected.' },

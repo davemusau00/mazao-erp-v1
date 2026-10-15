@@ -15,6 +15,10 @@ import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.j
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, readBusinessProfile } from './configuration.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, requireProductImportAccess } from './productImport.js';
+import { changeCredential } from './credentials.js';
+import type { CredentialInput } from './credentials.js';
+import { listAssignments, listOperatorSessions, listStaff, requireStaffCommandPermission, STAFF_COMMANDS } from './staff.js';
+import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -55,18 +59,28 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     catch { return reply.code(503).send({ status: 'not_ready', database: 'unavailable' }); }
   });
 
-  app.post<{ Body: { email: string; password: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
+  app.post<{ Body: { email: string; password: string; deviceId?: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
     const email = request.body?.email?.trim().toLowerCase();
     const password = request.body?.password;
     if (!email || typeof password !== 'string') throw new DomainError('VALIDATION_FAILED', 'Email and password are required.');
-    const result = await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,
+    const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
+    const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
+    if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
+    const assignments=await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
       JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id AND o.active
-      WHERE lower(u.email)=lower($1) AND u.active AND m.active ORDER BY d.created_at`, [email]);
-    if (result.rowCount !== 1 || !(await verifyPassword(password, result.rows[0]?.password_hash ?? ''))) throw new DomainError('UNAUTHENTICATED', 'Email or password is incorrect, or the account has no unique active device assignment.', 401);
-    const row = result.rows[0];
+      WHERE u.id=$1 AND u.active AND m.active ORDER BY t.name,o.name,d.label,d.id`,[identity.rows[0].id]);
+    if(!assignments.rowCount)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
+    const selectedDevice=request.body.deviceId;
+    let row;
+    if(selectedDevice!==undefined){
+      row=assignments.rows.find(assignment=>assignment.device_id===selectedDevice);
+      if(!row)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
+    }else if(assignments.rowCount>1){
+      throw new DomainError('ASSIGNMENT_REQUIRED','Choose an authorized workspace assignment to continue.',409,{assignments:assignments.rows.map(({device_id,device_label,tenant_id,tenant_name,outlet_id,outlet_name})=>({deviceId:device_id,deviceLabel:device_label,tenantId:tenant_id,tenantName:tenant_name,outletId:outlet_id,outletName:outlet_name}))});
+    }else row=assignments.rows[0];
     const sessionToken = randomToken(); const csrfToken = randomToken(24); const sessionId = randomUUID();
     await pool.query(`INSERT INTO identity.sessions(id,token_hash,csrf_hash,user_id,tenant_id,outlet_id,device_id,expires_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
@@ -100,6 +114,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
   app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/staff',async request=>listStaff(request.operator!));
+  app.get('/api/v1/devices',async request=>listAssignments(request.operator!));
+  app.get('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!));
+  app.get<{Params:{userId:string}}>('/api/v1/staff/:userId/sessions',async request=>listOperatorSessions(request.operator!,request.params.userId));
+  app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
+  app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
   app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
@@ -268,6 +288,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
           try{requireProductImportAccess(s);}catch(error){if(!(error instanceof DomainError))throw error;return {status:'REJECTED',code:error.code,message:error.message};}
         }
         const old=await client.query('SELECT request_hash,status,response,actor_id FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
+        if ((STAFF_COMMANDS as readonly string[]).includes(envelope.type)) {
+          await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
+          const fresh=await revalidateOperator(client,s);
+          requireStaffCommandPermission(fresh,envelope.type);
+          if(old.rows[0].actor_id!==s.userId)throw new DomainError('FORBIDDEN','This access operation belongs to another operator.',403);
+        }
         if(envelope.type.startsWith('catalog.import.')&&old.rows[0].actor_id!==s.userId)return {status:'REJECTED',code:'FORBIDDEN',message:'This import operation belongs to another operator.'};
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
@@ -296,6 +322,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
       WHERE c.tenant_id=$1 AND c.command_id=$2`,[request.operator!.tenantId,request.params.commandId]);
     if (!r.rowCount) return reply.code(404).send({error:{code:'NOT_FOUND',message:'Command was not found.'}});
+    if(r.rows[0].command_type==='staff.password.set'){
+      if(r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
+      requireIdentityPermission(request.operator!,'staff.manage');
+    }
+    if(r.rows[0].command_type==='auth.password.change'&&r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
     if(r.rows[0].command_type.startsWith('catalog.import.')){
       requireProductImportAccess(request.operator!);
       if(r.rows[0].outlet_id!==request.operator!.outletId||r.rows[0].actor_id!==request.operator!.userId)throw new DomainError('NOT_FOUND','Import operation was not found in your operator/outlet scope.',404);
