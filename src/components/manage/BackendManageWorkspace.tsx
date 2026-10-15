@@ -161,14 +161,14 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
     } catch(cause){setError(cause instanceof Error?cause.message:'The image file could not be read.');}
   };
   const uploadedImageField=(label:string,field:'logoUrl'|'receiptQrImage')=>{
-    const value=business?.[field]??'';const preview=value&&safeRasterImageSource(value)?value:'';
+    const value=field==='logoUrl'?(business?.logoUrl??''):(business?.receiptQrImage??'');const preview=value&&safeRasterImageSource(value)?value:'';
     return <div className="form-field"><label htmlFor={`business-${field}-upload`}>{label} PNG</label>
       <input id={`business-${field}-upload`} aria-label={`Upload ${label.toLowerCase()} PNG`} type="file" accept="image/png" className="min-h-11" disabled={editingBlocked} onChange={event=>{void uploadBusinessImage(field,event.currentTarget.files?.[0]);event.currentTarget.value='';}} />
       <small>PNG only, up to 512 KB. The image is saved in server settings.</small>
       {preview&&<div className="flex items-center gap-3 rounded-lg border border-zinc-700 p-3"><img src={preview} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/><button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>{editBusiness(field,'');}}>Remove image</button></div>}
     </div>;
   };
-  const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
+  const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'|'showQrOnReceipt'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
   const outletField=(label:string,field:keyof BackendOutletConfigurationInput,options:{type?:string;required?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={outlet?.[field]??''} onChange={event=>editOutlet(field,event.target.value)} disabled={editingBlocked} type={options.type??'text'} maxLength={200} required={options.required}/></label>;
 
   return <div className="page-stack configuration-workspace">
