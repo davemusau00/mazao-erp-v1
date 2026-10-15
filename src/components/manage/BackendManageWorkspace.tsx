@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench } from 'lucide-react';
+import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard } from 'lucide-react';
 import { apiClient, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput } from '../../services/apiClient';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
@@ -8,7 +8,7 @@ import './BackendManageWorkspace.css';
 
 type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions';
 const capabilityLabels:Record<string,string>={commerce:'Sales and customer accounts',inventory:'Inventory',retail:'Retail workspace',hospitality:'Rooms and guest stays'};
-const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>};
+const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>};
 
 function businessInput(configuration:BackendConfiguration):BackendBusinessConfigurationInput {
   const {id:_,version:__,...fields}=configuration.business;

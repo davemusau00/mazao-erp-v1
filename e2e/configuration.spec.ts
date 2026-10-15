@@ -199,7 +199,7 @@ test('management overview exposes connected setup and disabled admin modules wit
   await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
-  for(const label of ['Staff','Roles and permissions','Devices and printing','Assets and maintenance']){
+  for(const label of ['Staff','Roles and permissions','Devices and printing','Assets and maintenance','Supplier accounts and payables','Offline sales and sync','Advanced payment providers']){
     const card=page.getByRole('button',{name:new RegExp(label)});
     await expect(card).toBeDisabled();
     await expect(card).toContainText('Not connected');
