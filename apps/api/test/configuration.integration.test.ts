@@ -36,7 +36,8 @@ if (!databaseUrl) {
       assert.equal(initial.business.version, 1); assert.equal(initial.outlet.version, 1);
       assert.equal(initial.currencyLocked, false); assert.equal(initial.readiness.readyForFirstSale, false);
       assert.deepEqual(initial.supportedCapabilities, ['commerce', 'inventory', 'hospitality', 'retail']);
-      const businessInput = { ...initial.business, name: 'Configured resort', legalName: 'Configured Resort Limited', address: 'Nairobi\nKenya', phone: '+254 700 123 456', email: 'CONTACT@EXAMPLE.INVALID', website: 'https://example.invalid', logoUrl: '', registrationNumber: 'B1234', taxRegistrationNumber: 'P1234', receiptHeader: 'Welcome to the resort', receiptFooter: 'Original receipt footer', taxPolicy: { calculation: 'exclusive', defaultRateBps: 1600, label: 'VAT', reviewed: true } };
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+      const businessInput = { ...initial.business, name: 'Configured resort', legalName: 'Configured Resort Limited', address: 'Nairobi\nKenya', phone: '+254 700 123 456', email: 'CONTACT@EXAMPLE.INVALID', website: 'https://example.invalid', logoUrl: png, receiptQrImage: png, showQrOnReceipt: true, registrationNumber: 'B1234', taxRegistrationNumber: 'P1234', receiptHeader: 'Welcome to the resort', receiptFooter: 'Original receipt footer', taxPolicy: { calculation: 'exclusive', defaultRateBps: 1600, label: 'VAT', reviewed: true } };
       const save = command('configuration.business.update', businessInput, { [`business:${tenantId}`]: 1 });
       const first = await submit(save); assert.equal(first.json().status, 'CONFIRMED', first.body); assert.equal(first.json().value.version, 2);
       assert.deepEqual((await submit(save)).json(), first.json(), 'canonical replay must return stored result');
@@ -53,7 +54,7 @@ if (!databaseUrl) {
 
       const stale = await submit(command('configuration.business.update', businessInput, { [`business:${tenantId}`]: 1 }));
       assert.equal(stale.json().status, 'CONFLICT'); assert.equal(stale.json().details.currentVersion, 2);
-      for (const invalid of [{ email: 'invalid' }, { timeZone: 'GMT3+' }, { currency: 'ZZZ' }, { logoUrl: 'javascript:alert(1)' }, { taxPolicy: { calculation: 'inclusive', defaultRateBps: 1600, label: 'VAT', reviewed: true } }, { taxPolicy: { calculation: 'exclusive', defaultRateBps: 16.5, label: 'VAT', reviewed: true } }]) {
+      for (const invalid of [{ email: 'invalid' }, { timeZone: 'GMT3+' }, { currency: 'ZZZ' }, { logoUrl: 'javascript:alert(1)' }, { receiptQrImage: 'data:image/svg+xml;base64,PHN2Zz4=' }, { receiptQrImage: 'data:image/png;base64,AAAA' }, { showQrOnReceipt: 'yes' }, { taxPolicy: { calculation: 'inclusive', defaultRateBps: 1600, label: 'VAT', reviewed: true } }, { taxPolicy: { calculation: 'exclusive', defaultRateBps: 16.5, label: 'VAT', reviewed: true } }]) {
         const failed = await submit(command('configuration.business.update', { ...businessInput, ...invalid }, { [`business:${tenantId}`]: 2 }));
         assert.equal(failed.json().status, 'REJECTED', failed.body); assert.equal(failed.json().code, 'VALIDATION_FAILED');
       }
@@ -110,7 +111,10 @@ if (!databaseUrl) {
       assert.equal(receiptBefore.json().receiptProfile.receiptFooter, 'Outlet receipt footer');
       assert.equal(receiptBefore.json().receiptProfile.legalName, 'Configured Resort Limited');
       assert.equal(receiptBefore.json().receiptProfile.taxLabel, 'VAT');
-      const newerBusiness = await submit(command('configuration.business.update', { ...businessInput, name: 'Later business identity', legalName: 'Later legal identity', receiptFooter: 'Later business footer', taxPolicy: { ...businessInput.taxPolicy, defaultRateBps: 800, label: 'Later tax label' } }, { [`business:${tenantId}`]: 4 }));
+      assert.equal(receiptBefore.json().receiptProfile.logoUrl, png);
+      assert.equal(receiptBefore.json().receiptProfile.receiptQrImage, png);
+      assert.equal(receiptBefore.json().receiptProfile.showQrOnReceipt, true);
+      const newerBusiness = await submit(command('configuration.business.update', { ...businessInput, name: 'Later business identity', legalName: 'Later legal identity', receiptFooter: 'Later business footer', logoUrl: '', receiptQrImage: '', showQrOnReceipt: false, taxPolicy: { ...businessInput.taxPolicy, defaultRateBps: 800, label: 'Later tax label' } }, { [`business:${tenantId}`]: 4 }));
       assert.equal(newerBusiness.json().status, 'CONFIRMED', newerBusiness.body);
       const newerOutlet = await submit(command('configuration.outlet.update', { ...initial.outlet, name: 'Later outlet', receiptFooter: 'Later outlet footer' }, { [`outlet:${outletId}`]: 2 }));
       assert.equal(newerOutlet.json().status, 'CONFIRMED', newerOutlet.body);

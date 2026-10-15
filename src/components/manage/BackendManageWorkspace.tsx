@@ -5,6 +5,7 @@ import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
 import type { WorkspaceId } from '../../types/ui';
 import { StaffAccessWorkspace } from './StaffAccessWorkspace';
+import { safeRasterImageSource } from '../../utils/html';
 import './BackendManageWorkspace.css';
 
 type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices';
@@ -145,6 +146,28 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   };
   const editBusiness=(field:keyof BackendBusinessConfigurationInput,value:string)=>{setBusiness(previous=>previous?{...previous,[field]:value}:previous);setDirty(true);};
   const editOutlet=(field:keyof BackendOutletConfigurationInput,value:string)=>{setOutlet(previous=>previous?{...previous,[field]:value}:previous);setDirty(true);};
+  const uploadBusinessImage=async(field:'logoUrl'|'receiptQrImage',file?:File)=>{
+    if(!file)return;
+    if(file.type!=='image/png'){setError('Choose a PNG image file.');return;}
+    if(file.size>512*1024){setError('PNG images must be 512 KB or smaller.');return;}
+    setError('');
+    try {
+      const dataUrl=await new Promise<string>((resolve,reject)=>{
+        const reader=new FileReader();reader.onerror=()=>reject(new Error('The PNG file could not be read.'));
+        reader.onload=()=>typeof reader.result==='string'&&reader.result.startsWith('data:image/png;base64,')?resolve(reader.result):reject(new Error('The selected file is not a PNG image.'));
+        reader.readAsDataURL(file);
+      });
+      setBusiness(previous=>previous?{...previous,[field]:dataUrl}:previous);setDirty(true);
+    } catch(cause){setError(cause instanceof Error?cause.message:'The image file could not be read.');}
+  };
+  const uploadedImageField=(label:string,field:'logoUrl'|'receiptQrImage')=>{
+    const value=business?.[field]??'';const preview=value&&safeRasterImageSource(value)?value:'';
+    return <div className="form-field"><label htmlFor={`business-${field}-upload`}>{label} PNG</label>
+      <input id={`business-${field}-upload`} aria-label={`Upload ${label.toLowerCase()} PNG`} type="file" accept="image/png" className="min-h-11" disabled={editingBlocked} onChange={event=>{void uploadBusinessImage(field,event.currentTarget.files?.[0]);event.currentTarget.value='';}} />
+      <small>PNG only, up to 512 KB. The image is saved in server settings.</small>
+      {preview&&<div className="flex items-center gap-3 rounded-lg border border-zinc-700 p-3"><img src={preview} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/><button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>{editBusiness(field,'');}}>Remove image</button></div>}
+    </div>;
+  };
   const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
   const outletField=(label:string,field:keyof BackendOutletConfigurationInput,options:{type?:string;required?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={outlet?.[field]??''} onChange={event=>editOutlet(field,event.target.value)} disabled={editingBlocked} type={options.type??'text'} maxLength={200} required={options.required}/></label>;
 
@@ -178,7 +201,8 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
         {configuration.currencyLocked&&<p className="text-xs text-zinc-400 md:col-span-2">Currency is fixed because this business already has monetary records.</p>}
         {businessField('Business address','address')}{businessField('Contact phone','phone',{type:'tel'})}
         {businessField('Contact email','email',{type:'email'})}{businessField('Website','website',{type:'url'})}
-        {businessField('Logo image URL','logoUrl',{type:'url',maxLength:1000})}
+        {!business.logoUrl.startsWith('data:')&&businessField('Logo image URL','logoUrl',{type:'url',maxLength:2048})}{uploadedImageField('Business logo','logoUrl')}
+        {uploadedImageField('Payment QR','receiptQrImage')}<label className="flex min-h-11 items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={business.showQrOnReceipt} onChange={event=>{setBusiness({...business,showQrOnReceipt:event.target.checked});setDirty(true);}}/>Show payment QR on new receipts</label>
         <label className="form-field"><span id="business-receipt-header-label">Receipt header</span><textarea aria-labelledby="business-receipt-header-label" value={business.receiptHeader} maxLength={500} rows={3} onChange={event=>editBusiness('receiptHeader',event.target.value)}/></label>
         <label className="form-field"><span id="business-receipt-footer-label">Receipt footer</span><textarea aria-labelledby="business-receipt-footer-label" value={business.receiptFooter} maxLength={500} rows={3} onChange={event=>editBusiness('receiptFooter',event.target.value)}/></label>
         <div className="md:col-span-2 mt-2 border-t border-zinc-700 pt-4"><h3 className="font-semibold">Tax policy</h3><p className="mt-1 text-sm text-zinc-400">Prices exclude tax. The default applies to newly created items and rooms; existing item rates and posted transactions keep their original rates.</p></div>

@@ -54,6 +54,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
   // JSX performs HTML escaping. Use the shared validator as a gate, then pass the
   // original URL to React to avoid encoding a URL twice.
   const logoUrl = typeof profile.logoUrl === 'string' && safeRasterImageSource(profile.logoUrl) ? profile.logoUrl.trim() : '';
+  const qrImage = profile.showQrOnReceipt !== false && typeof profile.receiptQrImage === 'string' && safeRasterImageSource(profile.receiptQrImage) ? profile.receiptQrImage.trim() : '';
   const download = () => {
     if (!receipt) return;
     const url = URL.createObjectURL(new Blob([textReceipt(receipt)], { type: 'text/plain;charset=utf-8' }));
@@ -78,7 +79,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
         {loading && <div role="status" className="flex min-h-48 items-center justify-center gap-3 text-sm text-zinc-400"><RefreshCw className="animate-spin" size={17} />Loading confirmed receipt...</div>}
         {error && <div role="alert" className="mx-auto max-w-md rounded-xl border border-rose-900/70 bg-rose-950/40 p-4 text-sm text-rose-100"><div className="flex items-start gap-2"><AlertCircle className="mt-0.5 shrink-0" size={17} /><p>The sale is confirmed, but the server receipt could not be retrieved. The local basket is not used as a receipt record. {error}</p></div><button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-lg border border-rose-700 px-3 font-medium hover:bg-rose-900/50">Retry receipt lookup</button></div>}
         {receipt && !loading && <article id="backend-receipt-paper" className="mx-auto w-full max-w-[320px] border-x border-dashed border-zinc-300 border-t-4 bg-white px-4 py-5 font-mono text-[11px] leading-relaxed text-zinc-950 shadow-xl">
-          {logoUrl && <img src={logoUrl} alt={`${receipt.tenantName} logo`} referrerPolicy="no-referrer" className="mx-auto mb-2 max-h-16 max-w-40 object-contain grayscale" />}
+          {logoUrl && <img src={logoUrl} alt={`${receipt.tenantName} logo`} referrerPolicy="no-referrer" className="mx-auto mb-2 max-h-16 max-w-40 object-contain" />}
           <div className="text-center text-xs font-bold uppercase tracking-wide">{receipt.tenantName}</div>
           <div className="text-center text-[10px] text-zinc-700">{receipt.outletName}</div>
           {profile.legalName && <div className="text-center text-[10px]">{profile.legalName}</div>}
@@ -112,6 +113,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
           </dl>
           <div className="my-3 border-t border-dashed border-zinc-400" />
           {profile.receiptFooter && <div className="mb-2 whitespace-pre-line text-center text-[10px]">{profile.receiptFooter}</div>}
+          {qrImage && <div className="my-3 text-center"><img src={qrImage} alt="Payment QR code" className="mx-auto max-h-24 max-w-24 object-contain"/><div className="mt-1 text-[9px]">Scan to pay</div></div>}
           <div className="text-center text-[9px] text-zinc-600">DEVELOPED BY KINGS FORGE 0746157440</div>
           <div className="mt-2 break-all text-center text-[8px] text-zinc-400">Sale reference: {receipt.receiptId}</div>
         </article>}
