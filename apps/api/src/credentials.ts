@@ -10,6 +10,7 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export async function changeCredential(operator:ApiSession,input:CredentialInput,target?:unknown){
   const self=target===undefined;const userId=self?operator.userId:target;
   const type=self?'auth.password.change':'staff.password.set';
+  if(!self&&userId===operator.userId)throw new DomainError('USE_SELF_PASSWORD_CHANGE','Use My account and verify your current password to change your own credential.',403);
   if(typeof userId!=='string'||!uuid.test(userId)||!input||input.protocolVersion!==1||!uuid.test(input.commandId??'')||!input.expectedVersions||typeof input.expectedVersions!=='object'||Array.isArray(input.expectedVersions)||typeof input.newPassword!=='string'||input.newPassword.length<12||input.newPassword.length>256||Object.keys(input).some(key=>!['protocolVersion','commandId','expectedVersions','newPassword',...(self?['currentPassword']:[])].includes(key)))throw new DomainError('VALIDATION_FAILED','Provide a command ID, expected credential version and a new password of 12 to 256 characters.');
   if(self&&(typeof input.currentPassword!=='string'||input.currentPassword.length>256))throw new DomainError('VALIDATION_FAILED','Enter your current password to change your account credential.');
   const expected=input.expectedVersions[`credential:${userId}`];if(!Number.isSafeInteger(expected)||expected<1)throw new DomainError('VALIDATION_FAILED','Expected credential version is required.');
@@ -33,7 +34,6 @@ export async function changeCredential(operator:ApiSession,input:CredentialInput
     await client.query('SAVEPOINT credential_change');
     let response:Record<string,unknown>;
     try{
-      if(!self&&userId===session.userId)throw new DomainError('USE_SELF_PASSWORD_CHANGE','Use My account and verify your current password to change your own credential.',403);
       const member=await client.query('SELECT user_id FROM identity.memberships WHERE tenant_id=$1 AND user_id=$2 FOR SHARE',[session.tenantId,userId]);
       if(!member.rowCount)throw new DomainError('NOT_FOUND','Staff membership was not found for this business.',404);
       const user=await client.query('SELECT password_hash,credential_version FROM identity.users WHERE id=$1 FOR UPDATE',[userId]);
