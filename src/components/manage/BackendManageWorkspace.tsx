@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ReceiptText, Settings2 } from 'lucide-react';
+import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench } from 'lucide-react';
 import { apiClient, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput } from '../../services/apiClient';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
+import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
+import type { WorkspaceId } from '../../types/ui';
 import './BackendManageWorkspace.css';
 
-type Section='business'|'outlet'|'capabilities'|'readiness';
+type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions';
 const capabilityLabels:Record<string,string>={commerce:'Sales and customer accounts',inventory:'Inventory',retail:'Retail workspace',hospitality:'Rooms and guest stays'};
+const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>};
 
 function businessInput(configuration:BackendConfiguration):BackendBusinessConfigurationInput {
   const {id:_,version:__,...fields}=configuration.business;
@@ -16,10 +19,10 @@ function outletInput(configuration:BackendConfiguration):BackendOutletConfigurat
   return fields;
 }
 
-export function BackendManageWorkspace() {
+export function BackendManageWorkspace({initialSection='overview',onNavigate,onOpenImport}:{initialSection?:Section;onNavigate:(workspace:WorkspaceId)=>boolean|void;onOpenImport:()=>void}) {
   const session=apiClient.getSession()!;
   const canEdit=session.user.permissions.includes('config.manage');
-  const [section,setSection]=useState<Section>('business');
+  const [section,setSection]=useState<Section>(initialSection);
   const [configuration,setConfiguration]=useState<BackendConfiguration|null>(null);
   const [business,setBusiness]=useState<BackendBusinessConfigurationInput|null>(null);
   const [outlet,setOutlet]=useState<BackendOutletConfigurationInput|null>(null);
@@ -53,6 +56,7 @@ export function BackendManageWorkspace() {
   };
 
   useEffect(()=>{void load();},[]);
+  useEffect(()=>{setSection(initialSection);},[initialSection]);
   const loadRecovery=async()=>{
     setRecoveryChecked(false);setRecoveryError('');
     try {
@@ -132,16 +136,32 @@ export function BackendManageWorkspace() {
     if(dirty&&configuration){setBusiness(businessInput(configuration));setOutlet(outletInput(configuration));setCapabilities(configuration.capabilities);const bps=configuration.business.taxPolicy.defaultRateBps;setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);setDirty(false);}
     setSection(next);setError('');
   };
+  const openFeature=(id:ManagementFeatureId)=>{
+    const feature=managementFeatures.find(item=>item.id===id);
+    if(!feature||['insufficient_permission','not_enabled','not_connected'].includes(managementFeatureState(session,feature)))return;
+    if(feature.route){const accepted=onNavigate(feature.route);if(feature.id==='imports'&&accepted!==false)onOpenImport();return;}
+    if(feature.section)changeSection(feature.section);
+  };
   const editBusiness=(field:keyof BackendBusinessConfigurationInput,value:string)=>{setBusiness(previous=>previous?{...previous,[field]:value}:previous);setDirty(true);};
   const editOutlet=(field:keyof BackendOutletConfigurationInput,value:string)=>{setOutlet(previous=>previous?{...previous,[field]:value}:previous);setDirty(true);};
   const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
   const outletField=(label:string,field:keyof BackendOutletConfigurationInput,options:{type?:string;required?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={outlet?.[field]??''} onChange={event=>editOutlet(field,event.target.value)} disabled={editingBlocked} type={options.type??'text'} maxLength={200} required={options.required}/></label>;
 
   return <div className="page-stack configuration-workspace">
-    <WorkspaceHeading eyebrow="BUSINESS ADMINISTRATION" title="Manage your business" description="Business identity, outlet settings, receipts and available services." action={<span className="text-xs text-zinc-400">{canEdit?'Administrator access':'Read access'}</span>}/>
-    <nav aria-label="Settings sections" className="flex flex-wrap gap-2">
-      {([['business','Business',Building2],['outlet','Outlet and receipts',ReceiptText],['capabilities','Capabilities',Settings2],['readiness','Setup checklist',ClipboardCheck]] as const).map(([id,label,Icon])=><button key={id} type="button" aria-current={section===id?'page':undefined} onClick={()=>changeSection(id)} className={`min-h-11 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${section===id?'border-blue-500 bg-blue-500/10 text-blue-200':'border-zinc-700 text-zinc-300'}`}><Icon size={16}/>{label}</button>)}
-    </nav>
+    <WorkspaceHeading eyebrow="BUSINESS ADMINISTRATION" title="Manage your business" description={section==='overview'?'Business details and administration areas for this server workspace.':section==='permissions'?'Review the role and permissions issued to your signed-in session.':'Business identity, outlet settings, receipts and available services.'} action={section!=='overview'&&<button type="button" className="secondary-action min-h-11" onClick={()=>changeSection('overview')}>All settings</button>}/>
+    {section==='overview'&&<>
+      <section className="settings-profile-card" aria-label="Current business and outlet"><div className="settings-profile-icon"><Building2/></div><div><span className="eyebrow">ACTIVE BUSINESS</span><h2>{session.tenant.name}</h2><p>{session.tenant.currency} · {session.tenant.timeZone} · {session.outlet.name}</p></div><span className="manage-feature-status">Server data</span></section>
+      <div className="manage-grid" aria-label="Administration areas">{managementFeatures.filter(feature=>canDiscover(feature.discoverability,session)).map(feature=>{
+        const state=managementFeatureState(session,feature);
+        const disabled=state==='insufficient_permission'||state==='not_enabled'||state==='not_connected'||(!feature.route&&!feature.section);
+        const status=state==='insufficient_permission'?'Requires access':state==='not_enabled'?'Not enabled':feature.status;
+        const statusClass=state==='not_connected'||state==='not_enabled'||state==='insufficient_permission'?'not-connected':'manage-feature-status';
+        return <button key={feature.id} type="button" className={`manage-card manage-card-button ${disabled?'manage-card-disabled':''}`} disabled={disabled} aria-disabled={disabled} title={disabled?feature.explanation:undefined} onClick={()=>openFeature(feature.id)}><div className="manage-card-icon">{managementIcons[feature.id]}</div><div><h2>{feature.title}</h2><p>{feature.description}</p></div><span className={statusClass}>{status}</span><span className="sr-only">{feature.explanation}</span></button>;
+      })}</div>
+    </>}
+    {section!=='overview'&&<nav aria-label="Settings sections" className="flex flex-wrap gap-2">
+      {([['business','Business',Building2],['outlet','Outlet and receipts',ReceiptText],['capabilities','Capabilities',Settings2],['readiness','Setup checklist',ClipboardCheck],['permissions','My access',Shield]] as const).map(([id,label,Icon])=><button key={id} type="button" aria-current={section===id?'page':undefined} onClick={()=>changeSection(id)} className={`min-h-11 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${section===id?'border-blue-500 bg-blue-500/10 text-blue-200':'border-zinc-700 text-zinc-300'}`}><Icon size={16}/>{label}</button>)}
+    </nav>}
     {!canEdit&&<p className="rounded-lg border border-zinc-700 p-3 text-sm text-zinc-300">Your account can review these settings. An administrator can change them.</p>}
     {!recoveryChecked&&<div role={recoveryError?'alert':'status'} className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">{recoveryError||'Checking retained command evidence before allowing settings changes.'}{recoveryError&&<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void loadRecovery()}>Retry command recovery</button>}</div>}
     {error&&<div role="alert" className="rounded-lg border border-rose-700 bg-rose-950/20 p-4 text-sm text-rose-200">{error}{!configuration&&<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void load()}>Retry loading settings</button>}</div>}
@@ -167,7 +187,8 @@ export function BackendManageWorkspace() {
       </fieldset><div className="mt-5 flex items-center justify-between gap-3 border-t border-zinc-700 pt-4"><span className="text-xs text-zinc-400">{dirty?'Unsaved changes':`Server version ${configuration.business.version}`}</span><button type="submit" className="primary-action min-h-11" disabled={editingBlocked||!dirty}>{busy?'Saving…':'Save business settings'}</button></div></form>}
       {section==='outlet'&&<form onSubmit={saveOutlet} className="workflow-panel"><div className="panel-heading"><div><h2>Current outlet</h2><p>Settings for {configuration.outlet.name}. Blank receipt and contact fields use business defaults.</p></div><ReceiptText size={18}/></div><fieldset disabled={editingBlocked} className="grid gap-4 md:grid-cols-2">{outletField('Outlet name','name',{required:true})}{outletField('Outlet time zone','timeZone',{required:true})}{outletField('Outlet address','address')}{outletField('Outlet phone','phone',{type:'tel'})}{outletField('Outlet email','email',{type:'email'})}<label className="form-field"><span id="outlet-receipt-header-label">Outlet receipt header</span><textarea aria-labelledby="outlet-receipt-header-label" value={outlet.receiptHeader} maxLength={500} rows={3} onChange={event=>editOutlet('receiptHeader',event.target.value)}/></label><label className="form-field"><span id="outlet-receipt-footer-label">Outlet receipt footer</span><textarea aria-labelledby="outlet-receipt-footer-label" value={outlet.receiptFooter} maxLength={500} rows={3} onChange={event=>editOutlet('receiptFooter',event.target.value)}/></label></fieldset><div className="mt-5 flex items-center justify-between gap-3 border-t border-zinc-700 pt-4"><span className="text-xs text-zinc-400">{dirty?'Unsaved changes':`Server version ${configuration.outlet.version}`}</span><button type="submit" className="primary-action min-h-11" disabled={editingBlocked||!dirty}>{busy?'Saving…':'Save outlet settings'}</button></div></form>}
       {section==='capabilities'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>Business capabilities</h2><p>Enable the services this business uses.</p></div><Settings2 size={18}/></div><fieldset disabled={editingBlocked} className="grid gap-3 sm:grid-cols-2">{configuration.supportedCapabilities.map(capability=><label key={capability} className="flex min-h-14 items-center gap-3 rounded-lg border border-zinc-700 px-4 py-3"><input type="checkbox" checked={capabilities.includes(capability)} onChange={event=>{setCapabilities(previous=>event.target.checked?[...previous,capability]:previous.filter(value=>value!==capability));setDirty(true);}}/><span className="text-sm">{capabilityLabels[capability]??capability}</span></label>)}</fieldset><p className="mt-4 text-sm text-zinc-400">Sales requires inventory. Retail requires sales and inventory. Rooms requires sales. Turning off a capability keeps its business history.</p><div className="mt-5 flex justify-end"><button type="button" className="primary-action min-h-11" disabled={editingBlocked||!dirty} onClick={()=>void saveCapabilities()}>{busy?'Saving…':'Save capabilities'}</button></div></section>}
-      {section==='readiness'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>First sale checklist</h2><p>{configuration.readiness.readyForFirstSale?'This outlet is ready for its first sale.':'Complete the remaining setup checks before selling.'}</p></div><ClipboardCheck size={18}/></div><div className="grid gap-3">{configuration.readiness.checks.map(check=><div key={check.key} className="flex items-start gap-3 rounded-lg border border-zinc-700 p-4">{check.complete?<CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-300"/>:<CircleAlert size={20} className="mt-0.5 shrink-0 text-amber-300"/>}<div><h3 className="text-sm font-semibold">{check.label}<span className="ml-2 font-normal text-zinc-400">{check.complete?'Complete':'Needs attention'}</span></h3><p className="mt-1 text-sm text-zinc-400">{check.detail}</p></div></div>)}</div><button type="button" className="secondary-action min-h-11 mt-4" disabled={loading||busy} onClick={()=>void load()}>Refresh setup checks</button></section>}
+      {section==='readiness'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>First sale checklist</h2><p>{configuration.readiness.readyForFirstSale?'This outlet is ready for its first sale.':'Complete the remaining setup checks before selling.'}</p></div><ClipboardCheck size={18}/></div><div className="grid gap-3">{configuration.readiness.checks.map(check=><div key={check.key} className="flex items-start gap-3 rounded-lg border border-zinc-700 p-4">{check.complete?<CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-300"/>:<CircleAlert size={20} className="mt-0.5 shrink-0 text-amber-300"/>}<div><h3 className="text-sm font-semibold">{check.label}<span className="ml-2 font-normal text-zinc-400">{check.complete?'Complete':'Needs attention'}</span></h3><p className="mt-1 text-sm text-zinc-400">{check.detail}</p></div></div>)}</div><p className="mt-4 text-sm text-zinc-400">These are first-sale configuration checks. Broader business sign-off is not connected.</p><button type="button" className="secondary-action min-h-11 mt-4" disabled={loading||busy} onClick={()=>void load()}>Refresh setup checks</button></section>}
+      {section==='permissions'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>Your server-issued access</h2><p>{session.user.role} · {session.user.name}</p></div><Shield size={18}/></div><p className="text-sm text-zinc-300">These permissions describe this signed-in session. Role editing and other staff access details are not connected.</p><ul className="mt-4 grid gap-2 sm:grid-cols-2">{session.user.permissions.map(permission=><li key={permission} className="rounded-lg border border-zinc-700 px-3 py-2 font-mono text-sm">{permission}</li>)}</ul>{session.user.permissions.length===0&&<p className="mt-4 text-sm text-zinc-400">No permissions are assigned to this session.</p>}</section>}
     </>}
   </div>;
 }

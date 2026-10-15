@@ -1,44 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays } from 'lucide-react';
-import type { WorkspaceDefinition, WorkspaceId } from '../../types/ui';
+import type { WorkspaceId } from '../../types/ui';
+import { featureState, workspaceFeatures } from '../../app/featureRegistry';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
 import type { RecoverableCommand } from '../../services/commandJournal';
 import type { ImportValidationRecovery } from '../../services/importValidationJournal';
 
 export type ActiveTab=WorkspaceId;
-const workspaceItems:Array<WorkspaceDefinition&{icon:React.ReactNode}>=[
-  {id:'today',label:'Today',description:'Your shift at a glance',group:'work',icon:<LayoutDashboard/>},
-  {id:'sell',label:'Sell',description:'Take payment and serve guests',group:'work',icon:<ShoppingCart/>},
-  {id:'sales',label:'Sales history',description:'Find receipts and returns',group:'work',icon:<Clock3/>},
-  {id:'service',label:'Tables & kitchen',description:'Orders, tabs and preparation',group:'work',icon:<ChefHat/>},
-  {id:'stock',label:'Stock',description:'Items, movements and counts',group:'work',icon:<Package/>},
-  {id:'stock-count',label:'Count stock',description:'Scan and review a count',group:'work',icon:<ClipboardCheck/>},
-  {id:'purchasing',label:'Purchasing',description:'Suppliers and deliveries',group:'work',icon:<Truck/>},
-  {id:'hotel',label:'Hotel',description:'Rooms and guest bills',group:'work',icon:<Hotel/>},
-  {id:'reservations',label:'Reservations',description:'Check dates and room options',group:'work',icon:<CalendarDays/>},
-  {id:'customers',label:'Customers',description:'Accounts and repayments',group:'work',icon:<Users/>},
-  {id:'shifts',label:'Shifts',description:'Till opening and cash-up',group:'money',icon:<Clock3/>},
-  {id:'money',label:'Money',description:'Ledger and balances',group:'money',icon:<Scale/>},
-  {id:'reports',label:'Reports',description:'Sales and operating reports',group:'money',icon:<BarChart3/>},
-  {id:'manage',label:'Manage',description:'Business setup and access',group:'manage',icon:<Settings2/>},
-  {id:'help',label:'Help',description:'Guides and recovery steps',group:'support',icon:<CircleHelp/>},
-];
+const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
+const workspaceItems=workspaceFeatures.map(feature=>({...feature,icon:workspaceIcons[feature.id]}));
 const groups=[{id:'work',label:'WORK'},{id:'money',label:'MONEY'},{id:'manage',label:'MANAGE'},{id:'support',label:'SUPPORT'}] as const;
 
 export function canOpenWorkspace(session:BackendSession,workspace:WorkspaceId):boolean {
-  const has=(...permissions:string[])=>permissions.some(permission=>session.user.permissions.includes(permission));
-  const enabled=(capability:string)=>session.tenant.capabilities.includes(capability);
-  const allowed:Record<WorkspaceId,boolean>={
-    today:true,help:true,sell:enabled('commerce')&&has('commerce.sell'),sales:has('commerce.sell','commerce.refund','finance.view'),
-    service:false,stock:enabled('inventory')&&has('catalog.manage','inventory.receive'),
-    'stock-count':enabled('inventory')&&has('inventory.count','inventory.count.approve'),purchasing:enabled('inventory')&&has('inventory.receive'),
-    hotel:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage','hotel.housekeeping'),
-    reservations:enabled('hospitality')&&has('hotel.frontdesk','hotel.manage'),
-    customers:enabled('commerce')&&has('customers.view'),shifts:enabled('commerce')&&has('shift.open','shift.close'),
-    money:has('finance.view'),reports:has('finance.view'),manage:has('config.view','config.manage'),onboarding:false,
-  };
-  return allowed[workspace];
+  const feature=workspaceFeatures.find(item=>item.id===workspace);
+  return Boolean(feature&&['connected','partial'].includes(featureState(session,feature)));
 }
 
 export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;onTabChange:(tab:ActiveTab)=>void;children:React.ReactNode}) {
@@ -48,6 +24,10 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [recoverableCommands,setRecoverableCommands]=useState<RecoverableCommand[]>([]);
   const [importRecoveries,setImportRecoveries]=useState<ImportValidationRecovery[]>([]);
   const [logoutError,setLogoutError]=useState('');
+  const [recoveryOpen,setRecoveryOpen]=useState(false);
+  const [checkingCommand,setCheckingCommand]=useState('');
+  const [recoveryMessages,setRecoveryMessages]=useState<Record<string,string>>({});
+  const [lastRecoveryResult,setLastRecoveryResult]=useState<{commandId:string;status:string;message:string}|null>(null);
   const {isInstallable,isInstalled,install}=usePWAInstall();
   useEffect(()=>apiClient.subscribe(setSession),[]);
   useEffect(()=>{
@@ -58,14 +38,15 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   useEffect(()=>{
     if(!session){setRecoverableCommands([]);return;}
     void apiClient.listRecoverableCommands(session.tenant.id).then(setRecoverableCommands).catch(()=>setRecoverableCommands([]));
-    return apiClient.subscribeRecovery(setRecoverableCommands);
-  },[session?.tenant.id]);
+    return apiClient.subscribeRecovery(records=>setRecoverableCommands(records.filter(record=>record.actorId===session.user.id)));
+  },[session?.tenant.id,session?.user.id,session?.deviceId]);
   useEffect(()=>{
     if(!session){setImportRecoveries([]);return;}
     void apiClient.listImportValidationRecovery().then(setImportRecoveries).catch(()=>setImportRecoveries([]));
     return apiClient.subscribeImportRecovery(setImportRecoveries);
   },[session?.tenant.id,session?.user.id,session?.deviceId]);
-  const available=useMemo(()=>session?workspaceItems.filter(item=>canOpenWorkspace(session,item.id)):[],[session]);
+  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'):[],[session]);
+  const available=useMemo(()=>session?discoverable.filter(item=>canOpenWorkspace(session,item.id)):[],[session,discoverable]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
   const selectWorkspace=(id:WorkspaceId)=>{
@@ -77,18 +58,28 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
     setLogoutError('');try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
-  const openRecovery=()=>{
-    if(importRecoveries.length){selectWorkspace('stock');return;}
-    const type=recoverableCommands[0]?.command.type??'';
+  const openRecovery=()=>setRecoveryOpen(true);
+  const checkCommand=async(commandId:string)=>{
+    setCheckingCommand(commandId);setRecoveryMessages(previous=>({...previous,[commandId]:''}));
+    try{
+      const result=await apiClient.checkCommandStatus(commandId);
+      const response=result.response as {status?:string;message?:string};
+      const message=response.message??(response.status==='CONFIRMED'?'Server confirmed this command.':response.status==='REJECTED'?'Server rejected this command.':response.status==='CONFLICT'?'Server reported a version conflict.':`Server status: ${result.status}.`);
+      setRecoveryMessages(previous=>({...previous,[commandId]:message}));
+      setLastRecoveryResult({commandId,status:response.status??result.status,message});
+    }catch(cause){setRecoveryMessages(previous=>({...previous,[commandId]:cause instanceof Error?cause.message:'Server status could not be checked. The original command remains saved.'}));}
+    finally{setCheckingCommand('');}
+  };
+  const openCommandWorkspace=(type:string)=>{
     const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
-    selectWorkspace(destination);
+    setRecoveryOpen(false);selectWorkspace(destination);
   };
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Main navigation">
       <div className="brand-lockup"><div className="brand-mark">M</div><div><strong>Mazao</strong><small>BUSINESS WORKSPACE</small></div></div>
       <div className="sidebar-context"><span className="context-label">OUTLET</span><strong title={session.outlet.name}>{session.outlet.name}</strong><span>{session.tenant.currency} · {session.tenant.timeZone}</span></div>
-      <nav className="workspace-nav">{groups.map(group=>{const items=available.filter(item=>item.group===group.id);return items.length?<section key={group.id} className="nav-group"><h2>{group.label}</h2>{items.map(item=><button key={item.id} type="button" title={item.label} aria-label={item.label} className={'nav-link '+(activeTab===item.id?'active':'')} onClick={()=>selectWorkspace(item.id)} aria-current={activeTab===item.id?'page':undefined}><span className="nav-icon">{item.icon}</span><span className="nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span></button>)}</section>:null;})}</nav>
+      <nav className="workspace-nav">{groups.map(group=>{const items=discoverable.filter(item=>item.group===group.id);return items.length?<section key={group.id} className="nav-group"><h2>{group.label}</h2>{items.map(item=>{const state=featureState(session,item);const navigable=state==='connected'||state==='partial';const stateLabel=state==='not_connected'?'Not connected':state==='not_enabled'?'Not enabled':state==='partial'?'Partial':null;return <button key={item.id} type="button" title={stateLabel?`${item.label}: ${stateLabel}. ${item.description}`:item.label} aria-label={stateLabel?`${item.label}, ${stateLabel}`:item.label} aria-disabled={!navigable} disabled={!navigable} className={'nav-link '+(activeTab===item.id?'active ':'')+(!navigable?'nav-link-disabled':'')} onClick={()=>selectWorkspace(item.id)} aria-current={activeTab===item.id?'page':undefined}><span className="nav-icon">{item.icon}</span><span className="nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span>{stateLabel&&<span className="nav-feature-state">{stateLabel}</span>}</button>;})}</section>:null;})}</nav>
       <div className="sidebar-footer"><span className="demo-indicator"><span/>Server · {session.outlet.name}</span></div>
     </aside>
     <div className="app-main-column">
@@ -96,11 +87,16 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Server actions require a connection. Unconfirmed commands remain available for status review.</div>}
         {logoutError&&<div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {logoutError}</div>}
-        {recoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length+importRecoveries.length} server command{recoverableCommands.length+importRecoveries.length===1?'':'s'} need status review.</strong> Command IDs and recovery evidence are retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open recovery workspace</button></div>}
+        {recoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length+importRecoveries.length} operation{recoverableCommands.length+importRecoveries.length===1?'':'s'} need review.</strong> Server commands and product-import validation references are retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open command recovery center</button></div>}
         <div className="workspace-interaction-boundary">{children}</div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">{(['today','sell','stock'] as WorkspaceId[]).map(id=>{const item=available.find(entry=>entry.id===id);return item?<button type="button" key={id} className={activeTab===id?'active':''} onClick={()=>selectWorkspace(id)} aria-current={activeTab===id?'page':undefined}>{item.icon}<span>{item.label}</span></button>:null;})}<button type="button" className={moreOpen?'active':''} onClick={()=>setMoreOpen(value=>!value)} aria-expanded={moreOpen}><Menu/><span>More</span></button></nav>
-      {moreOpen&&<div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" className="min-h-11 min-w-11" onClick={()=>setMoreOpen(false)} aria-label="Close navigation"><X size={18}/></button></div>{available.filter(item=>!['today','sell','stock'].includes(item.id)).map(item=><button type="button" key={item.id} onClick={()=>selectWorkspace(item.id)} className={activeTab===item.id?'active':''}>{item.icon}<span>{item.label}</span></button>)}</div>}
+      {moreOpen&&<div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" className="min-h-11 min-w-11" onClick={()=>setMoreOpen(false)} aria-label="Close navigation"><X size={18}/></button></div>{discoverable.filter(item=>!['today','sell','stock'].includes(item.id)).map(item=>{const state=featureState(session,item);const navigable=state==='connected'||state==='partial';const status=state==='not_connected'?'Not connected':state==='not_enabled'?'Not enabled':state==='partial'?'Partial':null;return <button type="button" key={item.id} disabled={!navigable} aria-disabled={!navigable} title={status?`${status}. ${item.description}`:item.label} onClick={()=>selectWorkspace(item.id)} className={`${activeTab===item.id?'active ':''}${!navigable?'nav-link-disabled':''}`}>{item.icon}<span>{item.label}</span>{status&&<small>{status}</small>}</button>;})}</div>}
+      {recoveryOpen&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setRecoveryOpen(false);}}><section role="dialog" aria-modal="true" aria-labelledby="recovery-center-title" className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl"><header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-blue-300">Retained server evidence</p><h2 id="recovery-center-title" className="mt-1 text-xl font-bold">Command recovery center</h2><p className="mt-1 text-xs text-zinc-400">Check the original server command status before repeating an operation. This is not an offline sync queue.</p></div><button type="button" onClick={()=>setRecoveryOpen(false)} aria-label="Close command recovery center" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800"><X size={18}/></button></header>
+        <div className="space-y-5 p-4 sm:p-5">{lastRecoveryResult&&<div role="status" className="rounded-lg border border-emerald-900 bg-emerald-950/30 p-3 text-xs text-emerald-100"><strong>Last status check: {lastRecoveryResult.status.toLowerCase()}</strong><p className="mt-1">{lastRecoveryResult.message}</p><p className="mt-1 break-all font-mono text-[10px] text-emerald-100/60">{lastRecoveryResult.commandId}</p></div>}<section aria-labelledby="server-command-list-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="server-command-list-title" className="text-sm font-semibold">Server commands</h3><span className="text-[11px] text-zinc-500">{recoverableCommands.length} retained</span></div>{recoverableCommands.length? <div className="space-y-2">{recoverableCommands.map(record=><article key={record.command.commandId} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-semibold text-zinc-100">{record.command.type.replaceAll('.',' › ')}</p><p className="mt-1 break-all font-mono text-[10px] text-zinc-500">{record.command.commandId}</p><p className="mt-1 text-[10px] text-zinc-500">{record.state==='sending'?'Submission was interrupted':'Outcome was not confirmed'} · retained {new Date(record.savedAt).toLocaleString()}</p></div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" onClick={()=>void checkCommand(record.command.commandId)} disabled={checkingCommand===record.command.commandId} className="min-h-10 rounded-lg border border-blue-800 px-3 text-xs font-medium text-blue-200 disabled:opacity-50">{checkingCommand===record.command.commandId?'Checking…':'Check server status'}</button><button type="button" onClick={()=>openCommandWorkspace(record.command.type)} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs text-zinc-300">Open module</button></div></div>{recoveryMessages[record.command.commandId]&&<p role="status" className="mt-2 text-xs text-amber-200">{recoveryMessages[record.command.commandId]}</p>}</article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No unresolved server commands are retained for this tenant on this browser.</p>}</section>
+          <section aria-labelledby="import-recovery-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="import-recovery-title" className="text-sm font-semibold">Product-import validations</h3><span className="text-[11px] text-zinc-500">{importRecoveries.length} retained</span></div>{importRecoveries.length?<div className="space-y-2">{importRecoveries.map(record=><article key={record.commandId} className="rounded-lg border border-amber-900/70 bg-amber-950/20 p-3"><p className="text-xs font-semibold text-amber-100">{record.fileName} · validation outcome unknown</p><p className="mt-1 break-all font-mono text-[10px] text-amber-100/60">Source SHA-256 {record.sourceHash}</p><p className="mt-1 text-[11px] text-amber-100/70">The CSV contents are not stored in recovery metadata. Reopen the import workspace and select the original file to safely check or revalidate it.</p><button type="button" onClick={()=>{setRecoveryOpen(false);selectWorkspace('stock');}} className="mt-2 min-h-10 rounded-lg border border-amber-800 px-3 text-xs font-semibold text-amber-100">Open product import review</button></article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No unresolved import validations are retained on this browser.</p>}</section>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] leading-relaxed text-zinc-400">Offline sales, synchronization queues, and printer-device acknowledgments are not connected. No command is automatically resent from this center.</div>
+        </div></section></div>}
     </div>
   </div>;
 }

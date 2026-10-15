@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CircleAlert, ClipboardCheck, PackageSearch, RefreshCw, Search, ShieldCheck } from 'lucide-react';
-import { apiClient, type BackendCommand, type BackendInventoryCount, type BackendInventoryCountLine, type BackendInventoryCountSummary } from '../../services/apiClient';
+import { Barcode, CircleAlert, ClipboardCheck, PackageSearch, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { apiClient, type BackendCommand, type BackendInventoryCount, type BackendInventoryCountLine, type BackendInventoryCountSummary, type BackendProduct } from '../../services/apiClient';
 import { formatMinorMoney } from '../../utils/money';
 import { decimalStringsEqual, subtractDecimalStrings } from '../../utils/decimal';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
@@ -22,6 +22,8 @@ export function BackendStockCountWorkspace() {
   const canApprove = session.user.permissions.includes('inventory.count.approve');
   const [count, setCount] = useState<BackendInventoryCount | null>(null);
   const [history, setHistory] = useState<BackendInventoryCountSummary[]>([]);
+  const [catalog, setCatalog] = useState<BackendProduct[]>([]);
+  const [catalogError, setCatalogError] = useState('');
   const [areaLabel, setAreaLabel] = useState('');
   const [query, setQuery] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -33,7 +35,9 @@ export function BackendStockCountWorkspace() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [historyDetail, setHistoryDetail] = useState<BackendInventoryCount | null>(null);
+  const [lineInputs, setLineInputs] = useState<Map<string, HTMLInputElement>>(new Map());
   const pending = useRef<BackendCommand | null>(null);
+  const catalogByProduct = new Map(catalog.map(product => [product.id, product]));
 
   const load = async () => {
     setLoading(true);
@@ -44,6 +48,11 @@ export function BackendStockCountWorkspace() {
       setHistory(previous.counts);
       setAreaLabel(current.count?.areaLabel ?? '');
       setDirty(false);
+      setCatalogError('');
+      if (canCount || canApprove) {
+        try { setCatalog((await apiClient.listCatalog()).items); }
+        catch (cause) { setCatalogError(cause instanceof Error ? cause.message : 'Catalog barcode lookup is unavailable.'); }
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load server stock counts.');
     } finally {
@@ -150,7 +159,20 @@ export function BackendStockCountWorkspace() {
     const variance = lineVariance(line);
     return variance !== null && !decimalStringsEqual(variance, '0') && !line.varianceReason?.trim();
   });
+  const matchingLines = count?.lines.filter(line => {
+    const product = catalogByProduct.get(line.productId);
+    return `${line.name} ${line.sku} ${product?.barcode ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+  }) ?? [];
   const visibleLines = count?.lines.filter(line => `${line.name} ${line.sku}`.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
+
+  const focusLine = (line: BackendInventoryCountLine) => {
+    setQuery('');
+    requestAnimationFrame(() => lineInputs.get(line.productId)?.focus());
+  };
+
+  const selectScannedLine = () => {
+    if (matchingLines.length === 1) focusLine(matchingLines[0]);
+  };
 
   const postCount = async () => {
     if (!count || !canApprove || !complete || missingReasons || unknownId) return;
@@ -237,14 +259,19 @@ export function BackendStockCountWorkspace() {
       {canCount ? <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end"><label className="block flex-1 text-sm text-zinc-300">Area label <span className="text-zinc-500">(optional)</span><input maxLength={100} value={areaLabel} onChange={event => setAreaLabel(event.target.value)} placeholder="e.g. Main store" className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-white" /></label><button type="button" onClick={() => void openCount()} disabled={busy || !!unknownId} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 font-semibold text-white disabled:opacity-50"><ClipboardCheck size={17} /> Start full count</button></div> : <p className="mt-4 text-sm text-zinc-400">Your role can review counts but cannot open or record one.</p>}
     </section> : <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-zinc-800 p-4 sm:p-5"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">Outlet count in progress</h2><span className="rounded-full bg-amber-950 px-2.5 py-1 text-xs text-amber-200">Draft · v{count.version}</span></div><p className="mt-1 text-sm text-zinc-400">{count.areaLabel || 'No area label'} · opened by {count.openedBy} · baseline {dateLabel(count.baselineAt, (session.outlet.timeZone ?? session.tenant.timeZone))}</p><p className="mt-1 text-xs text-zinc-500">{count.countedLineCount} of {count.lineCount} items have a saved count.</p></div>{canApprove && <button type="button" onClick={() => setCancelOpen(true)} disabled={busy || !!unknownId || dirty} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 disabled:opacity-50">Cancel count</button>}</div>
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4"><label className="relative min-w-[220px] flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" /><span className="sr-only">Search count items</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search by item name or SKU" className="min-h-11 w-full rounded-lg border border-zinc-800 bg-zinc-900 pl-9 pr-3 text-sm text-white" /></label><span className="text-xs text-zinc-400">Server barcode lookup is not available yet.</span></div>
+      <div className="border-b border-zinc-800 bg-zinc-900/40 p-3 sm:p-4">
+        <label className="relative block"><Barcode className="absolute left-3 top-3 h-5 w-5 text-blue-300"/><span className="sr-only">Scan barcode or search count items</span><input autoComplete="off" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();selectScannedLine();}}} placeholder="Scan barcode or search item name / SKU" className="min-h-12 w-full rounded-lg border border-zinc-700 bg-zinc-950 pl-11 pr-10 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500" aria-controls="count-scan-suggestions" aria-expanded={!!query}/><Search className="absolute right-3 top-3.5 h-4 w-4 text-zinc-500"/></label>
+        {query&&<div id="count-scan-suggestions" role="listbox" aria-label="Matching items in this full outlet count" className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950">{matchingLines.length?matchingLines.slice(0,8).map(line=>{const product=catalogByProduct.get(line.productId);return <button key={line.productId} type="button" role="option" aria-selected="false" onClick={()=>focusLine(line)} className="flex min-h-12 w-full items-center justify-between gap-3 border-b border-zinc-800 px-3 py-2 text-left last:border-0 hover:bg-zinc-900"><span className="min-w-0"><strong className="block truncate text-xs">{line.name}</strong><small className="text-[11px] text-zinc-500">{line.sku}{product?.barcode?` · ${product.barcode}`:''}</small></span><span className="shrink-0 text-right text-[11px] text-zinc-400">Baseline {line.expectedQuantity} {line.unit}<small className="block text-blue-300">Focus count field</small></span></button>; }):<p className="p-3 text-xs text-zinc-400">No item in this saved full-outlet baseline matches that scan. Items cannot be added selectively after the count opens.</p>}</div>}
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] text-zinc-500"><span>Scan finds items already included in the server baseline; it does not create a selective count.</span>{catalogError&&<span role="status" className="text-amber-300">Barcode data unavailable. Search by item name or SKU.</span>}</div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs"><span className="inline-flex items-center gap-2 text-zinc-300"><PackageSearch size={15} className="text-blue-300"/>{count.lines.length} baseline items · {count.countedLineCount} saved counts</span><span className="text-zinc-400">{visibleLines.length} shown · {count.lineCount-visibleLines.length} hidden by search</span></div>
       {visibleLines.length ? <div className="divide-y divide-zinc-800">{visibleLines.map(line => {
         const variance = lineVariance(line);
         const invalid = line.countedQuantity !== null && line.countedQuantity !== '' && !quantityPattern.test(line.countedQuantity);
         const changed = variance !== null && !decimalStringsEqual(variance, '0');
         return <article key={line.productId} className="grid gap-3 p-4 md:grid-cols-[minmax(160px,1fr)_140px_140px_minmax(190px,1fr)] md:items-end">
           <div className="min-w-0"><h3 className="truncate font-semibold">{line.name}</h3><p className="mt-1 text-xs text-zinc-500">{line.sku} · {line.unit} · baseline {line.expectedQuantity}</p></div>
-          <label className="block text-xs text-zinc-400">Counted quantity<input inputMode="decimal" value={line.countedQuantity ?? ''} disabled={!canCount || busy || !!unknownId || count.status !== 'OPEN'} onChange={event => updateLine(line.productId, 'countedQuantity', event.target.value)} placeholder="Scan then count" className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white disabled:opacity-50" /></label>
+          <label className="block text-xs text-zinc-400">Counted quantity<input ref={element=>{if(element)lineInputs.set(line.productId,element);else lineInputs.delete(line.productId);}} inputMode="decimal" value={line.countedQuantity ?? ''} disabled={!canCount || busy || !!unknownId || count.status !== 'OPEN'} onChange={event => updateLine(line.productId, 'countedQuantity', event.target.value)} placeholder="Enter quantity" className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white disabled:opacity-50" /></label>
           <div className={`min-h-11 rounded-lg border px-3 py-2 text-sm ${invalid ? 'border-rose-800 text-rose-300' : changed ? 'border-amber-800 text-amber-200' : 'border-zinc-800 text-zinc-400'}`}>{invalid ? 'Invalid quantity' : variance === null ? 'Not counted' : decimalStringsEqual(variance, '0') ? 'Matches baseline' : `${variance.startsWith('-') ? '' : '+'}${variance} ${line.unit}`}</div>
           <label className="block text-xs text-zinc-400">Reason for difference{changed && <span className="text-amber-300"> · required</span>}<input maxLength={200} value={line.varianceReason ?? ''} disabled={!canCount || busy || !!unknownId || count.status !== 'OPEN'} onChange={event => updateLine(line.productId, 'varianceReason', event.target.value)} placeholder="Explain damage, loss, or correction" className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-white disabled:opacity-50" /></label>
         </article>;

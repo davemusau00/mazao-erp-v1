@@ -6,16 +6,17 @@ import {ProductCsvImportWorkspace} from './ProductCsvImportWorkspace';
 
 function percentToBps(value:string){const m=/^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(value.trim());if(!m)throw new Error('Enter a tax percentage from 0 to 100 with at most 2 decimals.');const bps=Number(BigInt(m[1])*100n+BigInt((m[2]??'').padEnd(2,'0')||'0'));if(bps>10000)throw new Error('Tax rate cannot exceed 100%.');return bps}
 
-export function BackendInventoryWorkspace({onOpenReceiving}:{onOpenReceiving:()=>void}){
- const [importOpen,setImportOpen]=useState(false);
+export function BackendInventoryWorkspace({onOpenReceiving,initialView='inventory',onInitialViewConsumed}:{onOpenReceiving:()=>void;initialView?:'inventory'|'import';onInitialViewConsumed?:()=>void}){
+ const [importOpen,setImportOpen]=useState(initialView==='import');
  const session=apiClient.getSession()!;const canManage=session.user.permissions.includes('catalog.manage');const canReadCost=canManage||session.user.permissions.includes('finance.view');
  const [items,setItems]=useState<BackendProduct[]>([]);const [movements,setMovements]=useState<Awaited<ReturnType<typeof apiClient.listInventoryMovements>>['movements']>([]);
  const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [dialog,setDialog]=useState(false);const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');const [unknownId,setUnknownId]=useState('');const pending=useRef<BackendCommand|null>(null);
  const [sku,setSku]=useState('');const [name,setName]=useState('');const [unit,setUnit]=useState('each');const [sellPrice,setSellPrice]=useState('');const [costPrice,setCostPrice]=useState('');const [taxRate,setTaxRate]=useState('');
  const load=async()=>{setLoading(true);setError('');try{const [catalog,history]=await Promise.all([apiClient.listCatalog(),apiClient.listInventoryMovements().catch(()=>({movements:[]}))]);setItems(catalog.items);setMovements(history.movements);const recoverable=await apiClient.listRecoverableCommands(session.tenant.id);const stored=recoverable.find(record=>record.command.type==='catalog.product.create');if(stored){const p=stored.command.payload;pending.current=stored.command;setUnknownId(stored.command.commandId);setSku(String(p.sku??''));setName(String(p.name??''));setUnit(String(p.baseUnit??'each'));setSellPrice(minorToMoneyInput(String(p.sellingPriceMinor??'0'),session.tenant.currency));setCostPrice(minorToMoneyInput(String(p.costPriceMinor??'0'),session.tenant.currency));setTaxRate(p.taxRateBps===undefined?'':(Number(p.taxRateBps)/100).toFixed(2));setDialog(true);setNotice('An unresolved item command was restored. Check its status before making changes.')}}catch(e){setError(e instanceof Error?e.message:'Unable to load server inventory.')}finally{setLoading(false)}};
  useEffect(()=>{void load()},[]);
+ useEffect(()=>{if(initialView==='import')onInitialViewConsumed?.()},[]);
  useEffect(()=>{
-  const openForCommands=(records:Awaited<ReturnType<typeof apiClient.listRecoverableCommands>>)=>{if(records.some(record=>record.command.type==='catalog.import.apply'&&record.command.deviceId===session.deviceId))setImportOpen(true);};
+  const openForCommands=(records:Awaited<ReturnType<typeof apiClient.listRecoverableCommands>>)=>{if(records.some(record=>record.command.type==='catalog.import.apply'&&record.command.deviceId===session.deviceId&&record.actorId===session.user.id))setImportOpen(true);};
   void apiClient.listRecoverableCommands(session.tenant.id).then(openForCommands).catch(()=>undefined);
   void apiClient.listImportValidationRecovery().then(records=>{if(records.length)setImportOpen(true);}).catch(()=>undefined);
   const unsubscribe=apiClient.subscribeRecovery(openForCommands);

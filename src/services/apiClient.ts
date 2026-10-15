@@ -81,6 +81,14 @@ export interface BackendPartialOperatingSummary {
   totals:{revenueMinor:string;costOfGoodsSoldMinor:string;grossProfitMinor:string;otherIncomeMinor:string;otherOperatingCostsMinor:string;partialOperatingResultMinor:string};
   lines:Array<{accountCode:string;section:string;amountMinor:string}>;
 }
+export interface BackendOperationalAnalytics {
+  reportType:'OUTLET_OPERATIONAL_ANALYTICS'; scope:'OUTLET'; tenantId:string; outletId:string; currency:string; timeZone:string;
+  from:string; to:string; generatedAt:string;
+  totals:{grossSalesMinor:string;subtotalMinor:string;taxMinor:string;refundsMinor:string;cashCollectedMinor:string;accountCreditMinor:string};
+  daily:Array<{date:string;grossMinor:string;orderCount:string;refundMinor:string;refundCount:string}>;
+  topProducts:Array<{productId:string;sku:string;name:string;quantity:string;revenueMinor:string;orderCount:string}>;
+  coverage:{status:'CONFIRMED_CASH_AND_ACCOUNT_CREDIT';orderCount:string;refundCount:string;cashPaymentCount:string;accountChargeCount:string;scope:string;excludedMethods:string[];excludedSources:string[]};
+}
 export interface BackendJournalLines {
   scope:'TENANT';accountCode:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:string;nextOffset:number|null;
   entries:Array<{journalEntryId:string;sourceType:string;sourceId:string|null;currency:string;postedAt:string;createdBy:string|null;accountCode:string;debitMinor:string;creditMinor:string}>;
@@ -159,6 +167,7 @@ class ApiClient {
   getSaleReceipt(orderId:string){return this.request<BackendSaleReceipt>('/sales/orders/'+encodeURIComponent(orderId)+'/receipt')}
   getTrialBalance(asOf:string){return this.request<BackendTrialBalance>('/reports/trial-balance?'+new URLSearchParams({asOf}))}
   getProfitLoss(from:string,to:string){return this.request<BackendPartialOperatingSummary>('/reports/profit-loss?'+new URLSearchParams({from,to}))}
+  getOperationalAnalytics(from:string,to:string){return this.request<BackendOperationalAnalytics>('/reports/operational-analytics?'+new URLSearchParams({from,to}))}
   getJournalLines(query:{accountCode:string;from?:string;to?:string;asOf?:string;limit?:number;offset?:number}){return this.request<BackendJournalLines>('/reports/journal-lines?'+new URLSearchParams(Object.fromEntries(Object.entries(query).filter((entry):entry is [string,string|number]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])) ))}
   listHotelRooms(){return this.request<{rooms:BackendRoom[]}>('/hospitality/rooms')}
   listHotelReservations(){return this.request<{reservations:BackendReservation[]}>('/hospitality/reservations')}
@@ -224,7 +233,7 @@ class ApiClient {
   async discardUnconfirmedValidation(commandId:string){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
   private async emitImportRecovery(){const records=await this.listImportValidationRecovery();this.importRecoveryListeners.forEach(listener=>listener(records));}
   async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await commandJournal.remove(commandId);await this.emitRecovery()}return result}
-  listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{return commandJournal.list(tenantId)}
+  async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}
   private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}
 }
 export const apiClient=new ApiClient();

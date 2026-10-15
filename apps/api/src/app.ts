@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyServerOptions } from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +9,7 @@ import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
+import { getOperationalAnalytics } from './operationalAnalytics.js';
 import { getSaleReceipt } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
@@ -19,11 +20,12 @@ declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csr
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
 
-export function buildApp() {
+export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   const allowedOrigins=(process.env.APP_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);
   if(process.env.NODE_ENV==='production'&&allowedOrigins.length===0)throw new Error('APP_ORIGINS must contain the exact public application origin in production.');
   if(allowedOrigins.some(origin=>{try{return new URL(origin).origin!==origin}catch{return true}}))throw new Error('APP_ORIGINS entries must be exact origins such as https://erp.example.com.');
-  const app = Fastify({ logger: {redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576 });
+  const loggerOptions=options.logger&&typeof options.logger==='object'?options.logger:{};
+  const app = Fastify({ logger: {...loggerOptions,redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576 });
   app.register(cookie);
   app.register(rateLimit, { global: false });
   app.addHook('onSend', async (_request, reply, payload) => {
@@ -216,6 +218,8 @@ export function buildApp() {
     getTrialBalance(request.operator!, request.query.asOf));
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/profit-loss', async request =>
     getProfitLoss(request.operator!, request.query.from, request.query.to));
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/operational-analytics', async request =>
+    getOperationalAnalytics(request.operator!, request.query.from, request.query.to));
   app.get<{ Querystring: { accountCode?: string; from?: string; to?: string; asOf?: string; limit?: string; offset?: string } }>('/api/v1/reports/journal-lines', async request =>
     getJournalLines(request.operator!, {
       accountCode: request.query.accountCode,

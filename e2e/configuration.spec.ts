@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 // Browser adapter coverage uses explicit HTTP fixtures. PostgreSQL command
 // authority, tenant isolation and receipt snapshots are covered in API tests.
@@ -26,6 +26,7 @@ async function openManage(page:Page) {
   if(!await manage.isVisible())await page.getByRole('button',{name:'More',exact:true}).click();
   await page.getByRole('button',{name:'Manage',exact:true}).last().click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('COUNTRYSIDE RESORT');
 }
 
@@ -72,6 +73,7 @@ test('settings stay locked until recovery evidence is checked and a configured 1
   await expect(page.getByRole('button',{name:'Manage',exact:true})).toBeVisible();
   await holdCommandJournal(page);
   await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByLabel('Default tax rate (%)')).toHaveValue('100.00');
   await expect(page.getByLabel('Business name',{exact:true})).toBeDisabled();
   await expect(page.getByText('Checking retained command evidence before allowing settings changes.')).toBeVisible();
@@ -121,6 +123,7 @@ test('administrator settings submit exact versioned commands and persist across 
   expect(captured).toMatchObject({protocolVersion:1,type:'configuration.business.update',tenantId:configuration.business.id,deviceId:'device-config-test',expectedVersions:{['business:'+configuration.business.id]:1},payload:{legalName:'Countryside Resort Limited',phone:'+254700123456',receiptFooter:'Thank you for visiting Countryside.',taxPolicy:{defaultRateBps:1625,calculation:'exclusive',reviewed:true}}});
   await page.reload();
   await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByLabel('Legal business name')).toHaveValue('Countryside Resort Limited');
   await expect(page.getByLabel('Default tax rate (%)')).toHaveValue('16.25');
   await expect(page.getByRole('button',{name:'Save business settings'})).toBeDisabled();
@@ -141,6 +144,7 @@ test('unknown settings outcome survives reload and retries the original command 
   await expect(page.getByRole('heading',{name:'Check settings save status'})).toBeVisible();
   await expect(page.getByLabel('Business name',{exact:true})).toBeDisabled();
   await page.reload();await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByRole('heading',{name:'Check settings save status'})).toBeVisible();
   await expect(page.getByText('Command '+attempts[0].commandId,{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Retry original command'}).click();
@@ -185,6 +189,50 @@ test('configuration readers cannot change settings and unauthorized operators ca
   await page.route('**/api/v1/auth/me',route=>route.fulfill({json:session(configuration,[])}));
   await page.reload();await expect(page.getByRole('button',{name:'Manage',exact:true})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'Manage your business'})).toHaveCount(0);
+});
+
+test('management overview exposes connected setup and disabled admin modules without opening unsupported actions',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage']);
+  await page.route('**/api/v1/catalog/items',route=>route.fulfill({json:{items:[]}}));
+  await page.route('**/api/v1/inventory/movements',route=>route.fulfill({json:{movements:[]}}));
+  await page.route('**/api/v1/catalog/imports',route=>route.fulfill({json:{batches:[]}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  for(const label of ['Staff','Roles and permissions','Devices and printing','Assets and maintenance']){
+    const card=page.getByRole('button',{name:new RegExp(label)});
+    await expect(card).toBeDisabled();
+    await expect(card).toContainText('Not connected');
+  }
+  const grid=page.locator('.manage-grid');
+  for(const label of ['Business and outlets','Data import','Business capabilities','Setup checklist','Outlet and receipts'])
+    await expect(grid.getByRole('button',{name:new RegExp(label)})).toBeEnabled();
+  await page.getByRole('button',{name:'Setup checklist, Partial',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'First sale checklist'})).toBeVisible();
+  await expect(page.getByText('Complete the remaining setup checks before selling.')).toBeVisible();
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.locator('.manage-grid').getByRole('button',{name:/Data import/}).click();
+  await expect(page.getByRole('heading',{name:'Import products from CSV'})).toBeVisible();
+});
+
+test('cashier navigation shows unsupported restaurant work as disabled and keeps management private',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration,['commerce.sell']);await page.goto('/');
+  const service=page.getByRole('button',{name:/Tables & kitchen/});
+  await expect(service).toBeDisabled();
+  await expect(service).toHaveAttribute('aria-disabled','true');
+  await expect(page.getByRole('button',{name:'Manage',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/Money/})).toHaveCount(0);
+});
+
+test('management overview screenshots cover mobile, tablet and terminal viewports',async({page},testInfo:TestInfo)=>{
+  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage']);await page.goto('/');
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  for(const viewport of [{width:390,height:844},{width:800,height:1280},{width:1024,height:600},{width:1280,height:720},{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080}]){
+    await page.setViewportSize(viewport);
+    await testInfo.attach(`manage-overview-${viewport.width}x${viewport.height}.png`,{body:await page.screenshot({fullPage:false}),contentType:'image/png'});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+  }
 });
 
 for(const viewport of [{width:1024,height:600},{width:390,height:844}])test(`business settings actions remain accessible at ${viewport.width}x${viewport.height}`,async({page})=>{
