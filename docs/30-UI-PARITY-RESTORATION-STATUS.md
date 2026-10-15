@@ -64,6 +64,6 @@ Do not describe the overall UI parity work as complete until these gaps have evi
 
 ### Remaining gates
 
-- GitHub PR #8 cannot be updated because it is closed as merged; its historical failure is not evidence about the corrected HEAD. A new check-bearing PR is required to obtain current hosted CI for the corrected branch. Do not merge while any required check is red, and do not deploy.
+- GitHub PR #8 cannot be updated because it is closed as merged; its historical failure is not evidence about the corrected HEAD. Follow-up PR #9 is open for hosted validation. Its first run (`38751931424`) passed migration application and checksum rerun, typecheck, and all API tests, then failed during Vite build because this workspace file had invalid UTF-8 middle-dot bytes. The file was repaired, `npm run build` passed, and `npm run test:e2e` passed 24/24 after the repair; a new hosted CI result is still required. Do not merge while any required check is red, and do not deploy.
 - No approved original reference screenshot set has been compared in this checkpoint. The seven-size screenshot matrix, accessibility/contrast/reduced-motion audit, manager-role authenticated browser journey, and multi-session unauthorized browser demonstration remain outstanding. The local real browser suite demonstrates an admin session and the existing cashier/unauthorized restrictions; API tests cover role and tenant isolation.
 - All unrelated UI parity gaps listed above remain open. This staff-access checkpoint is not a claim that the seven-stage parity restoration is complete.
