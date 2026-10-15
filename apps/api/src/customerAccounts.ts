@@ -1,13 +1,7 @@
 import { pool } from './db.js';
 import type { ApiSession } from './contracts.js';
-import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
-
-function requireCustomerView(session: ApiSession) {
-  if (!session.capabilities.includes('commerce')) throw new DomainError('CAPABILITY_DISABLED', 'Customer accounts are not enabled for this tenant.', 403);
-  if (!ROLE_PERMISSIONS[session.role].includes('customers.view')) {
-    throw new DomainError('FORBIDDEN', 'Your role cannot view customer accounts.', 403);
-  }
-}
+import { DomainError } from './contracts.js';
+import { requireCustomerView } from './customerPolicy.js';
 
 function customerId(value: unknown) {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {

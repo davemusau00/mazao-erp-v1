@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCallback);
@@ -33,4 +33,10 @@ export function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export function credentialFingerprint(value:unknown):Buffer {
+  const key=process.env.CREDENTIAL_FINGERPRINT_KEY;
+  if(!key||!/^[a-f0-9]{64}$/i.test(key))throw new Error('CREDENTIAL_FINGERPRINT_KEY must contain 64 hexadecimal characters.');
+  return createHmac('sha256',Buffer.from(key,'hex')).update(stableStringify(value)).digest();
 }

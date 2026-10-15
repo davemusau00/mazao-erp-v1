@@ -1,6 +1,6 @@
 import type {BackendCommand} from './apiClient';
 
-export interface RecoverableCommand {command:BackendCommand;state:'sending'|'outcome_unknown';savedAt:string}
+export interface RecoverableCommand {command:BackendCommand;actorId?:string;state:'sending'|'outcome_unknown';savedAt:string}
 const dbName='mazao-v1-command-journal';const storeName='commands';
 let database:Promise<IDBDatabase>|null=null;
 function openDatabase(){
@@ -10,7 +10,7 @@ function openDatabase(){
 }
 function run<T>(mode:IDBTransactionMode,operation:(store:IDBObjectStore,setResult:(value:T)=>void,reject:(reason:unknown)=>void)=>void){return openDatabase().then(db=>new Promise<T>((resolve,reject)=>{const tx=db.transaction(storeName,mode);let result:T;operation(tx.objectStore(storeName),value=>{result=value},reject);tx.oncomplete=()=>resolve(result);tx.onabort=()=>reject(tx.error??new Error('Command journal transaction failed.'));tx.onerror=()=>reject(tx.error??new Error('Command journal transaction failed.'))}))}
 export const commandJournal={
- save(command:BackendCommand,state:RecoverableCommand['state']){return run<void>('readwrite',(store,resolve,reject)=>{const request=store.put({command,state,savedAt:new Date().toISOString()} satisfies RecoverableCommand);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error)})},
+ save(command:BackendCommand,state:RecoverableCommand['state'],actorId?:string){return run<void>('readwrite',(store,resolve,reject)=>{const request=store.put({command,...(actorId?{actorId}:{}),state,savedAt:new Date().toISOString()} satisfies RecoverableCommand);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error)})},
  remove(commandId:string){return run<void>('readwrite',(store,resolve,reject)=>{const request=store.delete(commandId);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error)})},
  list(tenantId?:string){return run<RecoverableCommand[]>('readonly',(store,resolve,reject)=>{const request=store.getAll();request.onsuccess=()=>resolve((request.result as RecoverableCommand[]).filter(record=>!tenantId||record.command.tenantId===tenantId));request.onerror=()=>reject(request.error)})},
 };

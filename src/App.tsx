@@ -4,6 +4,9 @@ import { PointOfSaleView } from './components/pos/PointOfSaleView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { ShiftManagerView } from './components/shifts/ShiftManagerView';
 import { BackendFinancialReportsWorkspace } from './components/finance/BackendFinancialReportsWorkspace';
+import { lazy, Suspense } from 'react';
+
+const BackendOperationalAnalyticsWorkspace = lazy(() => import('./components/analytics/BackendOperationalAnalyticsWorkspace').then(module => ({ default: module.BackendOperationalAnalyticsWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
@@ -19,6 +22,7 @@ import { SignInForm } from './components/auth/SignInForm';
 export default function App() {
   const [activeTab,setActiveTab]=useState<ActiveTab>('today');
   const [purchaseStartTab,setPurchaseStartTab]=useState<'orders'|'receive'>('orders');
+  const [stockStartView,setStockStartView]=useState<'inventory'|'import'>('inventory');
   const [session,setSession]=useState(apiClient.getSession());
   const [sessionBootstrap,setSessionBootstrap]=useState<'checking'|'ready'|'error'>('checking');
   const [restoreError,setRestoreError]=useState('');
@@ -38,10 +42,11 @@ export default function App() {
     return()=>{mounted=false;unsubscribe();};
   },[]);
   useEffect(()=>{++receiptRequest.current;setReceiptOrderId(null);setReceipt(null);setReceiptLoading(false);setReceiptError('');setActiveTab('today');},[session?.user.id]);
-  const navigate=(tab:ActiveTab)=>{
-    if(!session||!canOpenWorkspace(session,tab))return;
-    if(tab!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+  const navigate=(tab:ActiveTab):boolean=>{
+    if(!session||!canOpenWorkspace(session,tab))return false;
+    if(tab!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return false;
     setActiveTab(tab);
+    return true;
   };
   const openReceipt=(orderId:string)=>{
     const requestId=++receiptRequest.current;
@@ -65,14 +70,14 @@ export default function App() {
       {visibleTab==='sales'&&<SalesHistoryView onReprintOrder={openReceipt}/>}
       {visibleTab==='hotel'&&<BackendHotelWorkspace/>}
       {visibleTab==='reservations'&&<BackendHotelWorkspace initialView="reservations"/>}
-      {visibleTab==='stock'&&<InventoryView onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}
+      {visibleTab==='stock'&&<InventoryView initialView={stockStartView} onInitialViewConsumed={()=>setStockStartView('inventory')} onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}
       {visibleTab==='stock-count'&&<BackendStockCountWorkspace/>}
       {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')}/>}
       {visibleTab==='customers'&&<BackendCustomerWorkspace onNavigate={navigate}/>}
       {visibleTab==='shifts'&&<ShiftManagerView/>}
       {visibleTab==='money'&&<BackendFinancialReportsWorkspace initialView="trial-balance"/>}
-      {visibleTab==='reports'&&<BackendFinancialReportsWorkspace initialView="operating-summary"/>}
-      {visibleTab==='manage'&&<BackendManageWorkspace/>}
+      {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
+      {(visibleTab==='manage'||visibleTab==='onboarding')&&<BackendManageWorkspace initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>
     {receiptOrderId&&<BackendReceiptModal receipt={receipt} loading={receiptLoading} error={receiptError} onRetry={()=>openReceipt(receiptOrderId)} onClose={closeReceipt}/>}

@@ -35,6 +35,7 @@ test('server session restore failure blocks automatic demo fallback', async ({ p
 
 test('authenticated shell uses server identity and hides local operator, sync and diagnostics controls', async ({ page }) => {
   await page.route('**/api/v1/auth/me', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } }) }));
+  await page.unroute('**/api/v1/auth/login');
   await page.route('**/api/v1/auth/login', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(managerSession) }));
   await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ shift: null }) }));
 
@@ -73,9 +74,12 @@ test('sign-in submits password-manager autofill values without React change even
 });
 
 test('rejected sign-in and sign-out keep production outside the demo workspace', async ({ page }) => {
+  let acceptLogin = false;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/v1/auth/me', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
-  await page.route('**/api/v1/auth/login', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'Credentials rejected.' } }) }));
+  await page.route('**/api/v1/auth/login', route => acceptLogin
+    ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(managerSession) })
+    : route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'Credentials rejected.' } }) }));
   await page.goto('/');
   await page.getByLabel('Email', { exact: true }).fill('david@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('incorrect-test-password');
@@ -83,7 +87,9 @@ test('rejected sign-in and sign-out keep production outside the demo workspace',
   await expect(page.getByRole('alert')).toContainText('The email or password was not accepted');
   await expect(page.getByText('Local demo workspace')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open local preview only' })).toHaveCount(0);
-  await page.route('**/api/v1/auth/login', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(managerSession) }));
+  acceptLogin = true;
+  await page.getByLabel('Email', { exact: true }).fill('david@example.invalid');
+  await page.getByLabel('Password', { exact: true }).fill('valid-test-password');
   await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"shift":null}' }));
   await page.route('**/api/v1/auth/logout', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"signed_out"}' }));
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();

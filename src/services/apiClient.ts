@@ -1,11 +1,20 @@
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
+import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
 
 export interface BackendSession {
-  user:{id:string;name:string;email:string;role:string;permissions:string[]};
+  user:{id:string;name:string;email:string;role:string;permissions:string[];credentialVersion?:number};
   tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[];taxPolicy?:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean}};
   outlet:{id:string;name:string;timeZone?:string}; deviceId:string; csrfToken:string;
 }
+export interface BackendAssignmentChoice {deviceId:string;deviceLabel:string;tenantId:string;tenantName:string;outletId:string;outletName:string}
+export interface BackendAssignmentSelection {status:'ASSIGNMENT_REQUIRED';assignments:BackendAssignmentChoice[]}
+export interface BackendStaffMember {userId:string;displayName:string;email:string;role:string;active:boolean;version:number;credentialVersion:number;hasCredential:boolean;assignmentCount:number;activeSessionCount:number}
+export interface BackendStaffDirectory {staff:BackendStaffMember[];roles:Array<{role:string;label:string;permissions:string[];assignable:boolean}>;outlets:Array<{id:string;name:string;timeZone:string;active:boolean}>;authorizationModel:'COARSE_ROLE_MAP'}
+export interface BackendWorkspaceAssignment {id:string;kind:'WORKSPACE_ASSIGNMENT';label:string;outletId:string;outletName:string;assignedUserId:string;assignedUserName:string;active:boolean;version:number;createdAt:string;revokedAt:string|null}
+export interface BackendOperatorSession {id:string;deviceId:string;deviceLabel:string;outletId:string;outletName:string;createdAt:string;expiresAt:string;revokedAt:string|null;version:number;current:boolean}
+export interface BackendOperatorSessions {userId:string;credentialVersion:number;sessions:BackendOperatorSession[]}
+export interface BackendCommandResult {commandId:string;status:string;value?:Record<string,unknown>;code?:string;message?:string;details?:unknown}
 export interface BackendBusinessConfiguration {
   id:string;name:string;currency:string;timeZone:string;version:number;
   legalName:string;registrationNumber:string;taxRegistrationNumber:string;
@@ -72,6 +81,14 @@ export interface BackendPartialOperatingSummary {
   totals:{revenueMinor:string;costOfGoodsSoldMinor:string;grossProfitMinor:string;otherIncomeMinor:string;otherOperatingCostsMinor:string;partialOperatingResultMinor:string};
   lines:Array<{accountCode:string;section:string;amountMinor:string}>;
 }
+export interface BackendOperationalAnalytics {
+  reportType:'OUTLET_OPERATIONAL_ANALYTICS'; scope:'OUTLET'; tenantId:string; outletId:string; currency:string; timeZone:string;
+  from:string; to:string; generatedAt:string;
+  totals:{grossSalesMinor:string;subtotalMinor:string;taxMinor:string;refundsMinor:string;cashCollectedMinor:string;accountCreditMinor:string};
+  daily:Array<{date:string;grossMinor:string;orderCount:string;refundMinor:string;refundCount:string}>;
+  topProducts:Array<{productId:string;sku:string;name:string;quantity:string;revenueMinor:string;orderCount:string}>;
+  coverage:{status:'CONFIRMED_CASH_AND_ACCOUNT_CREDIT';orderCount:string;refundCount:string;cashPaymentCount:string;accountChargeCount:string;scope:string;excludedMethods:string[];excludedSources:string[]};
+}
 export interface BackendJournalLines {
   scope:'TENANT';accountCode:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:string;nextOffset:number|null;
   entries:Array<{journalEntryId:string;sourceType:string;sourceId:string|null;currency:string;postedAt:string;createdBy:string|null;accountCode:string;debitMinor:string;creditMinor:string}>;
@@ -88,9 +105,11 @@ export interface BackendSaleReceipt {
 class ApiClient {
   private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();private recoveryListeners=new Set<(records:RecoverableCommand[])=>void>();
   private importRecoveryListeners=new Set<(records:ImportValidationRecovery[])=>void>();
+  private secretRecoveryListeners=new Set<(records:SecretOperationRecovery[])=>void>();
   subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
   subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
   subscribeImportRecovery(listener:(records:ImportValidationRecovery[])=>void){this.importRecoveryListeners.add(listener);return()=>{this.importRecoveryListeners.delete(listener)}}
+  subscribeSecretRecovery(listener:(records:SecretOperationRecovery[])=>void){this.secretRecoveryListeners.add(listener);return()=>{this.secretRecoveryListeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
   private async request<T>(path:string,init:RequestInit={}):Promise<T>{
@@ -105,9 +124,18 @@ class ApiClient {
     }
     return body as T;
   }
-  async login(email:string,password:string){const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});this.csrf=s.csrfToken;this.publish(s);return s}
+  async login(email:string,password:string,deviceId?:string):Promise<BackendSession|BackendAssignmentSelection>{
+    try{const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password,...(deviceId?{deviceId}:{})})});this.csrf=s.csrfToken;this.publish(s);return s;}
+    catch(cause){const error=cause as {code?:string;details?:{assignments?:BackendAssignmentChoice[]}};if(error.code==='ASSIGNMENT_REQUIRED'&&Array.isArray(error.details?.assignments))return {status:'ASSIGNMENT_REQUIRED',assignments:error.details.assignments};throw cause;}
+    finally{password='';}
+  }
   async restore(){try{const s=await this.request<BackendSession>('/auth/me');this.csrf=s.csrfToken;this.publish(s);return s}catch(error){if((error as {status?:number}).status!==401)throw error;this.csrf='';this.publish(null);return null}}
   async logout(){await this.request('/auth/logout',{method:'POST'});this.csrf='';this.publish(null)}
+  clearAuthenticatedSession(){this.csrf='';this.publish(null);}
+  listStaff(){return this.request<BackendStaffDirectory>('/staff');}
+  listWorkspaceAssignments(){return this.request<{devices:BackendWorkspaceAssignment[]}>('/devices');}
+  getOwnSessions(){return this.request<BackendOperatorSessions>('/auth/sessions');}
+  getStaffSessions(userId:string){return this.request<BackendOperatorSessions>('/staff/'+encodeURIComponent(userId)+'/sessions');}
   getConfiguration(){return this.request<{configuration:BackendConfiguration}>('/configuration')}
   updateBusinessConfiguration(input:BackendBusinessConfigurationInput,version:number,commandId:string){
     const session=this.session;if(!session)throw new Error('Sign in before changing business settings.');
@@ -139,18 +167,42 @@ class ApiClient {
   getSaleReceipt(orderId:string){return this.request<BackendSaleReceipt>('/sales/orders/'+encodeURIComponent(orderId)+'/receipt')}
   getTrialBalance(asOf:string){return this.request<BackendTrialBalance>('/reports/trial-balance?'+new URLSearchParams({asOf}))}
   getProfitLoss(from:string,to:string){return this.request<BackendPartialOperatingSummary>('/reports/profit-loss?'+new URLSearchParams({from,to}))}
+  getOperationalAnalytics(from:string,to:string){return this.request<BackendOperationalAnalytics>('/reports/operational-analytics?'+new URLSearchParams({from,to}))}
   getJournalLines(query:{accountCode:string;from?:string;to?:string;asOf?:string;limit?:number;offset?:number}){return this.request<BackendJournalLines>('/reports/journal-lines?'+new URLSearchParams(Object.fromEntries(Object.entries(query).filter((entry):entry is [string,string|number]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])) ))}
   listHotelRooms(){return this.request<{rooms:BackendRoom[]}>('/hospitality/rooms')}
   listHotelReservations(){return this.request<{reservations:BackendReservation[]}>('/hospitality/reservations')}
   listHotelStays(){return this.request<{stays:BackendStay[]}>('/hospitality/stays')}
   async submitCommand(command:BackendCommand){
+    const hasSecret=(value:unknown):boolean=>Array.isArray(value)?value.some(hasSecret):!!value&&typeof value==='object'&&Object.entries(value).some(([key,entry])=>/password|credentialhash|passwordhash/i.test(key)||hasSecret(entry));
+    if(hasSecret(command.payload))throw Object.assign(new Error('Credentials must use the private password endpoint.'),{code:'COMMAND_NOT_SENT'});
     if(command.type==='catalog.import.validate'||command.type==='catalog.import.revalidate')throw new Error('Use import validation transport; CSV source must not enter the command journal.');
-    try{await commandJournal.save(command,'sending');}
+    const actorId=this.session?.user.id;
+    try{await commandJournal.save(command,'sending',actorId);}
     catch{throw Object.assign(new Error('The command was not sent because recovery data could not be saved. Restore browser storage before retrying.'),{code:'COMMAND_NOT_SENT'});}
     await this.emitRecovery();
     try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await commandJournal.remove(command.commandId);else await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();return result}
-    catch(error){await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();throw error}
+    catch(error){await commandJournal.save(command,'outcome_unknown',actorId);await this.emitRecovery();throw error}
   }
+  async submitPasswordOperation(operation:SecretOperationRecovery,newPassword:string,currentPassword?:string):Promise<BackendCommandResult>{
+    const session=this.session;
+    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id)throw Object.assign(new Error('Sign in with the account that owns this password operation.'),{code:'COMMAND_NOT_SENT'});
+    try{await secretOperationJournal.save({...operation,state:'sending'});}
+    catch{throw Object.assign(new Error('Password change was not sent because recovery metadata could not be saved.'),{code:'COMMAND_NOT_SENT'});}
+    await this.emitSecretRecovery();
+    try{
+      const path=operation.kind==='auth.password.change'?'/auth/password':'/staff/'+encodeURIComponent(operation.targetUserId)+'/password';
+      const result=await this.request<BackendCommandResult>(path,{method:'POST',body:JSON.stringify({protocolVersion:1,commandId:operation.commandId,expectedVersions:{['credential:'+operation.targetUserId]:operation.expectedCredentialVersion},newPassword,...(operation.kind==='auth.password.change'?{currentPassword}: {})})});
+      if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await secretOperationJournal.remove(operation.commandId);else await secretOperationJournal.save({...operation,state:'outcome_unknown'});
+      await this.emitSecretRecovery();return result;
+    }catch(cause){
+      const status=(cause as {status?:number}).status;
+      if(status&&status>=400&&status<500){await secretOperationJournal.remove(operation.commandId);await this.emitSecretRecovery();throw Object.assign(new Error(cause instanceof Error?cause.message:'The server rejected the password request.'),{code:'COMMAND_NOT_SENT',status});}
+      await secretOperationJournal.save({...operation,state:'outcome_unknown'});await this.emitSecretRecovery();throw cause;
+    }finally{newPassword='';currentPassword='';}
+  }
+  listSecretOperationRecovery():Promise<SecretOperationRecovery[]>{const session=this.session;return session?secretOperationJournal.list(session.tenant.id,session.user.id):Promise.resolve([]);}
+  async checkSecretOperationStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await secretOperationJournal.remove(commandId);await this.emitSecretRecovery();}return result;}
+  private async emitSecretRecovery(){const records=await this.listSecretOperationRecovery();this.secretRecoveryListeners.forEach(listener=>listener(records));}
   async submitImportValidation(command:BackendCommand,fileName:string,sourceHash:string){
     const session=this.session;if(!session)throw new Error('Sign in before validating an import.');
     if(command.type!=='catalog.import.validate'&&command.type!=='catalog.import.revalidate')throw new Error('Unsupported import validation request.');
@@ -181,7 +233,7 @@ class ApiClient {
   async discardUnconfirmedValidation(commandId:string){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
   private async emitImportRecovery(){const records=await this.listImportValidationRecovery();this.importRecoveryListeners.forEach(listener=>listener(records));}
   async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await commandJournal.remove(commandId);await this.emitRecovery()}return result}
-  listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{return commandJournal.list(tenantId)}
+  async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}
   private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}
 }
 export const apiClient=new ApiClient();

@@ -34,6 +34,7 @@ async function manage(page: Page) {
   if (!await settings.isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('button', { name: 'Manage', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: 'Manage your business' })).toBeVisible();
+  await page.getByRole('button', { name: /Business and outlets/ }).click();
   await expect(page.getByLabel('Business name', { exact: true })).toBeVisible();
 }
 
