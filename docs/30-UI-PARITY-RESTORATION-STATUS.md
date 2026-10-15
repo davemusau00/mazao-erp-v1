@@ -1,7 +1,7 @@
 # UI parity restoration status
 
 **Stage:** Foundation, customer directory, full-outlet stock count, outlet analytics, command recovery center, receipt presentation, and remaining-module discovery (local slices 1–6, partial)
-**Working base at this checkpoint:** `548876437e4d6e3a826160f91a1d22e943371441`
+**Working base at this checkpoint:** `0c4f0a12d7a497e54a780227567da1d86b317752`
 **Fetched `origin/main`:** `df1007d9682eed211f7faf4cd71d6fcd54e4f869`  
 **Release state:** Local implementation only. No merge or deployment.
 
@@ -21,7 +21,7 @@
 - The recovery banner opens a command center that lists retained command IDs, checks server status without resubmitting, and links operators to the relevant workspace. Import validation references have a separate path that does not claim the CSV contents are stored. Recovery reads are filtered to the signed-in operator. Offline sync and physical printer acknowledgment remain disabled/unavailable.
 - Receipt preview keeps the server snapshot as its only source, restores a narrow thermal-slip layout and print page sizing, and retains exact minor-unit amounts and explicit cash/change or account-charge evidence. A mocked-API browser journey verifies receipt contents and states that browser printing does not acknowledge a physical printer.
 - Management now also exposes disabled supplier payable, offline sales/sync, and external payment provider cards with reasons. Hotel and reservations remain visibly partial, purchasing remains limited to supported delivery workflows, and restaurant service remains visibly disabled. This is module discovery only.
-- The latest full browser run before the additional discovery-card assertion passed 24 tests. Typecheck and API tests passed (38 passed; 8 PostgreSQL-dependent tests skipped). The receipt browser test passed in isolation.
+- Latest verification at this checkpoint: `npm run typecheck` passed; `npm run test:api` passed 38 tests with 8 PostgreSQL-dependent skips; `npm run test:e2e` passed all 24 tests, including the discovery cards and server receipt view. `npm run build` passed, splitting the 479.41 kB main bundle from the management and analytics chunks.
 
 ## Remaining front-end and backend parity gaps
 
