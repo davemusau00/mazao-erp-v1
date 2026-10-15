@@ -5,6 +5,7 @@ import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { stableStringify } from './security.js';
 import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationSnapshot } from './configuration.js';
 import { executeProductImportCommand, validateCatalogMetadata } from './productImport.js';
+import { executeStaffCommand } from './staff.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -134,6 +135,14 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     requireCapability(session, 'inventory');
   }
   switch (envelope.type) {
+    case 'staff.member.create':
+    case 'staff.member.update':
+    case 'staff.member.set_active':
+    case 'devices.assignment.create':
+    case 'devices.assignment.update':
+    case 'devices.assignment.revoke':
+    case 'staff.sessions.revoke':
+    case 'auth.session.revoke': return executeStaffCommand(client,session,envelope);
     case 'catalog.import.validate':
     case 'catalog.import.revalidate':
     case 'catalog.import.apply': return executeProductImportCommand(client,session,envelope);
