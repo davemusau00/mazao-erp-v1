@@ -34,6 +34,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 4101
       APP_ORIGINS: ${APP_ORIGINS:?required}
+      CREDENTIAL_FINGERPRINT_KEY: ${CREDENTIAL_FINGERPRINT_KEY:?required}
     depends_on:
       db:
         condition: service_healthy

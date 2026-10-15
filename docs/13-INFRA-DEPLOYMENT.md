@@ -45,7 +45,7 @@ The CI workflow runs migration fresh-and-rerun checks, TypeScript checks, API ac
 For each release:
 
 1. Record the full source SHA and download that run's PWA and API image artifacts.
-2. Keep environment values in /srv/mazao/.env with owner-only read/write permissions. Set APP_ORIGINS=https://mazao.davemusau.co.ke, API_HOST=0.0.0.0, and API_PORT=4101; generate a random database password. Never commit populated environment files or bootstrap credentials.
+2. Keep environment values in /srv/mazao/.env with owner-only read/write permissions. Set APP_ORIGINS=https://mazao.davemusau.co.ke, API_HOST=0.0.0.0, and API_PORT=4101; generate random database and `CREDENTIAL_FINGERPRINT_KEY` secrets (`openssl rand -hex 32` for the latter). Keep the credential fingerprint key stable across restarts, releases, and restores so credential-command idempotency remains valid. Never commit populated environment files or bootstrap credentials.
 3. Load the API image archive, install the Compose file, and run the matching release image's migration runner. The migration runner verifies applied checksums and never edits applied migration files.
 4. Extract PWA assets into /var/www/mazao/releases/<full-commit-sha>. Switch /var/www/mazao/current atomically only after API readiness succeeds.
 5. Install only the Mazao Nginx site. Obtain a certificate for mazao.davemusau.co.ke using the existing Certbot installation and verified DNS, run nginx -t, then perform a graceful reload. Do not add an API subdomain vhost.
