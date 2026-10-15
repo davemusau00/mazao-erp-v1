@@ -192,17 +192,22 @@ test('configuration readers cannot change settings and unauthorized operators ca
 });
 
 test('management overview exposes connected setup and disabled admin modules without opening unsupported actions',async({page})=>{
-  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage']);
+  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage','staff.view','devices.view']);
   await page.route('**/api/v1/catalog/items',route=>route.fulfill({json:{items:[]}}));
   await page.route('**/api/v1/inventory/movements',route=>route.fulfill({json:{movements:[]}}));
   await page.route('**/api/v1/catalog/imports',route=>route.fulfill({json:{batches:[]}}));
   await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
-  for(const label of ['Staff','Roles and permissions','Devices and printing','Assets and maintenance','Supplier accounts and payables','Offline sales and sync','Advanced payment providers']){
+  for(const label of ['Roles and permissions','Assets and maintenance','Supplier accounts and payables','Offline sales and sync','Advanced payment providers']){
     const card=page.getByRole('button',{name:new RegExp(label)});
     await expect(card).toBeDisabled();
     await expect(card).toContainText('Not connected');
+  }
+  for(const label of ['Staff','Workspace assignments']){
+    const card=page.getByRole('button',{name:new RegExp(label)});
+    await expect(card).toBeEnabled();
+    await expect(card).toContainText('Connected');
   }
   const grid=page.locator('.manage-grid');
   for(const label of ['Business and outlets','Data import','Business capabilities','Setup checklist','Outlet and receipts'])
@@ -225,7 +230,7 @@ test('cashier navigation shows unsupported restaurant work as disabled and keeps
 });
 
 test('management overview screenshots cover mobile, tablet and terminal viewports',async({page},testInfo:TestInfo)=>{
-  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage']);await page.goto('/');
+  const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage','staff.view','devices.view']);await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
   for(const viewport of [{width:390,height:844},{width:800,height:1280},{width:1024,height:600},{width:1280,height:720},{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080}]){

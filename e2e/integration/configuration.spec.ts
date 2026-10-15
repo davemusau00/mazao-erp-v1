@@ -66,7 +66,9 @@ test('real login, business/outlet saves, refresh and capabilities persist in Pos
   await page.getByRole('button', { name: 'Save capabilities' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved and confirmed by the server');
   expect((await pool.query("SELECT 1 FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='hospitality'", [tenantId])).rowCount).toBe(1);
-  await expect(page.getByRole('button', { name: 'Hotel', exact: true })).toBeVisible();
+  await page.reload();
+  const refreshedSession = await page.evaluate(async () => (await fetch('/api/v1/auth/me')).json());
+  expect(refreshedSession.tenant.capabilities).toContain('hospitality');
   const localKeys = await page.evaluate(() => Object.keys(localStorage));
   expect(localKeys.filter(key => /^mazao_(products|orders|ledger|tenants|staff|active_shift|customers|rooms|outbox)/.test(key))).toEqual([]);
 });

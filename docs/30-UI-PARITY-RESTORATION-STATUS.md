@@ -40,3 +40,30 @@
 3. Implement additional module behavior only after authoritative backend contracts are available.
 
 Do not describe the overall UI parity work as complete until these gaps have evidence and all required PostgreSQL-backed acceptance has passed.
+
+## Staff access checkpoint — 2026-10-15
+
+**Branch:** `feat/staff-workspace-access`, based on freshly fetched `origin/main` and merged locally into this feature branch. The tested source HEAD for this checkpoint is recorded in the accompanying delivery report. **PR #8 is already merged** (`09e58f30e3a1e0bb1d17e2b2d58dc8fb097e6874`, merge commit `8859078de4b36b8acd7c4040484520e376b6df2f`) and its original check failed. This checkpoint does not merge to main or deploy.
+
+### Verified in the disposable PostgreSQL environment
+
+- `npm run typecheck` passed after the API and staff workspace implementation.
+- `npm run test:api` passed **62/62** with PostgreSQL enabled, including tenant/role restrictions, assignment selection only after correct credentials, staff command idempotency, credential/session protections, and migration 016's historical-upgrade acceptance.
+- Migration 016 acceptance now compares the entire prior receipt/order evidence with only the additive `operator_name_snapshot` excluded, and checks the new snapshot separately. Existing immutable evidence is not relaxed or rewritten.
+- `npm run test:e2e` passed **24/24**, including connected Staff and Workspace assignments cards for authorized sessions, disabled unsupported management cards, and cashier navigation restrictions. Existing screenshot tests cover the currently configured responsive browser sizes.
+- `npm run test:integration` passed **9/9** against Docker PostgreSQL. The new real browser journey provisions a staff membership, confirms the first credential through the protected password operation, creates an outlet assignment, and verifies each persisted row. Existing configuration, sales and CSV import database journeys also passed.
+- The test database was the local disposable PostgreSQL 16 container `mazao-staff-ci-e935f6c455e8` on loopback port `65264`; it contains no production data.
+
+### Staff, credential, assignment and navigation state
+
+- Authenticated staff, device assignment, operator session, and password endpoints now use existing tenant-scoped read/credential services and permission checks.
+- Staff and assignment commands dispatch through the existing transaction, audit/outbox, and idempotency path. Replaying an access command revalidates the active operator and current server permission before returning stored outcome data.
+- Login verifies credentials before returning an assignment-choice response; choices include only that identity's active authorized assignments. Wrong-password responses do not enumerate assignments.
+- Manage now connects the Staff and Workspace assignments cards to server-backed directory, membership, credential/session, and assignment operations. Staff and assignment features are enabled only for sessions with their server read permission. Role grant editing, physical device/printer state, and printing acknowledgment remain unavailable and visibly disclosed.
+- Existing Business, Outlet, Capabilities, Readiness, and CSV Import routes remain in place. Other unsupported staff, asset, supplier/AP, offline and payment-provider operations remain disabled.
+
+### Remaining gates
+
+- GitHub PR #8 cannot be updated because it is closed as merged; its historical failure is not evidence about the corrected HEAD. A new check-bearing PR is required to obtain current hosted CI for the corrected branch. Do not merge while any required check is red, and do not deploy.
+- No approved original reference screenshot set has been compared in this checkpoint. The seven-size screenshot matrix, accessibility/contrast/reduced-motion audit, manager-role authenticated browser journey, and multi-session unauthorized browser demonstration remain outstanding. The local real browser suite demonstrates an admin session and the existing cashier/unauthorized restrictions; API tests cover role and tenant isolation.
+- All unrelated UI parity gaps listed above remain open. This staff-access checkpoint is not a claim that the seven-stage parity restoration is complete.

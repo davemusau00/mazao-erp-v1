@@ -17,8 +17,8 @@ import { getConfiguration, readBusinessProfile } from './configuration.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, requireProductImportAccess } from './productImport.js';
 import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
-import { listAssignments, listOperatorSessions, listStaff } from './staff.js';
-import { requireIdentityPermission } from './identityAuthority.js';
+import { listAssignments, listOperatorSessions, listStaff, requireStaffCommandPermission, STAFF_COMMANDS } from './staff.js';
+import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -288,6 +288,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
           try{requireProductImportAccess(s);}catch(error){if(!(error instanceof DomainError))throw error;return {status:'REJECTED',code:error.code,message:error.message};}
         }
         const old=await client.query('SELECT request_hash,status,response,actor_id FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
+        if ((STAFF_COMMANDS as readonly string[]).includes(envelope.type)) {
+          await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
+          const fresh=await revalidateOperator(client,s);
+          requireStaffCommandPermission(fresh,envelope.type);
+          if(old.rows[0].actor_id!==s.userId)throw new DomainError('FORBIDDEN','This access operation belongs to another operator.',403);
+        }
         if(envelope.type.startsWith('catalog.import.')&&old.rows[0].actor_id!==s.userId)return {status:'REJECTED',code:'FORBIDDEN',message:'This import operation belongs to another operator.'};
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
