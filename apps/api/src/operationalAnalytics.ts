@@ -45,7 +45,7 @@ export async function getOperationalAnalytics(session: ApiSession, fromValue: un
       ), coverage AS (
         SELECT (SELECT count(*)::text FROM scoped_orders) order_count,
           (SELECT count(*)::text FROM scoped_refunds) refund_count,
-          (SELECT count(*)::text FROM commerce.customer_charges c JOIN scoped_orders o ON o.id=c.order_id WHERE c.tenant_id=$1 AND c.outlet_id=$2) account_charge_count
+          (SELECT count(*)::text FROM finance.customer_charges c JOIN scoped_orders o ON o.id=c.order_id WHERE c.tenant_id=$1 AND c.outlet_id=$2) account_charge_count
       )
       SELECT
         coalesce((SELECT sum(total_minor)::text FROM scoped_orders),'0') gross_sales_minor,

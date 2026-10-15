@@ -18,7 +18,7 @@ export interface BackendCommandResult {commandId:string;status:string;value?:Rec
 export interface BackendBusinessConfiguration {
   id:string;name:string;currency:string;timeZone:string;version:number;
   legalName:string;registrationNumber:string;taxRegistrationNumber:string;
-  address:string;phone:string;email:string;website:string;logoUrl:string;
+  address:string;phone:string;email:string;website:string;logoUrl:string;receiptQrImage:string;showQrOnReceipt:boolean;
   receiptHeader:string;receiptFooter:string;
   taxPolicy:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean};
 }
@@ -95,7 +95,7 @@ export interface BackendJournalLines {
 }
 export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
-  receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
+  receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptQrImage:string;showQrOnReceipt:boolean;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
   lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
   payments:Array<{method:string;amountMinor:string;currency:string;status:string}>;

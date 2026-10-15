@@ -8,7 +8,7 @@ export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', '
 export interface TaxPolicy { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean }
 export interface BusinessProfile {
   legalName: string; registrationNumber: string; taxRegistrationNumber: string;
-  address: string; phone: string; email: string; website: string; logoUrl: string;
+  address: string; phone: string; email: string; website: string; logoUrl: string; receiptQrImage: string; showQrOnReceipt: boolean;
   receiptHeader: string; receiptFooter: string; taxPolicy: TaxPolicy;
 }
 export interface OutletProfile { address: string; phone: string; email: string; receiptHeader: string; receiptFooter: string }
@@ -25,7 +25,7 @@ export interface ConfigurationRead {
 }
 
 const businessDefaults: BusinessProfile = {
-  legalName: '', registrationNumber: '', taxRegistrationNumber: '', address: '', phone: '', email: '', website: '', logoUrl: '', receiptHeader: '', receiptFooter: '',
+  legalName: '', registrationNumber: '', taxRegistrationNumber: '', address: '', phone: '', email: '', website: '', logoUrl: '', receiptQrImage: '', showQrOnReceipt: true, receiptHeader: '', receiptFooter: '',
   taxPolicy: { calculation: 'exclusive', defaultRateBps: 0, label: 'Tax', reviewed: false },
 };
 const outletDefaults: OutletProfile = { address: '', phone: '', email: '', receiptHeader: '', receiptFooter: '' };
@@ -62,6 +62,24 @@ function url(value: unknown, field: string, httpsOnly = false) {
   catch { throw new DomainError('VALIDATION_FAILED', `${field} must be an ${httpsOnly ? 'HTTPS' : 'HTTP or HTTPS'} address without credentials.`); }
   return normalized;
 }
+const MAX_RECEIPT_IMAGE_BYTES = 512 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+function uploadedPng(value: unknown, field: string): string {
+  if (typeof value !== 'string') throw new DomainError('VALIDATION_FAILED', `${field} must be a PNG image.`);
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(normalized);
+  if (!match || normalized.length > Math.ceil(MAX_RECEIPT_IMAGE_BYTES * 4 / 3) + 32) throw new DomainError('VALIDATION_FAILED', `${field} must be a PNG image up to 512 KB.`);
+  const bytes = Buffer.from(match[1], 'base64');
+  if (bytes.length === 0 || bytes.length > MAX_RECEIPT_IMAGE_BYTES || bytes.toString('base64') !== match[1] || !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    throw new DomainError('VALIDATION_FAILED', `${field} must contain a valid PNG image up to 512 KB.`);
+  }
+  return normalized;
+}
+function logoImage(value: unknown): string {
+  if (typeof value === 'string' && value.trim().startsWith('data:')) return uploadedPng(value, 'logoUrl');
+  return url(value, 'logoUrl', true);
+}
 export function validateTimeZone(value: unknown): string {
   const timeZone = text(value, 'timeZone', 100, true);
   if (!timeZone.includes('/') && timeZone !== 'UTC') throw new DomainError('VALIDATION_FAILED', 'timeZone must be an IANA time zone, such as Africa/Nairobi.');
@@ -82,7 +100,9 @@ export function validateBusinessInput(payload: Record<string, unknown>) {
   if (typeof policy.reviewed !== 'boolean') throw new DomainError('VALIDATION_FAILED', 'taxPolicy.reviewed must be a boolean.');
   const profile: BusinessProfile = {
     legalName: text(payload.legalName, 'legalName', 160), registrationNumber: text(payload.registrationNumber, 'registrationNumber', 80), taxRegistrationNumber: text(payload.taxRegistrationNumber, 'taxRegistrationNumber', 80),
-    address: text(payload.address, 'address', 500, false, true), phone: phone(payload.phone), email: email(payload.email, 'email'), website: url(payload.website, 'website'), logoUrl: url(payload.logoUrl, 'logoUrl', true),
+    address: text(payload.address, 'address', 500, false, true), phone: phone(payload.phone), email: email(payload.email, 'email'), website: url(payload.website, 'website'), logoUrl: logoImage(payload.logoUrl),
+    receiptQrImage: uploadedPng(payload.receiptQrImage, 'receiptQrImage'),
+    showQrOnReceipt: payload.showQrOnReceipt === undefined ? true : typeof payload.showQrOnReceipt === 'boolean' ? payload.showQrOnReceipt : (() => { throw new DomainError('VALIDATION_FAILED', 'showQrOnReceipt must be a boolean.'); })(),
     receiptHeader: text(payload.receiptHeader, 'receiptHeader', 500, false, true), receiptFooter: text(payload.receiptFooter, 'receiptFooter', 500, false, true),
     taxPolicy: { calculation: 'exclusive', defaultRateBps: policy.defaultRateBps, label: text(policy.label, 'taxPolicy.label', 40, true), reviewed: policy.reviewed },
   };
@@ -206,7 +226,8 @@ export function receiptConfigurationSnapshot(businessValue: unknown, outletValue
   return {
     legalName: business.legalName, registrationNumber: business.registrationNumber, taxRegistrationNumber: business.taxRegistrationNumber,
     address: outlet.address || business.address, phone: outlet.phone || business.phone, email: outlet.email || business.email,
-    website: business.website, logoUrl: business.logoUrl, receiptHeader: outlet.receiptHeader || business.receiptHeader,
+    website: business.website, logoUrl: business.logoUrl, receiptQrImage: business.receiptQrImage, showQrOnReceipt: business.showQrOnReceipt,
+    receiptHeader: outlet.receiptHeader || business.receiptHeader,
     receiptFooter: outlet.receiptFooter || business.receiptFooter, taxLabel: business.taxPolicy.label, taxCalculation: 'exclusive',
   };
 }
