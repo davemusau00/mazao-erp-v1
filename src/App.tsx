@@ -7,10 +7,10 @@ import { BackendFinancialReportsWorkspace } from './components/finance/BackendFi
 import { lazy, Suspense } from 'react';
 
 const BackendOperationalAnalyticsWorkspace = lazy(() => import('./components/analytics/BackendOperationalAnalyticsWorkspace').then(module => ({ default: module.BackendOperationalAnalyticsWorkspace })));
+const BackendManageWorkspace = lazy(() => import('./components/manage/BackendManageWorkspace').then(module => ({ default: module.BackendManageWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
-import { BackendManageWorkspace } from './components/manage/BackendManageWorkspace';
 import { HelpWorkspace } from './components/help/HelpWorkspace';
 import { ProcurementWorkspace } from './components/procurement/ProcurementWorkspace';
 import { BackendHotelWorkspace } from './components/hospitality/BackendHotelWorkspace';
@@ -77,7 +77,7 @@ export default function App() {
       {visibleTab==='shifts'&&<ShiftManagerView/>}
       {visibleTab==='money'&&<BackendFinancialReportsWorkspace initialView="trial-balance"/>}
       {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
-      {(visibleTab==='manage'||visibleTab==='onboarding')&&<BackendManageWorkspace initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/>}
+      {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>
     {receiptOrderId&&<BackendReceiptModal receipt={receipt} loading={receiptLoading} error={receiptError} onRetry={()=>openReceipt(receiptOrderId)} onClose={closeReceipt}/>}
