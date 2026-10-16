@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 interface ResponsiveDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  closeDisabled?: boolean;
   title: string;
   subtitle?: string;
   icon?: React.ReactNode;
@@ -15,6 +16,7 @@ interface ResponsiveDialogProps {
 export const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
   isOpen,
   onClose,
+  closeDisabled = false,
   title,
   subtitle,
   icon,
@@ -102,7 +104,8 @@ export const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
 
           <button
             onClick={onClose}
-            className="p-2 sm:p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            disabled={closeDisabled}
+            className="p-2 sm:p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />

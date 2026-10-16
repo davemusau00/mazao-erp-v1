@@ -134,7 +134,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   };
   const changeSection=(next:Section)=>{
     if(next===section)return;
-    if(dirty&&!window.confirm('Discard unsaved settings before opening another settings section?'))return;
+    if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
     if(dirty&&configuration){setBusiness(businessInput(configuration));setOutlet(outletInput(configuration));setCapabilities(configuration.capabilities);const bps=configuration.business.taxPolicy.defaultRateBps;setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);setDirty(false);}
     setSection(next);setError('');
   };
