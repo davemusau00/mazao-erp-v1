@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import type { ApiSession } from '../src/contracts.js';
-import { getOperationalAnalytics } from '../src/operationalAnalytics.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 if (!databaseUrl) {
   test('operational analytics SQL runs against PostgreSQL', { skip: 'Set TEST_DATABASE_URL to a migrated disposable PostgreSQL database.' }, () => {});
 } else {
-  process.env.DATABASE_URL ??= databaseUrl;
+  process.env.DATABASE_URL = databaseUrl;
+  const [{ getOperationalAnalytics }, { pool }] = await Promise.all([
+    import('../src/operationalAnalytics.js'), import('../src/db.js'),
+  ]);
+  after(async () => { await pool.end(); });
   test('operational analytics SQL runs against PostgreSQL with finance customer charges', async () => {
     const session: ApiSession = {
       sessionId: 'analytics-test-session', userId: '00000000-0000-0000-0000-000000000001', fullName: 'Analytics Test',
