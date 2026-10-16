@@ -6,6 +6,7 @@ import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { apiClient, type BackendSession } from '../../services/apiClient';
 import type { RecoverableCommand } from '../../services/commandJournal';
 import type { ImportValidationRecovery } from '../../services/importValidationJournal';
+import { MyAccountDialog } from '../auth/MyAccountDialog';
 
 export type ActiveTab=WorkspaceId;
 const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
@@ -25,6 +26,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [importRecoveries,setImportRecoveries]=useState<ImportValidationRecovery[]>([]);
   const [logoutError,setLogoutError]=useState('');
   const [recoveryOpen,setRecoveryOpen]=useState(false);
+  const [accountOpen,setAccountOpen]=useState(false);
   const [checkingCommand,setCheckingCommand]=useState('');
   const [recoveryMessages,setRecoveryMessages]=useState<Record<string,string>>({});
   const [lastRecoveryResult,setLastRecoveryResult]=useState<{commandId:string;status:string;message:string}|null>(null);
@@ -59,6 +61,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     setLogoutError('');try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
   const openRecovery=()=>setRecoveryOpen(true);
+  const openAccount=()=>{if(window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true})))setAccountOpen(true);};
   const checkCommand=async(commandId:string)=>{
     setCheckingCommand(commandId);setRecoveryMessages(previous=>({...previous,[commandId]:''}));
     try{
@@ -83,7 +86,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       <div className="sidebar-footer"><span className="demo-indicator"><span/>Server · {session.outlet.name}</span></div>
     </aside>
     <div className="app-main-column">
-      <header className="topbar"><div className="topbar-context"><div className="operator-button" aria-label={'Signed in as '+session.user.name}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {session.user.role}</small></span></div></div><div className="topbar-actions"><div className={'connection-pill server-session '+(online?'online':'offline')} title={online?'Server connection available':'Offline: server actions require a connection'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Server account':'Offline'}</span><button className="min-h-11 min-w-11 whitespace-nowrap" type="button" onClick={()=>void signOut()} aria-label="Sign out of server">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
+      <header className="topbar"><div className="topbar-context"><button type="button" className="operator-button min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={'Signed in as '+session.user.name} aria-haspopup="dialog" aria-expanded={accountOpen} title="Open My account" onClick={openAccount}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {session.user.role}</small></span></button></div><div className="topbar-actions"><div className={'connection-pill server-session '+(online?'online':'offline')} title={online?'Server connection available':'Offline: server actions require a connection'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Server account':'Offline'}</span><button className="min-h-11 min-w-11 whitespace-nowrap" type="button" onClick={()=>void signOut()} aria-label="Sign out of server">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Server actions require a connection. Unconfirmed commands remain available for status review.</div>}
         {logoutError&&<div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {logoutError}</div>}
@@ -97,6 +100,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
           <section aria-labelledby="import-recovery-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="import-recovery-title" className="text-sm font-semibold">Product-import validations</h3><span className="text-[11px] text-zinc-500">{importRecoveries.length} retained</span></div>{importRecoveries.length?<div className="space-y-2">{importRecoveries.map(record=><article key={record.commandId} className="rounded-lg border border-amber-900/70 bg-amber-950/20 p-3"><p className="text-xs font-semibold text-amber-100">{record.fileName} · validation outcome unknown</p><p className="mt-1 break-all font-mono text-[10px] text-amber-100/60">Source SHA-256 {record.sourceHash}</p><p className="mt-1 text-[11px] text-amber-100/70">The CSV contents are not stored in recovery metadata. Reopen the import workspace and select the original file to safely check or revalidate it.</p><button type="button" onClick={()=>{setRecoveryOpen(false);selectWorkspace('stock');}} className="mt-2 min-h-10 rounded-lg border border-amber-800 px-3 text-xs font-semibold text-amber-100">Open product import review</button></article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No unresolved import validations are retained on this browser.</p>}</section>
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] leading-relaxed text-zinc-400">Offline sales, synchronization queues, and printer-device acknowledgments are not connected. No command is automatically resent from this center.</div>
         </div></section></div>}
+      {accountOpen&&<MyAccountDialog onClose={()=>setAccountOpen(false)}/>}
     </div>
   </div>;
 }

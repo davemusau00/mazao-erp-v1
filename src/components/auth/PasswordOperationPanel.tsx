@@ -3,8 +3,8 @@ import { apiClient, type BackendCommandResult } from '../../services/apiClient';
 import type { SecretOperationRecovery } from '../../services/secretOperationJournal';
 import { identityButton, identityInput } from '../manage/identityUi';
 
-export function PasswordOperationPanel({userId,displayName,credentialVersion,hasCredential=true,onConfirmed}:{
-  userId:string;displayName:string;credentialVersion:number;hasCredential?:boolean;onConfirmed?:()=>Promise<void>;
+export function PasswordOperationPanel({userId,displayName,credentialVersion,hasCredential=true,onConfirmed,onBusyChange}:{
+  userId:string;displayName:string;credentialVersion:number;hasCredential?:boolean;onConfirmed?:()=>Promise<void>;onBusyChange?:(busy:boolean)=>void;
 }) {
   const session=apiClient.getSession()!;const own=userId===session.user.id;const id=useId();
   const canChange=own||session.user.permissions.includes('staff.manage');
@@ -13,8 +13,15 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
   const [error,setError]=useState('');const [notice,setNotice]=useState('');const [show,setShow]=useState(false);const [conflict,setConflict]=useState(false);
   const [pending,setPending]=useState<SecretOperationRecovery|null>(null);
   const clearInputs=()=>{form.current?.reset();setShow(false);};
+  const setOperationBusy=(value:boolean)=>{inFlight.current=value;setBusy(value);onBusyChange?.(value);};
   useEffect(()=>setVersion(credentialVersion),[credentialVersion]);
   useEffect(()=>()=>{form.current?.reset();},[]);
+  useEffect(()=>{
+    const beforeNavigate=(event:Event)=>{if(inFlight.current)event.preventDefault();};
+    const beforeUnload=(event:BeforeUnloadEvent)=>{if(inFlight.current){event.preventDefault();event.returnValue='';}};
+    window.addEventListener('mazao:before-navigate',beforeNavigate);window.addEventListener('mazao:before-account-open',beforeNavigate);window.addEventListener('beforeunload',beforeUnload);
+    return()=>{window.removeEventListener('mazao:before-navigate',beforeNavigate);window.removeEventListener('mazao:before-account-open',beforeNavigate);window.removeEventListener('beforeunload',beforeUnload);};
+  },[]);
   const restore=async()=>{
     setReady(false);setError('');
     try{const records=await apiClient.listSecretOperationRecovery();setPending(records.find(record=>record.targetUserId===userId)??null);setReady(true);}
@@ -41,29 +48,31 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
     if(next.length<12||next.length>256){next='';current='';setError('Use a password between 12 and 256 characters.');return;}
     if(next!==confirmation){next='';current='';setError('Passwords did not match. Enter the new password again.');return;}
     const operation:SecretOperationRecovery={tenantId:session.tenant.id,actorId:session.user.id,commandId:crypto.randomUUID(),kind:own?'auth.password.change':'staff.password.set',targetUserId:userId,expectedCredentialVersion:version,state:'sending',savedAt:new Date().toISOString()};
-    inFlight.current=true;setBusy(true);
+    setOperationBusy(true);
     try{await complete(await apiClient.submitPasswordOperation(operation,next,own?current:undefined),operation);}
     catch(cause){
       if((cause as {code?:string}).code==='COMMAND_NOT_SENT'){setError(cause instanceof Error?cause.message:'The password request was not sent.');}
       else{setPending(operation);setNotice('The password change outcome is unknown. Check its original status before entering another password.');}
-    }finally{next='';current='';inFlight.current=false;setBusy(false);}
+    }finally{next='';current='';setOperationBusy(false);}
   };
   const check=async()=>{
     if(!pending||inFlight.current)return;
-    inFlight.current=true;setBusy(true);setError('');
+    setOperationBusy(true);setError('');
     try{const result=await apiClient.checkSecretOperationStatus(pending.commandId);await complete({commandId:pending.commandId,status:result.status,...result.response},pending);}
     catch(cause){setError((cause as {status?:number}).status===404?'No completed password operation was found yet. Check again; passwords cannot be replayed from this device.':cause instanceof Error?cause.message:'Password status could not be checked.');}
-    finally{inFlight.current=false;setBusy(false);}
+    finally{setOperationBusy(false);}
   };
   const reload=async()=>{
-    setBusy(true);setError('');clearInputs();
+    if(inFlight.current)return;
+    setOperationBusy(true);setError('');clearInputs();
     try{const result=own?await apiClient.getOwnSessions():await apiClient.getStaffSessions(userId);setVersion(result.credentialVersion);setConflict(false);}
     catch(cause){setError(cause instanceof Error?cause.message:'The current password version could not be loaded.');}
-    finally{setBusy(false);}
+    finally{setOperationBusy(false);}
   };
   return <section className="space-y-4 rounded-xl border border-zinc-700 p-4">
     <div><h3 className="text-base font-semibold">{own?'Change my password':hasCredential?'Reset operator password':'Set initial password'}</h3><p className="mt-1 text-sm leading-6 text-zinc-400">{displayName}. A confirmed change signs out existing sessions.{own?' You will sign in again with your new password.':''}</p></div>
     <p className="text-xs leading-5 text-zinc-400">Passwords are sent through the protected endpoint and cleared from this form. Recovery stores only operation IDs and versions.</p>
+    {busy&&<p role="status" className="text-sm text-amber-200">Wait for the password request before leaving or choosing another operator.</p>}
     {!ready&&<p role={error?'alert':'status'} className="text-sm text-amber-200">{error||'Checking private password recovery metadata…'}{error&&<button type="button" className={identityButton+' mt-2'} onClick={()=>void restore()}>Retry password recovery</button>}</p>}
     {ready&&error&&<p role="alert" className="text-sm text-rose-300">{error}</p>}
     {notice&&<p role="status" className="text-sm text-blue-200">{notice}</p>}
