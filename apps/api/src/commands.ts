@@ -541,7 +541,8 @@ async function postStockCount(client: PoolClient, session: ApiSession, envelope:
   if (totalVarianceMinor > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', 'Count variance value exceeds the supported safe money range.');
   if (totalVarianceMinor > 0n) {
     await journal(client, session, envelope.commandId, 'INVENTORY_COUNT', currencyResult.rows[0].currency, [
-      { account: 'INVENTORY', debit: Number(gainMinor), credit: Number(shrinkMinor) },
+      { account: 'INVENTORY', debit: Number(gainMinor), credit: 0 },
+      { account: 'INVENTORY', debit: 0, credit: Number(shrinkMinor) },
       { account: 'INVENTORY_COUNT_GAIN', debit: 0, credit: Number(gainMinor) },
       { account: 'INVENTORY_COUNT_SHRINKAGE', debit: Number(shrinkMinor), credit: 0 },
     ]);
