@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './db.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiRole, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { requireIdentityPermission } from './identityAuthority.js';
+import { requireCommandAuthority } from './commandAuthorization.js';
 
 export const STAFF_COMMANDS=['staff.member.create','staff.member.update','staff.member.set_active','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','staff.sessions.revoke','auth.session.revoke'] as const;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -49,8 +50,8 @@ async function revokeUserSessions(client:PoolClient,tenantId:string,userId:strin
   const result=await client.query('UPDATE identity.sessions SET revoked_at=now(),version=version+1 WHERE tenant_id=$1 AND user_id=$2 AND revoked_at IS NULL RETURNING id',[tenantId,userId]);return result.rowCount??0;
 }
 export function requireStaffCommandPermission(session:ApiSession,type:string){
-  if(type==='auth.session.revoke')return;
-  requireIdentityPermission(session,type.startsWith('devices.')?'devices.manage':'staff.manage');
+  if(!(STAFF_COMMANDS as readonly string[]).includes(type))throw new DomainError('VALIDATION_FAILED','Unsupported staff or assignment command.');
+  requireCommandAuthority(session,type);
 }
 export async function executeStaffCommand(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
   requireStaffCommandPermission(session,envelope.type);assertStaffMetadataInput(envelope);

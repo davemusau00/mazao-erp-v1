@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
+import { requireCommandAuthority } from './commandAuthorization.js';
 
 export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail'] as const;
 export interface TaxPolicy { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean }
@@ -173,7 +174,7 @@ async function recordEvidence(client: PoolClient, session: ApiSession, envelope:
   await client.query('INSERT INTO system.transactional_outbox(id,tenant_id,command_id,event_type,payload) VALUES($1,$2,$3,$4,$5::jsonb)', [randomUUID(), session.tenantId, envelope.commandId, envelope.type, evidence]);
 }
 export async function executeConfigurationCommand(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requireConfigurationAccess(session, true);
+  requireCommandAuthority(session,envelope.type);
   if (envelope.type === 'configuration.outlet.update') {
     const expected = expectedVersion(envelope, `outlet:${session.outletId}`);
     const input = validateOutletInput(envelope.payload);

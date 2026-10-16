@@ -14,12 +14,13 @@ import { getSaleReceipt } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, readBusinessProfile } from './configuration.js';
-import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, requireProductImportAccess } from './productImport.js';
+import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
 import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
-import { listAssignments, listOperatorSessions, listStaff, requireStaffCommandPermission, STAFF_COMMANDS } from './staff.js';
-import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
+import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from './staff.js';
+import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
+import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -291,17 +292,19 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
-        if(envelope.type.startsWith('catalog.import.')){
-          try{requireProductImportAccess(s);}catch(error){if(!(error instanceof DomainError))throw error;return {status:'REJECTED',code:error.code,message:error.message};}
-        }
-        const old=await client.query('SELECT request_hash,status,response,actor_id FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
-        if ((STAFF_COMMANDS as readonly string[]).includes(envelope.type)) {
+        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,d.outlet_id
+          FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
+          WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[s.tenantId,envelope.commandId]);
+        if ((STAFF_COMMANDS as readonly string[]).includes(old.rows[0].command_type)) {
           await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
-          const fresh=await revalidateOperator(client,s);
-          requireStaffCommandPermission(fresh,envelope.type);
-          if(old.rows[0].actor_id!==s.userId)throw new DomainError('FORBIDDEN','This access operation belongs to another operator.',403);
         }
-        if(envelope.type.startsWith('catalog.import.')&&old.rows[0].actor_id!==s.userId)return {status:'REJECTED',code:'FORBIDDEN',message:'This import operation belongs to another operator.'};
+        const fresh=await revalidateOperator(client,s);
+        try { requireCommandRecoveryAuthority(fresh,old.rows[0],'replay'); }
+        catch(error) {
+          // Preserve import's existing definite rejected-envelope contract.
+          if(!(error instanceof DomainError)||!old.rows[0].command_type.startsWith('catalog.import.'))throw error;
+          return {status:'REJECTED',code:error.code,message:error.message};
+        }
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
@@ -324,22 +327,15 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     });
     return reply.code(200).send({commandId:envelope.commandId,...outcome});
   });
-  app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async (request,reply) => {
-    const r=await pool.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
+  app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async request => inTransaction(async client => {
+    const operator=await revalidateOperator(client,request.operator!);
+    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
       FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
-      WHERE c.tenant_id=$1 AND c.command_id=$2`,[request.operator!.tenantId,request.params.commandId]);
-    if (!r.rowCount) return reply.code(404).send({error:{code:'NOT_FOUND',message:'Command was not found.'}});
-    if(r.rows[0].command_type==='staff.password.set'){
-      if(r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
-      requireIdentityPermission(request.operator!,'staff.manage');
-    }
-    if(r.rows[0].command_type==='auth.password.change'&&r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
-    if(r.rows[0].command_type.startsWith('catalog.import.')){
-      requireProductImportAccess(request.operator!);
-      if(r.rows[0].outlet_id!==request.operator!.outletId||r.rows[0].actor_id!==request.operator!.userId)throw new DomainError('NOT_FOUND','Import operation was not found in your operator/outlet scope.',404);
-    }
+      WHERE c.tenant_id=$1 AND c.command_id=$2 FOR SHARE OF c,d`,[operator.tenantId,request.params.commandId]);
+    if (!r.rowCount) throw new DomainError('NOT_FOUND','Command was not found.',404);
+    requireCommandRecoveryAuthority(operator,r.rows[0],'status');
     const {command_type:_,actor_id:__,outlet_id:___,...status}=r.rows[0];
     return {commandId:request.params.commandId,...status};
-  });
+  }));
   return app;
 }
