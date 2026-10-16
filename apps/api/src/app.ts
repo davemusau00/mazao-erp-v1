@@ -68,7 +68,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
     const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
     if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const assignments=await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
+    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
@@ -88,7 +88,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = production ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readBusinessProfile(row.business_profile).taxPolicy,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readBusinessProfile(row.business_profile).taxPolicy,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
   });
   // The plugin installs an onRoute hook during boot. Defer route registration
   // until then, while keeping buildApp's synchronous public interface.
@@ -101,7 +101,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
-    const result = await pool.query(`SELECT s.id session_id,s.user_id,u.full_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
+    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.sessions s JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
       JOIN core.tenants t ON t.id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
@@ -109,7 +109,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id`, [hashToken(token)]);
     if (!result.rowCount) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Session is expired or access was revoked.' } });
     const r = result.rows[0];
-    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.full_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readBusinessProfile(r.business_profile).taxPolicy,timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
+    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readBusinessProfile(r.business_profile).taxPolicy,timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
@@ -228,12 +228,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const permissions=ROLE_PERMISSIONS[operator.role];
     if(!permissions.some(permission=>permission==='commerce.sell'||permission==='commerce.refund'||permission==='finance.view')) throw new DomainError('FORBIDDEN','Your role cannot review sales.',403);
     const canReadCost=permissions.includes('finance.view');
-    const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,u.full_name cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
+    const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,o.operator_name_snapshot cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
         COALESCE((SELECT SUM(p.amount_minor) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),0)::text paid_minor,
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
         COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
-      FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
+      FROM commerce.orders o
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),amountDueMinor:Number(r.customer_amount_due_minor),customerName:r.customer_name_snapshot,refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:r.customer_account_id?'customer_credit':'cash',lines:r.lines}))};
   });

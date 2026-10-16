@@ -40,8 +40,8 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       receipt_profile_snapshot: Record<string, unknown>;
     }>(`SELECT o.id,o.receipt_number,o.tenant_name_snapshot,o.outlet_name_snapshot,o.outlet_time_zone_snapshot,
         o.currency,o.created_at,o.subtotal_minor::text,o.tax_minor::text,o.total_minor::text,o.status,
-        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,o.receipt_profile_snapshot,u.full_name operator_name
-      FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
+        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,o.receipt_profile_snapshot,o.operator_name_snapshot operator_name
+      FROM commerce.orders o
       WHERE o.id=$1 AND o.tenant_id=$2 AND o.outlet_id=$3`, [orderIdValue, session.tenantId, session.outletId]);
     if (!orderResult.rowCount) throw new DomainError('NOT_FOUND', 'Sale receipt was not found for this outlet.', 404);
     const order = orderResult.rows[0];

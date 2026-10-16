@@ -683,9 +683,9 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
     [shiftId, session.tenantId, session.outletId, session.userId, counted, variance, expected],
   );
   if (!closedShift.rowCount) throw new DomainError('VERSION_CONFLICT', 'The shift changed while it was being closed.', 409);
-  const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,u.full_name operator_name,t.currency,
+  const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,m.display_name operator_name,t.currency,
       to_char($3::timestamptz AT TIME ZONE o.time_zone,'YYYY-MM-DD') business_date
-    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.users u ON u.id=$2
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.memberships m ON m.tenant_id=t.id AND m.user_id=$2
     WHERE t.id=$1 AND o.id=$4`, [session.tenantId, session.userId, closedShift.rows[0].closed_at, session.outletId]);
   const snapshot = identity.rows[0];
   if (!snapshot) throw new DomainError('INTERNAL_ERROR', 'Shift close identity snapshot could not be loaded.', 500);
