@@ -1,0 +1,15 @@
+# Disposable API test database isolation
+
+The default `npm run test:api` / `bun run test:api` command preloads a fresh migrated database for each Node test process when `TEST_DATABASE_URL` is configured. The configured URL supplies a **disposable localhost PostgreSQL server and role**, with permission to connect to `postgres` and create databases. Its original database is not modified by the isolation helper. Generated names are `mazao_api_` followed by UUID hex; both database environment variables point to that process's generated database before test modules load.
+
+This removes accidental SERIALIZABLE dependencies between unrelated suites and their fixture writes. Previously a 1,000-row import could repeatedly conflict with other test files' product/journal mutations, exhausting the existing bounded retry policy in local and hosted CI. The application transaction isolation, three-attempt retry limit and invariants are unchanged. Deliberate simultaneous command/replay/room/stock races inside each test file continue to use one shared database and remain concurrent. Isolation is not evidence for production throughput; representative cross-domain load remains an explicit release-acceptance requirement.
+
+Every generated database runs the actual forward migration runner from scratch. The outer CI fresh/rerun check still verifies the migration history on its separate baseline database. Migration subprocesses do not inherit a partial `MIGRATION_TARGET`. Remote hosts are refused so this helper cannot create test databases on a hosted application server.
+
+CI destroys the PostgreSQL service after the job. Local runs retain generated databases for diagnosis within the explicitly disposable PostgreSQL server; this avoids racing test pool cleanup and never drops a caller-supplied database. Use a task-owned disposable container and remove that container through its task lifecycle after evidence is collected. The helper prints generated database names, never connection strings or credentials. The test launcher may also preload an extra generated database before forking child processes; that database is disposable under the same rule.
+
+With no `TEST_DATABASE_URL`, the helper does nothing and PostgreSQL-dependent files keep their explicit skip behavior. Those skips do not count as database acceptance. Run one file directly with `tsx --test <file>` against a dedicated database when diagnosing it; run the package command for the isolated full suite.
+
+No product schema, financial/stock record, production database, offline behavior or UI is changed by this test-harness slice.
+
+Local verification on 16 October 2026: the default `npm run test:api` command passed **78/78 tests, zero failures/skips**, with test-file process isolation and the original concurrent race cases enabled (48.2 seconds). UI/API typecheck passed. Before isolation, the same integrated source's default shared-database run passed 76/78 and failed two cases on exhausted SQLSTATE 40001 retries; serial execution passed 78/78. This comparison separates the harness interference from isolated domain acceptance rather than changing application isolation or retry policy.
