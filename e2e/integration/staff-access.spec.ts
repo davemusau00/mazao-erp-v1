@@ -3,6 +3,8 @@ import { Pool } from 'pg';
 import { expect, test, type Page } from '@playwright/test';
 import { hashPassword } from '../../apps/api/src/security';
 
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '198.51.100.3' } });
+
 const pool = new Pool({ connectionString: process.env.MAZAO_E2E_DATABASE_URL });
 const tenantId = randomUUID();
 const outletId = randomUUID();

@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { expect, test, type Page } from '@playwright/test';
 import { hashPassword } from '../../apps/api/src/security';
 
+// A distinct terminal keeps the real per-client login limit enabled in CI.
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '198.51.100.2' } });
+
 // The integration config restricts this URL to a disposable localhost database.
 const pool = new Pool({ connectionString: process.env.MAZAO_E2E_DATABASE_URL });
 const tenantId = randomUUID(), outletId = randomUUID(), userId = randomUUID(), deviceId = randomUUID();

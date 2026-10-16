@@ -101,7 +101,15 @@ jobs:
           for attempt in 1 2; do
             docker run --rm --network host -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test "$IMAGE" bun apps/api/src/migration.ts
           done
-          docker run -d --name mazao-api-smoke --network host --read-only --tmpfs /tmp:rw,nosuid,size=64m -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test -e APP_ORIGINS=https://mazao.davemusau.co.ke "$IMAGE"
+          for invalid_key in '' 'invalid-disposable-test-key'; do
+            if docker run --rm --network host -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test -e APP_ORIGINS=https://mazao.davemusau.co.ke -e CREDENTIAL_FINGERPRINT_KEY="$invalid_key" "$IMAGE" > "$RUNNER_TEMP/mazao-config-rejection.log" 2>&1; then
+              echo 'Production API unexpectedly accepted missing or invalid credential configuration.' >&2
+              exit 1
+            fi
+            grep -q 'CREDENTIAL_FINGERPRINT_KEY must be configured' "$RUNNER_TEMP/mazao-config-rejection.log"
+          done
+          credential_key=$(openssl rand -hex 32)
+          docker run -d --name mazao-api-smoke --network host --read-only --tmpfs /tmp:rw,nosuid,size=64m -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test -e APP_ORIGINS=https://mazao.davemusau.co.ke -e CREDENTIAL_FINGERPRINT_KEY="$credential_key" "$IMAGE"
           trap 'docker logs mazao-api-smoke; docker rm -f mazao-api-smoke' EXIT
           curl --retry 12 --retry-delay 2 --retry-connrefused --fail http://127.0.0.1:4101/api/v1/health/ready
       - name: Log in to GitHub Container Registry

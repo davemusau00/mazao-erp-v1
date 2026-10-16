@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 process.env.DATABASE_URL ??= process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:1/unused';
 process.env.NODE_ENV = 'production';
 process.env.APP_ORIGINS = '';
+process.env.CREDENTIAL_FINGERPRINT_KEY = 'c'.repeat(64);
 
 const [{ buildApp }, db] = await Promise.all([
   import('../src/app.js'),
