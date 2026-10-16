@@ -20,7 +20,9 @@ export default defineConfig({
     {
       command: 'npm run api:dev',
       url: 'http://127.0.0.1:4102/api/v1/health/ready',
-      env: { DATABASE_URL: databaseUrl, API_HOST: '127.0.0.1', API_PORT: '4102', APP_ORIGINS: 'http://127.0.0.1:3002', NODE_ENV: 'development', CREDENTIAL_FINGERPRINT_KEY: 'c'.repeat(64) },
+      // This test-only loopback ingress forwards the explicit client fixtures.
+      // Production must verify its own exact socket ingress, never trust a CIDR.
+      env: { DATABASE_URL: databaseUrl, API_HOST: '127.0.0.1', API_PORT: '4102', APP_ORIGINS: 'http://127.0.0.1:3002', NODE_ENV: 'development', CREDENTIAL_FINGERPRINT_KEY: 'c'.repeat(64), TRUSTED_PROXY_IPS: '127.0.0.1,::1,::ffff:127.0.0.1' },
       reuseExistingServer: false,
     },
     {

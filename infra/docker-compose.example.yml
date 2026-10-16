@@ -35,6 +35,7 @@ services:
       API_PORT: 4101
       APP_ORIGINS: ${APP_ORIGINS:?required}
       CREDENTIAL_FINGERPRINT_KEY: ${CREDENTIAL_FINGERPRINT_KEY:?required}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
     depends_on:
       db:
         condition: service_healthy

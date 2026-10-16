@@ -19,17 +19,17 @@ import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
 import { listAssignments, listOperatorSessions, listStaff, requireStaffCommandPermission, STAFF_COMMANDS } from './staff.js';
 import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
+import { readRuntimeConfig } from './runtimeConfig.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
 
 export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
-  const allowedOrigins=(process.env.APP_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);
-  if(process.env.NODE_ENV==='production'&&allowedOrigins.length===0)throw new Error('APP_ORIGINS must contain the exact public application origin in production.');
-  if(allowedOrigins.some(origin=>{try{return new URL(origin).origin!==origin}catch{return true}}))throw new Error('APP_ORIGINS entries must be exact origins such as https://erp.example.com.');
+  const { production, allowedOrigins, trustedProxyIps } = readRuntimeConfig();
   const loggerOptions=options.logger&&typeof options.logger==='object'?options.logger:{};
-  const app = Fastify({ logger: {...loggerOptions,redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576 });
+  const app = Fastify({ logger: {...loggerOptions,redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576,
+    trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
   app.addHook('onSend', async (_request, reply, payload) => {
@@ -39,7 +39,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.addHook('onRequest', async (request, reply) => {
     const origin = request.headers.origin;
     const unsafe=['POST','PUT','PATCH','DELETE'].includes(request.method);
-    const productionOriginMissing=process.env.NODE_ENV==='production'&&unsafe&&(!origin||!allowedOrigins.includes(origin));
+    const productionOriginMissing=production&&unsafe&&(!origin||!allowedOrigins.includes(origin));
     const configuredOriginDenied=unsafe&&!!origin&&allowedOrigins.length>0&&!allowedOrigins.includes(origin);
     if (productionOriginMissing||configuredOriginDenied) {
       return reply.code(403).send({ error: { code: 'ORIGIN_DENIED', message: 'Request origin is not allowed.' } });
@@ -47,6 +47,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof DomainError) return reply.code(error.statusCode).send({ error:{code:error.code,message:error.message,details:error.details} });
+    if ((error as { statusCode?: number }).statusCode === 429) return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many sign-in attempts. Try again shortly.' } });
     if((error as {code?:string}).code==='FST_ERR_CTP_BODY_TOO_LARGE')return reply.code(413).send({error:{code:'PAYLOAD_TOO_LARGE',message:'The request exceeds the upload limit. CSV source must be 512 KiB or smaller.'}});
     request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
@@ -59,7 +60,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     catch { return reply.code(503).send({ status: 'not_ready', database: 'unavailable' }); }
   });
 
-  app.post<{ Body: { email: string; password: string; deviceId?: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
+  const registerLogin = () => app.post<{ Body: { email: string; password: string; deviceId?: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
     const email = request.body?.email?.trim().toLowerCase();
     const password = request.body?.password;
     if (!email || typeof password !== 'string') throw new DomainError('VALIDATION_FAILED', 'Email and password are required.');
@@ -84,9 +85,15 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const sessionToken = randomToken(); const csrfToken = randomToken(24); const sessionId = randomUUID();
     await pool.query(`INSERT INTO identity.sessions(id,token_hash,csrf_hash,user_id,tenant_id,outlet_id,device_id,expires_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
-    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    const secure = production ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
     return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readBusinessProfile(row.business_profile).taxPolicy,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
+  });
+  // The plugin installs an onRoute hook during boot. Defer route registration
+  // until then, while keeping buildApp's synchronous public interface.
+  app.after(error => {
+    if (error) throw error;
+    registerLogin();
   });
 
   app.addHook('preHandler', async (request, reply) => {
