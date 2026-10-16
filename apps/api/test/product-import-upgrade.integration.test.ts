@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Pool } from 'pg';
+import { Client } from 'pg';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -11,16 +11,18 @@ if(!sourceUrl){
 }else{
   test('additive import migration preserves existing stock, movement, journal and receipt snapshots and reruns safely',async()=>{
     const databaseName='mazao_import_upgrade_'+randomUUID().replaceAll('-','');
-    const admin=new Pool({connectionString:sourceUrl});const databaseUrl=new URL(sourceUrl);databaseUrl.pathname='/'+databaseName;
-    let created=false;let fixture:Pool|undefined;
+    const maintenanceUrl=new URL(sourceUrl);maintenanceUrl.pathname='/postgres';
+    const admin=new Client({connectionString:maintenanceUrl.href});const databaseUrl=new URL(sourceUrl);databaseUrl.pathname='/'+databaseName;
+    let created=false;let fixture:Client|undefined;
     const migrate=(target?:string)=>{
       const migration=fileURLToPath(new URL('../src/migration.ts',import.meta.url));
       const run=spawnSync(process.execPath,['--import','tsx',migration],{cwd:process.cwd(),encoding:'utf8',env:{...process.env,DATABASE_URL:databaseUrl.href,MIGRATION_TARGET:target??''}});
       assert.ifError(run.error);assert.equal(run.status,0,run.stdout+'\n'+run.stderr);
     };
     try{
+      await admin.connect();
       await admin.query(`CREATE DATABASE "${databaseName}"`);created=true;
-      migrate('014_configuration');fixture=new Pool({connectionString:databaseUrl.href});
+      migrate('014_configuration');fixture=new Client({connectionString:databaseUrl.href});await fixture.connect();
       const tenant=randomUUID(),outlet=randomUUID(),user=randomUUID(),device=randomUUID(),product=randomUUID(),shift=randomUUID(),order=randomUUID(),receiptCommand=randomUUID(),saleCommand=randomUUID();
       await fixture.query('BEGIN');
       await fixture.query('INSERT INTO core.tenants(id,name,currency,time_zone) VALUES($1,\'Legacy resort\',\'KES\',\'Africa/Nairobi\')',[tenant]);
@@ -63,9 +65,13 @@ if(!sourceUrl){
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,16);
     }finally{
-      await fixture?.end();
-      if(created)await admin.query(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
-      await admin.end();
+      try{
+        // Client.end waits for the socket to close. Pool.end can resolve while
+        // idle sockets are still closing; a forced database drop races those
+        // sockets and emits an uncaught administrator-termination error.
+        await fixture?.end();
+        if(created)await admin.query(`DROP DATABASE "${databaseName}"`);
+      }finally{await admin.end();}
     }
   });
 }

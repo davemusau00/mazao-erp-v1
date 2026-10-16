@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Pool } from 'pg';
+import { Client } from 'pg';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -12,12 +12,15 @@ if (!sourceDatabaseUrl) {
 } else {
   test('migrations 007-009 reconcile legacy receipt, sale, refund, and open-count values', async () => {
     const scratchDatabase = `mazao_valuation_upgrade_${randomUUID().replaceAll('-', '')}`;
-    const admin = new Pool({ connectionString: sourceDatabaseUrl });
+    const maintenanceUrl = new URL(sourceDatabaseUrl);
+    maintenanceUrl.pathname = '/postgres';
+    const admin = new Client({ connectionString: maintenanceUrl.href });
     let scratchCreated = false;
     const scratchUrl = new URL(sourceDatabaseUrl);
     scratchUrl.pathname = `/${scratchDatabase}`;
 
     try {
+      await admin.connect();
       await admin.query(`CREATE DATABASE "${scratchDatabase}"`);
       scratchCreated = true;
 
@@ -34,7 +37,7 @@ if (!sourceDatabaseUrl) {
 
       migrateThrough('006_inventory_counts');
 
-      const db = new Pool({ connectionString: scratchUrl.href });
+      const db = new Client({ connectionString: scratchUrl.href });
       const tenantId = randomUUID();
       const outletId = randomUUID();
       const userId = randomUUID();
@@ -54,6 +57,7 @@ if (!sourceDatabaseUrl) {
       const refundMovementId = randomUUID();
 
       try {
+        await db.connect();
         await db.query('INSERT INTO core.tenants(id,name,currency,time_zone) VALUES($1,$2,$3,$4)', [tenantId, 'Historical migration tenant', 'KES', 'Africa/Nairobi']);
         await db.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone) VALUES($1,$2,$3,$4)', [outletId, tenantId, 'Historical outlet', 'Africa/Nairobi']);
         await db.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,$3,$4)', [userId, `${userId}@example.invalid`, 'fixture-hash', 'Migration Fixture']);
@@ -151,8 +155,11 @@ if (!sourceDatabaseUrl) {
         await db.end();
       }
     } finally {
-      if (scratchCreated) await admin.query(`DROP DATABASE "${scratchDatabase}" WITH (FORCE)`);
-      await admin.end();
+      try {
+        // A dedicated Client waits for physical socket closure before the
+        // drop. Never terminate a connection to hide a teardown leak.
+        if (scratchCreated) await admin.query(`DROP DATABASE "${scratchDatabase}"`);
+      } finally { await admin.end(); }
     }
   });
 }
