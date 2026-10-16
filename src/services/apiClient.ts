@@ -102,27 +102,102 @@ export interface BackendSaleReceipt {
   subtotalMinor:string;taxMinor:string;totalMinor:string;amountPaidMinor:string;customerAccountCharge:{customerId:string;customerName:string;amountDueMinor:string}|null;cashTenderedMinor:string|null;changeMinor:string|null;
 }
 
+export class ApiClientError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status?: number,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiClientError';
+  }
+}
+
+const READ_TIMEOUT_MS = 20_000;
+const READ_SLOW_WARNING_MS = 10_000;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function requestIdentifier(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+}
+function requestRoute(path: string): string {
+  return path.split('?', 1)[0].replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ':id');
+}
+
 class ApiClient {
   private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();private recoveryListeners=new Set<(records:RecoverableCommand[])=>void>();
   private importRecoveryListeners=new Set<(records:ImportValidationRecovery[])=>void>();
   private secretRecoveryListeners=new Set<(records:SecretOperationRecovery[])=>void>();
+  private pendingReadControllers = new Set<AbortController>();
   subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
   subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
   subscribeImportRecovery(listener:(records:ImportValidationRecovery[])=>void){this.importRecoveryListeners.add(listener);return()=>{this.importRecoveryListeners.delete(listener)}}
   subscribeSecretRecovery(listener:(records:SecretOperationRecovery[])=>void){this.secretRecoveryListeners.add(listener);return()=>{this.secretRecoveryListeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
+  cancelPendingReads(){for(const controller of this.pendingReadControllers)controller.abort('navigation');}
   private async request<T>(path:string,init:RequestInit={}):Promise<T>{
+    const method=(init.method??'GET').toUpperCase();const isRead=method==='GET';
     const headers=new Headers(init.headers); if(init.body)headers.set('content-type','application/json');
-    if(['POST','PUT','PATCH','DELETE'].includes(init.method??'GET')&&this.csrf)headers.set('x-csrf-token',this.csrf);
-    let response:Response; try { response=await fetch(`/api/v1${path}`,{...init,headers,credentials:'include'}); }
-    catch { throw new Error('Connection outcome is unknown. Keep the command ID and check its status before retrying.'); }
-    const body=await response.json().catch(()=>({}));
-    if(!response.ok){
-      if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
-      throw Object.assign(new Error(body?.error?.message??`Request failed (${response.status}).`),{status:response.status,code:body?.error?.code,details:body?.error?.details});
+    const requestId=requestIdentifier();headers.set('x-request-id',requestId);
+    if(['POST','PUT','PATCH','DELETE'].includes(method)&&this.csrf)headers.set('x-csrf-token',this.csrf);
+    const controller=isRead?new AbortController():undefined;const externalSignal=init.signal;
+    let slowWarningSent=false;let cleaned=false;let hardTimer:ReturnType<typeof setTimeout>|undefined;let slowTimer:ReturnType<typeof setTimeout>|undefined;
+    const abortFromCaller=()=>controller?.abort('caller');
+    const cleanup=()=>{
+      if(cleaned)return;cleaned=true;
+      if(hardTimer!==undefined)clearTimeout(hardTimer);if(slowTimer!==undefined)clearTimeout(slowTimer);
+      externalSignal?.removeEventListener('abort',abortFromCaller);
+      if(controller)this.pendingReadControllers.delete(controller);
+      if(slowWarningSent&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent('mazao:api-request-finished',{detail:{requestId}}));
+    };
+    if(controller){
+      this.pendingReadControllers.add(controller);
+      if(externalSignal?.aborted)controller.abort('caller');else externalSignal?.addEventListener('abort',abortFromCaller,{once:true});
+      slowTimer=setTimeout(()=>{
+        slowWarningSent=true;
+        if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('mazao:api-request-slow',{detail:{requestId,route:requestRoute(path)}}));
+      },READ_SLOW_WARNING_MS);
+      hardTimer=setTimeout(()=>controller.abort('timeout'),READ_TIMEOUT_MS);
     }
-    return body as T;
+    let response:Response;
+    try {
+      response=await fetch(`/api/v1${path}`,{...init,headers,credentials:'include',...(controller?{signal:controller.signal}:{})});
+    } catch {
+      if(controller?.signal.aborted){
+        cleanup();
+        if(controller.signal.reason==='timeout')throw new ApiClientError(`This request took longer than ${READ_TIMEOUT_MS/1000} seconds. Retry the read when the server is available.`,'REQUEST_TIMED_OUT',undefined,requestId);
+        if(controller.signal.reason==='caller')throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',undefined,requestId);
+        throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',undefined,requestId);
+      }
+      cleanup();
+      if(isRead){const offline=typeof navigator!=='undefined'&&!navigator.onLine;throw new ApiClientError(offline?'You are offline. Reconnect and retry this read.':'The connection could not be completed. Retry this read.','CONNECTION_FAILED',undefined,requestId);}
+      throw new ApiClientError('Connection outcome is unknown. Keep the command ID and check its status before retrying.','OUTCOME_UNKNOWN',undefined,requestId);
+    }
+    try {
+      let bodyText:string;
+      try { bodyText=await response.text(); }
+      catch {
+        if(controller?.signal.aborted&&controller.signal.reason==='timeout')throw new ApiClientError(`The response body did not finish within ${READ_TIMEOUT_MS/1000} seconds. Retry this read.`,'REQUEST_TIMED_OUT',response.status,response.headers.get('x-request-id')??requestId);
+        if(controller?.signal.aborted)throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',response.status,response.headers.get('x-request-id')??requestId);
+        throw new ApiClientError(response.ok?'The server response ended before its body was complete. Retry this read.':`Request failed (${response.status}) and its error response was incomplete.`,'INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+      }
+      let body:unknown;
+      try { body=JSON.parse(bodyText); }
+      catch {
+        if(response.ok)throw new ApiClientError('The server returned an unreadable response. Retry this read; no data was accepted.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+        body=undefined;
+      }
+      if(!response.ok){
+        if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
+        const error=isRecord(body)&&isRecord(body.error)?body.error:{};
+        throw Object.assign(new ApiClientError(typeof error.message==='string'?error.message:`Request failed (${response.status}).`,typeof error.code==='string'?error.code:`HTTP_${response.status}`,response.status,response.headers.get('x-request-id')??requestId),{details:error.details});
+      }
+      if(!isRecord(body))throw new ApiClientError('The server returned an unexpected response shape. Retry this read.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+      return body as T;
+    } finally {cleanup();}
   }
   async login(email:string,password:string,deviceId?:string):Promise<BackendSession|BackendAssignmentSelection>{
     try{const s=await this.request<BackendSession>('/auth/login',{method:'POST',body:JSON.stringify({email,password,...(deviceId?{deviceId}:{})})});this.csrf=s.csrfToken;this.publish(s);return s;}
@@ -136,7 +211,17 @@ class ApiClient {
   listWorkspaceAssignments(){return this.request<{devices:BackendWorkspaceAssignment[]}>('/devices');}
   getOwnSessions(){return this.request<BackendOperatorSessions>('/auth/sessions');}
   getStaffSessions(userId:string){return this.request<BackendOperatorSessions>('/staff/'+encodeURIComponent(userId)+'/sessions');}
-  getConfiguration(){return this.request<{configuration:BackendConfiguration}>('/configuration')}
+  async getConfiguration(signal?:AbortSignal){
+    const result=await this.request<{configuration:BackendConfiguration}>('/configuration',{signal});
+    const configuration=result.configuration as unknown;
+    if(!isRecord(configuration)||!isRecord(configuration.business)||!isRecord(configuration.outlet)||!Array.isArray(configuration.capabilities)||!Array.isArray(configuration.supportedCapabilities)||!isRecord(configuration.readiness)||!Array.isArray(configuration.readiness.checks))
+      throw new ApiClientError('Business settings were returned without the required business, outlet, capability, or readiness data. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    for(const [name,record] of [['business',configuration.business],['outlet',configuration.outlet]] as const){
+      if(typeof record.id!=='string'||typeof record.name!=='string'||typeof record.version!=='number'||!Number.isSafeInteger(record.version))
+        throw new ApiClientError(`Business settings are missing required ${name} fields. Retry this read.`,'INVALID_SERVER_RESPONSE',200);
+    }
+    return result;
+  }
   updateBusinessConfiguration(input:BackendBusinessConfigurationInput,version:number,commandId:string){
     const session=this.session;if(!session)throw new Error('Sign in before changing business settings.');
     return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.business.update',occurredAt:new Date().toISOString(),expectedVersions:{['business:'+session.tenant.id]:version},payload:input});

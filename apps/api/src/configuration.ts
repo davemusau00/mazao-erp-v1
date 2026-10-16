@@ -30,9 +30,13 @@ const businessDefaults: BusinessProfile = {
   taxPolicy: { calculation: 'exclusive', defaultRateBps: 0, label: 'Tax', reviewed: false },
 };
 const outletDefaults: OutletProfile = { address: '', phone: '', email: '', receiptHeader: '', receiptFooter: '' };
+export function readTaxPolicy(value: unknown): TaxPolicy {
+  const candidate = value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<TaxPolicy> : {};
+  return { ...businessDefaults.taxPolicy, ...candidate };
+}
 export function readBusinessProfile(value: unknown): BusinessProfile {
   const profile = value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<BusinessProfile> : {};
-  return { ...businessDefaults, ...profile, taxPolicy: { ...businessDefaults.taxPolicy, ...profile.taxPolicy } };
+  return { ...businessDefaults, ...profile, taxPolicy: readTaxPolicy(profile.taxPolicy) };
 }
 export function readOutletProfile(value: unknown): OutletProfile {
   return { ...outletDefaults, ...(value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<OutletProfile> : {}) };
