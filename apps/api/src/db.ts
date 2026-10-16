@@ -11,6 +11,24 @@ export const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'require' ? { rejectUnauthorized: true } : undefined,
 });
 
+/** All queries in a multi-query read observe one committed database snapshot. */
+export async function inReadSnapshot<T>(read: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  let discard = false;
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const value = await read(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); }
+    catch { discard = true; }
+    throw error;
+  } finally {
+    client.release(discard);
+  }
+}
+
 export async function inTransaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
   // Callbacks must contain database work only. Retrying must never repeat an
   // external payment, print, email, or other effect before the transaction commits.
