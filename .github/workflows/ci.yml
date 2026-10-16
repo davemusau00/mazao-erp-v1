@@ -112,6 +112,14 @@ jobs:
           docker run -d --name mazao-api-smoke --network host --read-only --tmpfs /tmp:rw,nosuid,size=64m -e DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/mazao_image_test -e APP_ORIGINS=https://mazao.davemusau.co.ke -e CREDENTIAL_FINGERPRINT_KEY="$credential_key" "$IMAGE"
           trap 'docker logs mazao-api-smoke; docker rm -f mazao-api-smoke' EXIT
           curl --retry 12 --retry-delay 2 --retry-connrefused --fail http://127.0.0.1:4101/api/v1/health/ready
+          docker exec mazao-api-smoke bun -e '
+            for (let index = 0; index < 9; index++) {
+              const response = await fetch("http://127.0.0.1:4101/api/v1/auth/login", { method: "POST", headers: { origin: "https://mazao.davemusau.co.ke", "content-type": "application/json" }, body: "{}" });
+              if (response.status !== (index < 8 ? 400 : 429)) throw new Error("Production login throttle returned an unexpected status.");
+              if (index === 8 && !(Number(response.headers.get("retry-after")) > 0)) throw new Error("Production login throttle omitted Retry-After.");
+            }
+            console.log("Production container login throttle passed.");
+          '
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
