@@ -172,15 +172,17 @@ if (!databaseUrl) {
         const { app, owner } = await setup();
         try {
           const peer = await makeActor(app, owner, 'admin'), cashier = await makeActor(app, owner, 'cashier');
-          const action = async (actor: Actor, target: Actor) => {
+          const prepare = async (actor: Actor, target: Actor) => {
             if (kind === 'membership') {
               const current = await member(app, actor, target.userId);
-              return submit(app, actor, command(actor, 'staff.member.set_active', { userId: target.userId, active: false, reason: 'Last administrator race' }, { [`staff:${target.userId}`]: current.version }));
+              return { actor, envelope: command(actor, 'staff.member.set_active', { userId: target.userId, active: false, reason: 'Last administrator race' }, { [`staff:${target.userId}`]: current.version }) };
             }
             const targetAssignment = (await assignments(app, actor)).find(assignment => assignment.id === target.deviceId)!;
-            return submit(app, actor, command(actor, 'devices.assignment.update', { deviceId: target.deviceId, label: targetAssignment.label, assignedUserId: cashier.userId }, { [`device:${target.deviceId}`]: targetAssignment.version }));
+            return { actor, envelope: command(actor, 'devices.assignment.update', { deviceId: target.deviceId, label: targetAssignment.label, assignedUserId: cashier.userId }, { [`device:${target.deviceId}`]: targetAssignment.version }) };
           };
-          const outcomes = await Promise.all([action(owner, peer), action(peer, owner)]);
+          // Read both versions before either command can revoke the other actor's session.
+          const prepared = await Promise.all([prepare(owner, peer), prepare(peer, owner)]);
+          const outcomes = await Promise.all(prepared.map(({ actor, envelope }) => submit(app, actor, envelope)));
           assert.equal(outcomes.filter(result => result.json().status === 'CONFIRMED').length, 1, outcomes.map(result => result.body).join('\n'));
           assert.ok(outcomes.every(result => result.statusCode !== 500));
           const usable = await db.pool.query(`SELECT count(DISTINCT m.user_id)::int count FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id
