@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { expect, test } from '@playwright/test';
 import { hashPassword } from '../../apps/api/src/security';
 
+// Keep this spec's sign-ins separate from the shared integration API rate-limit bucket.
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '198.51.100.7' } });
+
 const pool = new Pool({ connectionString: process.env.MAZAO_E2E_DATABASE_URL });
 test.afterAll(async () => { await pool.end(); });
 
