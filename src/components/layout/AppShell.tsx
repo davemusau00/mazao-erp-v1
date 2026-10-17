@@ -30,12 +30,23 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [checkingCommand,setCheckingCommand]=useState('');
   const [recoveryMessages,setRecoveryMessages]=useState<Record<string,string>>({});
   const [lastRecoveryResult,setLastRecoveryResult]=useState<{commandId:string;status:string;message:string}|null>(null);
+  const [slowRequests,setSlowRequests]=useState<Map<string,string>>(()=>new Map());
+  const [requestFailures,setRequestFailures]=useState<Array<{requestId:string;route:string;code:string;status?:number;durationMs:number}>>([]);
+  const [copiedRequestId,setCopiedRequestId]=useState('');
   const {isInstallable,isInstalled,install}=usePWAInstall();
   useEffect(()=>apiClient.subscribe(setSession),[]);
   useEffect(()=>{
     const update=()=>setOnline(navigator.onLine);
     window.addEventListener('online',update);window.addEventListener('offline',update);
     return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
+  useEffect(()=>{
+    const slow=(event:Event)=>{const detail=(event as CustomEvent<{requestId:string;route:string}>).detail;if(detail?.requestId)setSlowRequests(previous=>new Map(previous).set(detail.requestId,detail.route));};
+    const finished=(event:Event)=>{const detail=(event as CustomEvent<{requestId:string}>).detail;if(detail?.requestId)setSlowRequests(previous=>{const next=new Map(previous);next.delete(detail.requestId);return next;});};
+    const failed=(event:Event)=>{const detail=(event as CustomEvent<{requestId:string;route:string;code:string;status?:number;durationMs:number}>).detail;if(!detail||!/^[A-Za-z0-9._:-]{1,128}$/.test(detail.requestId)||typeof detail.route!=='string'||typeof detail.code!=='string')return;setRequestFailures(previous=>[...previous.filter(item=>item.requestId!==detail.requestId),{requestId:detail.requestId,route:detail.route.slice(0,120),code:detail.code.slice(0,80),...(typeof detail.status==='number'?{status:detail.status}:{}),durationMs:Math.max(0,Math.round(detail.durationMs))}].slice(-6));};
+    window.addEventListener('mazao:api-request-slow',slow);window.addEventListener('mazao:api-request-finished',finished);
+    window.addEventListener('mazao:api-request-failed',failed);
+    return()=>{window.removeEventListener('mazao:api-request-slow',slow);window.removeEventListener('mazao:api-request-finished',finished);window.removeEventListener('mazao:api-request-failed',failed);};
   },[]);
   useEffect(()=>{
     if(!session){setRecoverableCommands([]);return;}
@@ -54,13 +65,15 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const selectWorkspace=(id:WorkspaceId)=>{
     if(!canOpenWorkspace(session,id))return;
     if(id!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+    if(id!==activeTab)apiClient.cancelPendingReads();
     onTabChange(id);setMoreOpen(false);
   };
   const signOut=async()=>{
     if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
-    setLogoutError('');try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
+    setLogoutError('');apiClient.cancelPendingReads();try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
   const openRecovery=()=>setRecoveryOpen(true);
+  const copyRequestId=async(requestId:string)=>{try{await navigator.clipboard.writeText(requestId);setCopiedRequestId(requestId);}catch{setCopiedRequestId('');}};
   const openAccount=()=>{if(window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true})))setAccountOpen(true);};
   const checkCommand=async(commandId:string)=>{
     setCheckingCommand(commandId);setRecoveryMessages(previous=>({...previous,[commandId]:''}));
@@ -89,6 +102,8 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       <header className="topbar"><div className="topbar-context"><button type="button" className="operator-button min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={'Signed in as '+session.user.name} aria-haspopup="dialog" aria-expanded={accountOpen} title="Open My account" onClick={openAccount}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {session.user.role}</small></span></button></div><div className="topbar-actions"><div className={'connection-pill server-session '+(online?'online':'offline')} title={online?'Server connection available':'Offline: server actions require a connection'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Server account':'Offline'}</span><button className="min-h-11 min-w-11 whitespace-nowrap" type="button" onClick={()=>void signOut()} aria-label="Sign out of server">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Server actions require a connection. Unconfirmed commands remain available for status review.</div>}
+        {slowRequests.size>0&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">{slowRequests.size===1?`The ${[...slowRequests.values()][0]} request is taking longer than usual.`:`${slowRequests.size} server requests are taking longer than usual.`} The request will stop after 20 seconds; retry the affected panel if it times out.</div>}
+        {requestFailures.length>0&&<details className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300"><summary className="min-h-11 cursor-pointer py-2 font-semibold">Recent request diagnostics ({requestFailures.length})</summary><p className="mb-2 text-zinc-500">Share a request ID with support to locate a failed request. These details contain no account or business data.</p><ul className="space-y-2">{requestFailures.map(item=><li key={item.requestId} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800 pt-2"><span className="font-mono">{item.route}</span><span>{item.code}{item.status?` · HTTP ${item.status}`:''} · {item.durationMs} ms</span><code className="break-all text-blue-200">{item.requestId}</code><button type="button" className="min-h-9 rounded border border-zinc-700 px-2" onClick={()=>void copyRequestId(item.requestId)}>{copiedRequestId===item.requestId?'Copied':'Copy request ID'}</button></li>)}</ul></details>}
         {logoutError&&<div role="alert" className="persistence-error-banner"><strong>Server sign-out was not confirmed.</strong> {logoutError}</div>}
         {recoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length+importRecoveries.length} operation{recoverableCommands.length+importRecoveries.length===1?'':'s'} need review.</strong> Server commands and product-import validation references are retained on this device. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Open command recovery center</button></div>}
         <div className="workspace-interaction-boundary">{children}</div>

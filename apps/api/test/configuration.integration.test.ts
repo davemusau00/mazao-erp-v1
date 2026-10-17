@@ -20,6 +20,9 @@ if (!databaseUrl) {
     await db.pool.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,$3,$4)', [userId, email, await hashPassword(password), 'Configuration Admin']);
     await db.pool.query('INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,\'admin\')', [tenantId, userId]);
     await db.pool.query('INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,$5)', [deviceId, tenantId, outletId, userId, 'Configuration acceptance device']);
+    const legacyPngBytes=Buffer.alloc(512*1024,65);Buffer.from([137,80,78,71,13,10,26,10]).copy(legacyPngBytes);
+    const legacyLargeImage = `data:image/png;base64,${legacyPngBytes.toString('base64')}`;
+    await db.pool.query('UPDATE core.tenants SET business_profile=$2::jsonb WHERE id=$1', [tenantId, JSON.stringify({ logoUrl: legacyLargeImage, receiptQrImage: legacyLargeImage })]);
     const app = buildApp(); await app.ready();
     try {
       assert.equal((await app.inject({ url: '/api/v1/configuration' })).statusCode, 401);
@@ -29,11 +32,23 @@ if (!databaseUrl) {
       const raw = login.headers['set-cookie'];
       const cookie = (Array.isArray(raw) ? raw : [raw]).filter((item): item is string => typeof item === 'string').map(item => item.split(';', 1)[0]).join('; ');
       const headers = { cookie, origin: 'http://localhost:3000', 'x-csrf-token': login.json().csrfToken };
+      const tracedMe = await app.inject({ url: '/api/v1/auth/me', headers: { ...headers, 'x-request-id': 'config-check-request-20261016' } });
+      assert.equal(tracedMe.headers['x-request-id'], 'config-check-request-20261016', 'safe client request IDs are returned for diagnostics');
+      assert.match(String(tracedMe.headers['server-timing']), /^app;dur=\d+(?:\.\d+)?$/, 'same-origin diagnostics expose the bounded app duration');
+      assert.ok(tracedMe.body.length < 20_000, 'session restoration must not return legacy business image payloads');
+      assert.doesNotMatch(tracedMe.body, /data:image\/png;base64,/);
       const command = (type: string, payload: Record<string, unknown>, expectedVersions: Record<string, number> = {}): CommandEnvelope => ({ protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type, occurredAt: new Date().toISOString(), expectedVersions, payload });
       const submit = (envelope: CommandEnvelope) => app.inject({ method: 'POST', url: '/api/v1/commands', headers, payload: envelope });
       const read = async () => { const response = await app.inject({ url: '/api/v1/configuration', headers }); assert.equal(response.statusCode, 200, response.body); return response.json().configuration; };
       const initial = await read();
       assert.equal(initial.business.version, 1); assert.equal(initial.outlet.version, 1);
+      const initialHttp=await app.inject({url:'/api/v1/configuration',headers});
+      assert.ok(initialHttp.body.length<32*1024,'legacy PNGs are omitted from settings metadata');
+      assert.equal(initial.business.logoUrl,'/api/v1/configuration/assets/legacy/logo');
+      assert.equal(initial.business.receiptQrImage,'/api/v1/configuration/assets/legacy/receipt_qr');
+      const legacyImage=await app.inject({url:initial.business.logoUrl,headers});
+      assert.equal(legacyImage.statusCode,200,legacyImage.body);assert.equal(legacyImage.rawPayload.length,512*1024);
+      assert.equal(legacyImage.headers['cache-control'],'private, no-store');
       assert.equal(initial.currencyLocked, false); assert.equal(initial.readiness.readyForFirstSale, false);
       assert.deepEqual(initial.supportedCapabilities, ['commerce', 'inventory', 'hospitality', 'retail']);
       const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';

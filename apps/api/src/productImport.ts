@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from './db.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiSession, type CommandEnvelope } from './contracts.js';
+import { requireCommandAuthority } from './commandAuthorization.js';
 import { readBusinessProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
@@ -36,8 +37,7 @@ const skuKey=(value:string)=>value.trim().toUpperCase();
 const scientific=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function requireProductImportAccess(session:ApiSession) {
-  if(!ROLE_PERMISSIONS[session.role].includes('catalog.manage')) throw new DomainError('FORBIDDEN','Your role cannot import catalogue items.',403);
-  if(!session.capabilities.includes('inventory')) throw new DomainError('CAPABILITY_DISABLED','Inventory is not enabled for this tenant.',403);
+  requireCommandAuthority(session,'catalog.import.validate');
 }
 function quantity(value:string):string {
   if(!/^\d{1,14}(?:\.\d{1,6})?$/.test(value)) throw new Error('Use a non-negative base-unit decimal quantity with at most six decimal places.');

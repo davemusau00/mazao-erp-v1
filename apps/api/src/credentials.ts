@@ -1,7 +1,8 @@
 import type { ApiSession } from './contracts.js';
 import { DomainError } from './contracts.js';
 import { inTransaction } from './db.js';
-import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
+import { revalidateOperator } from './identityAuthority.js';
+import { requireCommandAuthority, requireCommandRecoveryAuthority } from './commandAuthorization.js';
 import { identityEvidence } from './staff.js';
 import { credentialFingerprint, hashPassword, verifyPassword } from './security.js';
 
@@ -21,13 +22,16 @@ export async function changeCredential(operator:ApiSession,input:CredentialInput
   const passwordHash=await hashPassword(input.newPassword);
   return inTransaction(async client=>{
     const session=await revalidateOperator(client,operator);
-    if(!self)requireIdentityPermission(session,'staff.manage');
+    requireCommandAuthority(session,type);
     await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[session.tenantId]);
     const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
       VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[session.tenantId,input.commandId,session.userId,session.deviceId,type,digest]);
     if(!inserted.rowCount){
-      const stored=await client.query('SELECT actor_id,request_hash,status,response FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[session.tenantId,input.commandId]);
+      const stored=await client.query(`SELECT c.actor_id,c.request_hash,c.status,c.response,c.command_type,d.outlet_id
+        FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
+        WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[session.tenantId,input.commandId]);
       if(stored.rows[0].actor_id!==session.userId)throw new DomainError('NOT_FOUND','Credential operation was not found in your operator scope.',404);
+      requireCommandRecoveryAuthority(session,stored.rows[0],'replay');
       if(!Buffer.from(stored.rows[0].request_hash).equals(digest))return {commandId:input.commandId,status:'REJECTED',code:'IDEMPOTENCY_MISMATCH',message:'This operation ID was used with different content.'};
       return {commandId:input.commandId,...stored.rows[0].response};
     }
