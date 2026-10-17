@@ -13,7 +13,7 @@ import { getOperationalAnalytics } from './operationalAnalytics.js';
 import { getSaleReceipt } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
-import { getConfiguration, readTaxPolicy } from './configuration.js';
+import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
 import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
@@ -38,12 +38,17 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
+  const requestStartedAt=new WeakMap<object,number>();
+  app.addHook('onRequest', async request => { requestStartedAt.set(request, performance.now()); });
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-request-id', request.id);
+    const started=requestStartedAt.get(request);
+    if(started!==undefined)reply.header('server-timing',`app;dur=${Math.max(0,performance.now()-started).toFixed(1)}`);
     return payload;
   });
   app.addHook('onSend', async (_request, reply, payload) => {
-    reply.header('x-content-type-options', 'nosniff').header('referrer-policy', 'same-origin').header('cache-control', 'no-store');
+    reply.header('x-content-type-options', 'nosniff').header('referrer-policy', 'same-origin');
+    if (reply.getHeader('cache-control') === undefined) reply.header('cache-control', 'no-store');
     return payload;
   });
   app.addHook('onRequest', async (request, reply) => {
@@ -138,6 +143,18 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
   app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
+  app.get<{ Params:{ assetId:string } }>('/api/v1/configuration/assets/:assetId', async (request, reply) => {
+    const image = await getConfigurationAsset(request.operator!, request.params.assetId);
+    if (!image) throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
+  });
+  app.get<{ Params:{ kind:string } }>('/api/v1/configuration/assets/legacy/:kind', async (request, reply) => {
+    if (request.params.kind !== 'logo' && request.params.kind !== 'receipt_qr') throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    const image = await getConfigurationAsset(request.operator!, undefined, request.params.kind);
+    if (!image) throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
+  });
+  app.post<{ Body:unknown }>('/api/v1/configuration/assets', async request => inTransaction(client => stageConfigurationAsset(client,request.operator!,request.body)));
   app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{

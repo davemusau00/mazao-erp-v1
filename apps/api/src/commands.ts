@@ -753,8 +753,11 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh and retry using the current version.', 409, { currentVersion: Number(shift.rows[0].version) });
 
-  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile
-    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
+  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown; logo_asset_id: string | null; receipt_qr_asset_id: string | null }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile,logo.id logo_asset_id,receipt_qr.id receipt_qr_asset_id
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id
+    LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='logo' AND status='ACTIVE' LIMIT 1) logo ON true
+    LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='receipt_qr' AND status='ACTIVE' LIMIT 1) receipt_qr ON true
+    WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
   const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string; product_version: string }> = [];
@@ -818,7 +821,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
       tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone,
       customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0,
-      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile))],
+      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile, { logoId: tenant.rows[0].logo_asset_id, receiptQrId: tenant.rows[0].receipt_qr_asset_id }))],
   );
   for (const line of computed) {
     await client.query(
