@@ -19,6 +19,16 @@ function formatDate(value: string, timeZone: string) {
   catch { return value; }
 }
 
+function displayOrderNumber(receipt: BackendSaleReceipt): string {
+  return receipt.receiptId.slice(0, 8).toUpperCase();
+}
+
+function displayQuantity(quantity: string): string {
+  return quantity
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
+}
+
 function textReceipt(receipt: BackendSaleReceipt) {
   const profile = receipt.receiptProfile ?? {};
   return [
@@ -28,11 +38,15 @@ function textReceipt(receipt: BackendSaleReceipt) {
     ...(profile.registrationNumber ? [`Registration: ${profile.registrationNumber}`] : []),
     ...(profile.taxRegistrationNumber ? [`Tax registration: ${profile.taxRegistrationNumber}`] : []),
     ...[profile.address, profile.phone, profile.email, profile.website, profile.receiptHeader].filter(Boolean),
-    `Receipt: ${receipt.receiptNumber}`,
+    `Order: #${displayOrderNumber(receipt)}`,
     `Date: ${formatDate(receipt.createdAt, receipt.timeZone)}`,
-    `Operator: ${receipt.operatorName}`,
+    `Cashier: ${receipt.operatorName}`,
     '',
-    ...receipt.lines.map(line => `${line.name} | ${line.quantity} x ${money(line.unitPriceMinor, receipt.currency)} | ${profile.taxLabel || 'Tax'} ${(line.taxRateBps / 100).toFixed(2)}% ${money(line.taxMinor, receipt.currency)} | total ${money(line.totalMinor, receipt.currency)}`),
+    ...receipt.lines.map(line =>
+      `${line.name} | ${displayQuantity(line.quantity)} x ` +
+      `${money(line.unitPriceMinor, receipt.currency)} | ` +
+      `${money(line.subtotalMinor, receipt.currency)}`
+    ),
     '',
     `Subtotal: ${money(receipt.subtotalMinor, receipt.currency)}`,
     `${profile.taxLabel || 'Tax'}: ${money(receipt.taxMinor, receipt.currency)}`,
@@ -60,7 +74,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
     const url = URL.createObjectURL(new Blob([textReceipt(receipt)], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${receipt.receiptNumber}.txt`;
+    link.download = `ORDER-${displayOrderNumber(receipt)}.txt`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -90,17 +104,23 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
           {profile.receiptHeader && <div className="mt-2 whitespace-pre-line text-center text-[10px]">{profile.receiptHeader}</div>}
           <div className="text-center text-[9px] text-zinc-500">{receipt.currency} · {receipt.timeZone}</div>
           <div className="my-3 border-t-2 border-dashed border-zinc-500" />
-          <div className="flex justify-between gap-2"><span>RECEIPT</span><span className="break-all text-right">{receipt.receiptNumber}</span></div>
+          <div className="flex justify-between gap-2">
+            <span>ORDER</span>
+            <span className="font-bold">#{displayOrderNumber(receipt)}</span>
+          </div>
           <div className="mt-1 flex justify-between gap-2"><span>DATE</span><time dateTime={receipt.createdAt} className="text-right">{formatDate(receipt.createdAt, receipt.timeZone)}</time></div>
-          <div className="mt-1 flex justify-between gap-2"><span>STAFF</span><span className="text-right">{receipt.operatorName}</span></div>
+          <div className="mt-1 flex justify-between gap-2"><span>CASHIER</span><span className="text-right">{receipt.operatorName}</span></div>
           <div className="my-3 border-t border-dashed border-zinc-400" />
-          <div className="space-y-3">
-            {receipt.lines.map(line => <div key={line.lineId} className="border-b border-dotted border-zinc-300 pb-2">
-              <div className="font-bold">{line.name}</div><div className="text-[9px] text-zinc-600">{line.sku}</div>
-              <div className="mt-1 flex justify-between gap-2"><span>{line.quantity} x {money(line.unitPriceMinor, receipt.currency)}</span><span>{money(line.subtotalMinor, receipt.currency)}</span></div>
-              <div className="flex justify-between gap-2 text-zinc-600"><span>{profile.taxLabel || 'Tax'} {(line.taxRateBps / 100).toFixed(2)}%</span><span>{money(line.taxMinor, receipt.currency)}</span></div>
-              <div className="flex justify-between gap-2 font-semibold"><span>Line total</span><span>{money(line.totalMinor, receipt.currency)}</span></div>
-            </div>)}
+          <div className="space-y-2">
+            {receipt.lines.map(line => (
+              <div key={line.lineId} className="border-b border-dotted border-zinc-300 py-1.5">
+                <div className="break-words font-semibold">{line.name}</div>
+                <div className="mt-0.5 flex justify-between gap-2 tabular-nums">
+                  <span>{displayQuantity(line.quantity)}{' × '}{money(line.unitPriceMinor, receipt.currency)}</span>
+                  <span className="shrink-0 text-right font-medium">{money(line.subtotalMinor, receipt.currency)}</span>
+                </div>
+              </div>
+            ))}
           </div>
           <div className="my-2 border-t border-dashed border-zinc-400" />
           <dl className="space-y-1">
@@ -115,7 +135,6 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
           {profile.receiptFooter && <div className="mb-2 whitespace-pre-line text-center text-[10px]">{profile.receiptFooter}</div>}
           {qrImage && <div className="my-3 text-center"><img src={qrImage} alt="Payment QR code" className="mx-auto max-h-24 max-w-24 object-contain"/><div className="mt-1 text-[9px]">Scan to pay</div></div>}
           <div className="text-center text-[9px] text-zinc-600">DEVELOPED BY KINGS FORGE 0746157440</div>
-          <div className="mt-2 break-all text-center text-[8px] text-zinc-400">Sale reference: {receipt.receiptId}</div>
         </article>}
       </div>
 
