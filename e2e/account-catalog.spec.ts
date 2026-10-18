@@ -14,8 +14,14 @@ test('account names are versioned and change only their visible labels',async({p
     return route.fulfill({json:{commandId:command.commandId,status:'CONFIRMED',value:{accountCode:payload.accountCode,label:payload.label,catalogVersion}}});
   });
   await page.goto('/');
-  let moneyNav=page.getByRole('button',{name:/^Money/}).filter({visible:true});
-  if(await moneyNav.count()===0){await page.getByRole('button',{name:'More',exact:true}).click();moneyNav=page.getByRole('button',{name:/^Money/}).filter({visible:true});}
+  await expect(page.getByRole('button',{name:'Signed in as Finance owner'})).toBeVisible({timeout:15000});
+  const moneyNav=page.getByRole('button',{name:/^Money/});
+  if(!(await moneyNav.isVisible())){
+    const moreNav=page.getByRole('button',{name:'More',exact:true});
+    await expect(moreNav).toBeVisible();
+    await moreNav.click();
+  }
+  await expect(moneyNav.last()).toBeVisible();
   await moneyNav.last().click();
   await page.getByRole('button',{name:'Account names',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Account names'})).toBeVisible();
