@@ -14,11 +14,49 @@ $scratch = Join-Path $env:TEMP ('mazao-backup-' + $id)
 $raw = Join-Path $scratch 'database.dump'
 $remote = '/srv/mazao/backups/backup-' + $id + '.dump'
 $container = 'mazao-restore-' + $id
-$sshArgs = @('-i', $KeyPath, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3')
+$sshArgs = @('-i', $KeyPath, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3')
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 function Check-NativeExit([string]$Operation) {
     if ($LASTEXITCODE -ne 0) { throw "$Operation failed (exit $LASTEXITCODE)." }
+}
+
+function Download-RemoteFile([string]$RemotePath, [string]$LocalPath) {
+    $remoteCommand = 'cat -- ' + $RemotePath
+    $arguments = @(
+        '-i', ('"' + $KeyPath + '"'),
+        '-o', 'IdentitiesOnly=yes',
+        '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'ConnectTimeout=20',
+        '-o', 'ServerAliveInterval=15',
+        '-o', 'ServerAliveCountMax=3',
+        ('"' + $SshUser + '@' + $Server + '"'),
+        ('"' + $remoteCommand + '"')
+    ) -join ' '
+    $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $ssh
+    $startInfo.Arguments = $arguments
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw 'Could not start the SSH backup download.' }
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $output = [System.IO.File]::Create($LocalPath)
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($output)
+        $output.Flush()
+        $process.WaitForExit()
+        $detail = $stderrTask.GetAwaiter().GetResult().Trim()
+        if ($process.ExitCode -ne 0) { throw "Backup download failed (SSH exit $($process.ExitCode)): $detail" }
+    } finally {
+        $output.Dispose()
+        $process.Dispose()
+    }
 }
 
 function Get-RemoteMigrationState {
@@ -64,14 +102,11 @@ try {
     Check-NativeExit 'Database dump'
     $afterDumpMigrationState = Get-RemoteMigrationState
     if ($sourceMigrationState.count -ne $afterDumpMigrationState.count -or $sourceMigrationState.head -ne $afterDumpMigrationState.head) { throw 'The production schema changed while its backup was being created.' }
-    $downloadCommand = 'base64 -w0 -- ' + $remote
-    $encodedDump = & ssh @sshArgs "$SshUser@$Server" $downloadCommand
-    Check-NativeExit 'Backup download'
-    try { $bytes = [System.Convert]::FromBase64String((@($encodedDump) -join '').Trim()) }
-    catch { throw 'The downloaded backup could not be decoded safely.' }
-    [System.IO.File]::WriteAllBytes($raw, $bytes)
-
+    # Redirect OpenSSH stdout directly to a file so PowerShell does not buffer
+    # the complete database dump in its native-command text pipeline.
+    Download-RemoteFile $remote $raw
     $bytes = [System.IO.File]::ReadAllBytes($raw)
+    if ($bytes.Length -lt 5 -or [System.Text.Encoding]::ASCII.GetString($bytes, 0, 5) -ne 'PGDMP') { throw 'The downloaded file is not a valid PostgreSQL custom-format dump.' }
     $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
     $backup = Join-Path $Destination ($stamp + '-' + $id + '.dump.dpapi')
     [System.IO.File]::WriteAllBytes($backup, $encrypted)
