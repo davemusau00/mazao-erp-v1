@@ -34,7 +34,14 @@ if (!databaseUrl) {
       const headers = { cookie, origin: 'http://localhost:3000', 'x-csrf-token': login.json().csrfToken };
       const tracedMe = await app.inject({ url: '/api/v1/auth/me', headers: { ...headers, 'x-request-id': 'config-check-request-20261016' } });
       assert.equal(tracedMe.headers['x-request-id'], 'config-check-request-20261016', 'safe client request IDs are returned for diagnostics');
-      assert.match(String(tracedMe.headers['server-timing']), /^app;dur=\d+(?:\.\d+)?$/, 'same-origin diagnostics expose the bounded app duration');
+      const timing=String(tracedMe.headers['server-timing']);
+      assert.match(timing, /^app;dur=\d+(?:\.\d+)?/,'same-origin diagnostics expose the app duration');
+      assert.match(timing,/\bhandler;dur=\d+(?:\.\d+)?/,'handler and authentication time is measured');
+      assert.match(timing,/\bdb;dur=\d+(?:\.\d+)?/,'PostgreSQL query execution time is measured');
+      assert.match(timing,/\bdbpool;dur=\d+(?:\.\d+)?/,'connection-pool wait is measured');
+      assert.match(timing,/\bserialize;dur=\d+(?:\.\d+)?/,'response serialization time is measured');
+      assert.match(timing,/\bdbqueries;desc=[1-9]\d*/,'at least one PostgreSQL execution is measured without exposing SQL or parameter values');
+      assert.ok(Number(timing.match(/\bdb;dur=(\d+(?:\.\d+)?)/)?.[1]) > 0,'PostgreSQL execution duration is nonzero for the authenticated database read');
       assert.ok(tracedMe.body.length < 20_000, 'session restoration must not return legacy business image payloads');
       assert.doesNotMatch(tracedMe.body, /data:image\/png;base64,/);
       const command = (type: string, payload: Record<string, unknown>, expectedVersions: Record<string, number> = {}): CommandEnvelope => ({ protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type, occurredAt: new Date().toISOString(), expectedVersions, payload });
@@ -123,11 +130,21 @@ if (!databaseUrl) {
       assert.equal(sale.json().status, 'CONFIRMED', sale.body); const orderId = sale.json().value.saleId;
       const receiptBefore = await app.inject({ url: `/api/v1/sales/orders/${orderId}/receipt`, headers });
       assert.equal(receiptBefore.statusCode, 200, receiptBefore.body);
+      assert.ok(receiptBefore.body.length < 32 * 1024, 'receipt metadata must not inline historical image snapshots');
+      assert.doesNotMatch(receiptBefore.body, /data:image\/png;base64,/);
       assert.equal(receiptBefore.json().receiptProfile.receiptFooter, 'Outlet receipt footer');
       assert.equal(receiptBefore.json().receiptProfile.legalName, 'Configured Resort Limited');
       assert.equal(receiptBefore.json().receiptProfile.taxLabel, 'VAT');
-      assert.equal(receiptBefore.json().receiptProfile.logoUrl, png);
-      assert.equal(receiptBefore.json().receiptProfile.receiptQrImage, png);
+      assert.equal(receiptBefore.json().receiptProfile.logoUrl, `/api/v1/sales/orders/${orderId}/receipt/assets/logo`);
+      assert.equal(receiptBefore.json().receiptProfile.receiptQrImage, `/api/v1/sales/orders/${orderId}/receipt/assets/receipt_qr`);
+      const smallHistoricalPng = Buffer.from(png.slice('data:image/png;base64,'.length), 'base64');
+      for (const [kind, expectedBytes] of [['logo', smallHistoricalPng], ['receipt_qr', smallHistoricalPng]] as const) {
+        const image = await app.inject({ url: `/api/v1/sales/orders/${orderId}/receipt/assets/${kind}`, headers });
+        assert.equal(image.statusCode, 200, image.body);
+        assert.equal(image.headers['content-type'], 'image/png');
+        assert.equal(image.headers['cache-control'], 'private, no-store');
+        assert.deepEqual(image.rawPayload, expectedBytes, 'the lazy receipt asset preserves the immutable historical bytes');
+      }
       assert.equal(receiptBefore.json().receiptProfile.showQrOnReceipt, true);
       const newerBusiness = await submit(command('configuration.business.update', { ...businessInput, name: 'Later business identity', legalName: 'Later legal identity', receiptFooter: 'Later business footer', logoUrl: '', receiptQrImage: '', showQrOnReceipt: false, taxPolicy: { ...businessInput.taxPolicy, defaultRateBps: 800, label: 'Later tax label' } }, { [`business:${tenantId}`]: 4 }));
       assert.equal(newerBusiness.json().status, 'CONFIRMED', newerBusiness.body);
@@ -173,6 +190,47 @@ if (!databaseUrl) {
       await db.pool.query('DELETE FROM core.tenant_capabilities WHERE tenant_id=$1', [tenantId]);
       assert.deepEqual((await submit(save)).json(), first.json(), 'exact historical command replay remains available after capabilities change');
       assert.equal((await app.inject({ url: `/api/v1/sales/orders/${orderId}/receipt`, headers })).statusCode, 200, 'immutable sale evidence remains accessible after commerce is disabled');
+
+      // Add one production-shaped historical receipt with the maximum supported
+      // embedded image size. Its financial records are checked before and after
+      // the read and asset fetches to guard receipt and ledger integrity.
+      await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'commerce'),($1,'inventory'),($1,'retail')", [tenantId]);
+      const maximumPngBytes = Buffer.alloc(512 * 1024, 65); Buffer.from([137,80,78,71,13,10,26,10]).copy(maximumPngBytes);
+      const maximumPngDataUrl = `data:image/png;base64,${maximumPngBytes.toString('base64')}`;
+      await db.pool.query(`UPDATE core.tenants SET business_profile=jsonb_set(jsonb_set(business_profile,'{logoUrl}',$2::jsonb,true),'{receiptQrImage}',$2::jsonb,true) WHERE id=$1`, [tenantId, JSON.stringify(maximumPngDataUrl)]);
+      const largeImageShift = await submit(command('shift.open', { openingFloatMinor: 0 }));
+      assert.equal(largeImageShift.json().status, 'CONFIRMED', largeImageShift.body);
+      const largeShiftId = largeImageShift.json().value.shiftId;
+      const largeImageSale = await submit(command('sales.order.settle', { shiftId: largeShiftId, lines: [{ productId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 11600, currency: 'KES' }] }, { [`shift:${largeShiftId}`]: 1 }));
+      assert.equal(largeImageSale.json().status, 'CONFIRMED', largeImageSale.body);
+      const largeOrderId = largeImageSale.json().value.saleId;
+      const largeSaleCommandId = largeImageSale.json().commandId;
+      const financialEvidenceSnapshot = async () => (await db.pool.query(`SELECT md5(o.receipt_profile_snapshot::text) snapshot_hash,o.total_minor::text,
+        (SELECT count(*)::int FROM commerce.order_lines l WHERE l.tenant_id=o.tenant_id AND l.outlet_id=o.outlet_id AND l.order_id=o.id) line_count,
+        (SELECT COALESCE(sum(l.line_subtotal_minor+l.line_tax_minor),0)::text FROM commerce.order_lines l WHERE l.tenant_id=o.tenant_id AND l.outlet_id=o.outlet_id AND l.order_id=o.id) line_total,
+        (SELECT count(*)::int FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id) payment_count,
+        (SELECT COALESCE(sum(p.amount_minor),0)::text FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id) payment_total,
+        (SELECT count(*)::int FROM finance.journal_entries j WHERE j.tenant_id=o.tenant_id AND j.source_id=$4 AND j.source_type IN ('SALE','SALE_COGS')) journal_entry_count,
+        (SELECT COALESCE(sum(l.debit_minor),0)::text FROM finance.journal_lines l JOIN finance.journal_entries j ON j.id=l.journal_entry_id WHERE j.tenant_id=o.tenant_id AND j.source_id=$4 AND j.source_type IN ('SALE','SALE_COGS')) journal_debit,
+        (SELECT COALESCE(sum(l.credit_minor),0)::text FROM finance.journal_lines l JOIN finance.journal_entries j ON j.id=l.journal_entry_id WHERE j.tenant_id=o.tenant_id AND j.source_id=$4 AND j.source_type IN ('SALE','SALE_COGS')) journal_credit,
+        (SELECT b.quantity::text||':'||b.inventory_value_minor::text FROM inventory.balances b WHERE b.tenant_id=o.tenant_id AND b.outlet_id=o.outlet_id AND b.product_id=$5) stock_evidence
+        FROM commerce.orders o WHERE o.tenant_id=$1 AND o.outlet_id=$2 AND o.id=$3`, [tenantId, outletId, largeOrderId, largeSaleCommandId, productId])).rows[0];
+      const evidenceBeforeRead = await financialEvidenceSnapshot();
+      const largeReceipt = await app.inject({ url: `/api/v1/sales/orders/${largeOrderId}/receipt`, headers });
+      assert.equal(largeReceipt.statusCode, 200, largeReceipt.body);
+      assert.ok(largeReceipt.rawPayload.length < 32 * 1024, 'receipt JSON stays small with maximum-sized historical snapshots');
+      assert.doesNotMatch(largeReceipt.body, /data:image\/png;base64,/);
+      const largeReceiptJson = largeReceipt.json();
+      for (const [kind, field] of [['logo', 'logoUrl'], ['receipt_qr', 'receiptQrImage']] as const) {
+        assert.equal(largeReceiptJson.receiptProfile[field], `/api/v1/sales/orders/${largeOrderId}/receipt/assets/${kind}`);
+        const image = await app.inject({ url: `/api/v1/sales/orders/${largeOrderId}/receipt/assets/${kind}`, headers });
+        assert.equal(image.statusCode, 200, image.body);
+        assert.equal(image.rawPayload.length, 512 * 1024);
+        assert.deepEqual(image.rawPayload, maximumPngBytes, 'maximum-sized historical image bytes remain unchanged');
+        assert.equal(image.headers['cache-control'], 'private, no-store');
+      }
+      assert.deepEqual(await financialEvidenceSnapshot(), evidenceBeforeRead, 'receipt and image reads must not mutate sale, line, payment or snapshot evidence');
+      assert.equal((await app.inject({ url: `/api/v1/sales/orders/${randomUUID()}/receipt/assets/logo`, headers })).statusCode, 404, 'receipt images remain scoped to an existing sale in the operator outlet');
     } finally { await app.close(); await db.pool.end(); }
   });
 }

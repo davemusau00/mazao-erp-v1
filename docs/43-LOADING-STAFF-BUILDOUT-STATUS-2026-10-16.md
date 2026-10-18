@@ -1,11 +1,13 @@
 # Loading, Manage and Staff Build-out Status
 
 **Date:** 16 October 2026  
-**Verification refreshed:** 17 October 2026  
+**Verification refreshed:** 18 October 2026
 **Source branch:** `feat/product-finishing`  
 **Plan:** [`MAZAO_Loading_Performance_Manage_Staff_Completion_Plan_v2.md`](../MAZAO_Loading_Performance_Manage_Staff_Completion_Plan_v2.md)
 
 This record tracks source work completed for the plan and separates it from production-runtime and release evidence that has not been collected. No production host, database, account, reverse proxy or service was accessed or changed.
+
+The system-wide performance run and current acceptance decision are in [`44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`](44-PERFORMANCE-ACCEPTANCE-2026-10-18.md). That record supersedes the earlier “not measured” route timing notes below for the measured disposable workload. It records passing latency thresholds and a failing overall release decision because capped history endpoints have no complete continuation flow, plus additional open release gates. Its browser measurements cover warm workspace navigation; they do not establish cold-start p95. The verification table and gate summary below are refreshed to that run.
 
 ## Route loading inventory
 
@@ -50,21 +52,17 @@ The inventory is a source-level route map, not an assertion that all route-level
 
 | Check | Result |
 |---|---|
-| `npm run typecheck` | Passed after the final staff-wizard completion-state change. |
-| `npm run build` | Passed. Main client chunk is 517.58 kB minified (139.18 kB gzip); Vite reports the existing chunk-size and native config-loader warnings. PWA precache contains 9 entries (675.60 KiB). |
-| `npm run test:e2e` | Passed on the final tree: 48 passed, 0 failed (2.3 minutes). Includes malformed-JSON diagnostics/retry, request timing metadata, configuration/staff independence, and responsive layouts. |
-| Disposable PostgreSQL migration | Migrations 001–016 checksums matched; `017_configuration_assets` applied to local `mazao_test` on `mazao-finishing-pg-20261016:55436`. Full API and browser-integration runs used disposable local databases only. |
-| `npm run test:api` | Passed on the final tree: 95 passed, 0 failed. Covers command actor/outlet recovery, asset upload including 512 KiB PNGs and immutable receipt references, configuration timing headers, staff security, and upgrade migration count 17. |
-| `npm run test:integration` | Final PostgreSQL-backed browser run passed: 17 passed, 0 failed (1.6 minutes). Includes the real staff create → password → assignment → sign-in journey, lost-response recovery, configuration persistence, stock counts, product import, customer statements, hotel calendar, and viewport cases. |
-| Local `Dockerfile.api` production-image smoke | Built the pinned Bun 1.4.3 image. Fresh migrations 001–017 and checksum-safe rerun passed on isolated `mazao_image_20261017`; missing/invalid credential keys were rejected; read-only container readiness and the 8×400/9th×429 login throttle with `Retry-After` passed. Smoke container was removed after the check. |
-| Focused regression cases | After the first full integration run exposed two failures, the wizard now keeps a server-confirmed completion state visible, and count recovery is located in its workspace banner after reload. Both focused database-backed regressions passed before the full 17-case rerun. |
-| `git diff --check` | Passed after the source and test changes. |
+| `npm run typecheck` | Passed on the performance candidate tree. |
+| `npm run build` | Passed. Main client bundle 522.20 kB minified / 140.58 kB gzip; PWA precache 680.15 KiB. Vite still reports the existing chunk-size and native config-loader warnings. |
+| `npm run test:e2e` | 52/52 passed, including request timing, navigation cancellation, malformed-JSON retry and customer statement race coverage. |
+| `npm run test:api` | 95/95 passed against task-owned disposable PostgreSQL. |
+| `npm run test:integration` | 17/17 passed against freshly migrated task-owned PostgreSQL, including financial and inventory read-integrity assertions. |
+| Fresh migrations | Migrations 001–017 applied to a fresh disposable test database; checksum-safe rerun matched. |
+| Local production-container smoke | Candidate `Dockerfile.api` readiness passed with read-only root; login throttling returned 429 with `Retry-After: 60` on the ninth invalid attempt. Local disposable container only. |
+| `npm run perf:browser` / `npm run perf:sw-upgrade` | Firefox and Chromium desktop/mobile offline, reconnect, IndexedDB sentinel and service-worker upgrade checks passed; see the linked performance record. |
+| `npm run perf:assert` | Passed latency thresholds only. Its JSON marks `scope: LATENCY_ONLY` and `releaseAcceptance: false`. |
+| `git diff --check` | Passed after the performance report and release documentation updates. |
 
 ## Open acceptance and release gates
 
-- Fresh schema creation and populated upgrade migrations passed in the full local API suite; the pinned Bun 1.4.3 production image also passed local migration, invalid-configuration, read-only readiness, and login-throttle checks. Remaining runtime coverage: GitHub Actions image job, Firefox and Chromium desktop/mobile, service-worker offline/refresh, delayed headers, interrupted body, HTTP 401/403/429/500, and workspace navigation-race coverage.
-- Measure per-route headers/body/parse/first-usable timings and response sizes with the plan's sample sizes and production-shaped disposable datasets. This build adds measurement signals, but no p50/p95/p99 or error-rate results are claimed.
-- Reproduce the reported production `/configuration` results through actual API container → Nginx → Firefox with matched byte counts/digests. No root cause is established by source or mock tests.
-- The current `fix/credential-operation-fencing` branch tip contains migrations 001–016 and no committed migration 017, so there is no current committed migration-number collision. Recheck the migration list if that branch changes before a future merge.
-- GitHub CI, release artifact, off-host backup/restore verification, deployment and live acceptance were not run. Restore acceptance remains open (`restoreVerified=false`). No push, merge or deploy was performed.
-- Custom RBAC grant editing and physical-device enrollment remain separate product decisions and are not implemented by this plan slice.
+See [`44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`](44-PERFORMANCE-ACCEPTANCE-2026-10-18.md) for the current pass/fail matrix. Overall acceptance is **FAIL**: fixed list caps need a complete continuation path; full cold-start and per-screen error coverage, distinct-operator workload, exact-main CI, and off-host restore verification remain open (`restoreVerified=false`). No live host or production data was changed. Custom RBAC grant editing and physical-device enrollment remain separate product decisions outside this loading work.

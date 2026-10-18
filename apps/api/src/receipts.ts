@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './db.js';
 import type { ApiSession } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
+import { decodePngDataUrl } from './configuration.js';
 
 function requireReceiptAccess(session: ApiSession) {
   if (!ROLE_PERMISSIONS[session.role].some(permission => ['commerce.sell', 'commerce.refund', 'finance.view'].includes(permission))) {
@@ -37,10 +38,18 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       subtotal_minor: string; tax_minor: string; total_minor: string; status: string;
       cash_tendered_minor: string | null; change_minor: string | null;
       customer_account_id: string | null; customer_name_snapshot: string | null; customer_amount_due_minor: string;
-      receipt_profile_snapshot: Record<string, unknown>;
+      receipt_profile_snapshot: Record<string, unknown>; has_logo: boolean; has_receipt_qr: boolean;
+      embedded_logo: boolean; embedded_receipt_qr: boolean; logo_value: unknown; receipt_qr_value: unknown;
     }>(`SELECT o.id,o.receipt_number,o.tenant_name_snapshot,o.outlet_name_snapshot,o.outlet_time_zone_snapshot,
         o.currency,o.created_at,o.subtotal_minor::text,o.tax_minor::text,o.total_minor::text,o.status,
-        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,o.receipt_profile_snapshot,o.operator_name_snapshot operator_name
+        o.cash_tendered_minor::text,o.change_minor::text,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor::text,
+        o.receipt_profile_snapshot-'logoUrl'-'receiptQrImage' receipt_profile_snapshot,
+        o.receipt_profile_snapshot ? 'logoUrl' has_logo,o.receipt_profile_snapshot ? 'receiptQrImage' has_receipt_qr,
+        COALESCE(o.receipt_profile_snapshot->>'logoUrl' LIKE 'data:image/png;base64,%',false) embedded_logo,
+        COALESCE(o.receipt_profile_snapshot->>'receiptQrImage' LIKE 'data:image/png;base64,%',false) embedded_receipt_qr,
+        CASE WHEN o.receipt_profile_snapshot->>'logoUrl' LIKE 'data:image/png;base64,%' THEN NULL ELSE o.receipt_profile_snapshot->'logoUrl' END logo_value,
+        CASE WHEN o.receipt_profile_snapshot->>'receiptQrImage' LIKE 'data:image/png;base64,%' THEN NULL ELSE o.receipt_profile_snapshot->'receiptQrImage' END receipt_qr_value,
+        o.operator_name_snapshot operator_name
       FROM commerce.orders o
       WHERE o.id=$1 AND o.tenant_id=$2 AND o.outlet_id=$3`, [orderIdValue, session.tenantId, session.outletId]);
     if (!orderResult.rowCount) throw new DomainError('NOT_FOUND', 'Sale receipt was not found for this outlet.', 404);
@@ -71,6 +80,14 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       throw new DomainError('RECEIPT_INTEGRITY_FAILED', 'Stored cash tender evidence is incomplete.', 500);
     }
 
+    const receiptProfile = { ...order.receipt_profile_snapshot };
+    if (order.has_logo) receiptProfile.logoUrl = order.embedded_logo
+      ? `/api/v1/sales/orders/${order.id}/receipt/assets/logo`
+      : order.logo_value;
+    if (order.has_receipt_qr) receiptProfile.receiptQrImage = order.embedded_receipt_qr
+      ? `/api/v1/sales/orders/${order.id}/receipt/assets/receipt_qr`
+      : order.receipt_qr_value;
+
     return {
       status: 'CONFIRMED',
       fiscalDocumentStatus: 'NOT_INTEGRATED',
@@ -79,7 +96,7 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       tenantName: order.tenant_name_snapshot,
       outletName: order.outlet_name_snapshot,
       timeZone: order.outlet_time_zone_snapshot,
-      receiptProfile: order.receipt_profile_snapshot,
+      receiptProfile,
       currency: order.currency,
       createdAt: order.created_at,
       operatorName: order.operator_name,
@@ -109,4 +126,18 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       changeMinor: order.change_minor,
     };
   });
+}
+
+export async function getSaleReceiptAsset(session: ApiSession, orderIdValue: unknown, kindValue: unknown): Promise<Buffer | null> {
+  requireReceiptAccess(session);
+  if (typeof orderIdValue !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderIdValue)) {
+    throw new DomainError('VALIDATION_FAILED', 'orderId must be a valid order identifier.');
+  }
+  if (kindValue !== 'logo' && kindValue !== 'receipt_qr') return null;
+  const field = kindValue === 'logo' ? 'logoUrl' : 'receiptQrImage';
+  const result = await pool.query<{ image: string | null }>(`SELECT receipt_profile_snapshot->>$4 AS image
+    FROM commerce.orders WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3`,
+  [orderIdValue, session.tenantId, session.outletId, field]);
+  if (!result.rowCount || !result.rows[0].image?.startsWith('data:image/png;base64,')) return null;
+  try { return decodePngDataUrl(result.rows[0].image, field); } catch { return null; }
 }

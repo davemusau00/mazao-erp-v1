@@ -1,0 +1,225 @@
+{
+  "runAt": "2026-10-17T23:26:11.017Z",
+  "baseURL": "http://127.0.0.1:55445",
+  "browsers": [
+    {
+      "engine": "Firefox",
+      "viewport": "desktop",
+      "viewportSize": {
+        "width": 1280,
+        "height": 800
+      },
+      "checks": {
+        "coldStartMs": 8854,
+        "serviceWorkerControlled": true,
+        "serviceWorkerState": "activated",
+        "recoverySentinelSeeded": "9668d728-7b41-44cc-9ab6-9373896a8fb7",
+        "warmRefreshMs": 179,
+        "recoveryAfterWarmRefresh": {
+          "commandId": "9668d728-7b41-44cc-9ab6-9373896a8fb7",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:29.622Z"
+        },
+        "offlineWorkspaceError": true,
+        "offlineRefreshMs": 157,
+        "recoveryAfterOfflineRefresh": {
+          "commandId": "9668d728-7b41-44cc-9ab6-9373896a8fb7",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:29.622Z"
+        },
+        "reconnectMs": 95,
+        "recoveryAfterReconnect": {
+          "commandId": "9668d728-7b41-44cc-9ab6-9373896a8fb7",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:29.622Z"
+        },
+        "recoverySentinelRemovedAfterCheck": true,
+        "outcome": "pass"
+      }
+    },
+    {
+      "engine": "Firefox",
+      "viewport": "mobile",
+      "viewportSize": {
+        "width": 390,
+        "height": 844
+      },
+      "checks": {
+        "coldStartMs": 9477,
+        "serviceWorkerControlled": true,
+        "serviceWorkerState": "activated",
+        "recoverySentinelSeeded": "08db462b-6669-4b35-adcd-50129a7ebcd8",
+        "warmRefreshMs": 161,
+        "recoveryAfterWarmRefresh": {
+          "commandId": "08db462b-6669-4b35-adcd-50129a7ebcd8",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:40.181Z"
+        },
+        "offlineWorkspaceError": true,
+        "offlineRefreshMs": 159,
+        "recoveryAfterOfflineRefresh": {
+          "commandId": "08db462b-6669-4b35-adcd-50129a7ebcd8",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:40.181Z"
+        },
+        "reconnectMs": 78,
+        "recoveryAfterReconnect": {
+          "commandId": "08db462b-6669-4b35-adcd-50129a7ebcd8",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:40.181Z"
+        },
+        "recoverySentinelRemovedAfterCheck": true,
+        "outcome": "pass"
+      }
+    },
+    {
+      "engine": "Chromium",
+      "viewport": "desktop",
+      "viewportSize": {
+        "width": 1280,
+        "height": 800
+      },
+      "checks": {
+        "coldStartMs": 6374,
+        "serviceWorkerControlled": true,
+        "serviceWorkerState": "activated",
+        "recoverySentinelSeeded": "a9f01cd8-7e81-4a7b-bdc7-09176696d0a2",
+        "warmRefreshMs": 104,
+        "recoveryAfterWarmRefresh": {
+          "commandId": "a9f01cd8-7e81-4a7b-bdc7-09176696d0a2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:47.829Z"
+        },
+        "offlineWorkspaceError": true,
+        "offlineRefreshMs": 43,
+        "recoveryAfterOfflineRefresh": {
+          "commandId": "a9f01cd8-7e81-4a7b-bdc7-09176696d0a2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:47.829Z"
+        },
+        "reconnectMs": 76,
+        "recoveryAfterReconnect": {
+          "commandId": "a9f01cd8-7e81-4a7b-bdc7-09176696d0a2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:25:47.829Z"
+        },
+        "recoverySentinelRemovedAfterCheck": true,
+        "outcome": "pass"
+      }
+    },
+    {
+      "engine": "Chromium",
+      "viewport": "mobile",
+      "viewportSize": {
+        "width": 390,
+        "height": 844
+      },
+      "checks": {
+        "coldStartMs": 11320,
+        "serviceWorkerControlled": true,
+        "serviceWorkerState": "activated",
+        "recoverySentinelSeeded": "88fcd78b-dd1f-4d10-b7fa-062cd90aa8d2",
+        "warmRefreshMs": 62,
+        "recoveryAfterWarmRefresh": {
+          "commandId": "88fcd78b-dd1f-4d10-b7fa-062cd90aa8d2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:26:03.860Z"
+        },
+        "offlineWorkspaceError": true,
+        "offlineRefreshMs": 42,
+        "recoveryAfterOfflineRefresh": {
+          "commandId": "88fcd78b-dd1f-4d10-b7fa-062cd90aa8d2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:26:03.860Z"
+        },
+        "reconnectMs": 71,
+        "recoveryAfterReconnect": {
+          "commandId": "88fcd78b-dd1f-4d10-b7fa-062cd90aa8d2",
+          "type": "catalog.import.validate",
+          "tenantId": "pwa-upgrade-test-tenant",
+          "deviceId": "pwa-upgrade-test-device",
+          "actorId": "pwa-upgrade-test-operator",
+          "fileName": "pwa-recovery-preservation-sentinel.csv",
+          "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "outcome_unknown",
+          "savedAt": "2026-10-17T23:26:03.860Z"
+        },
+        "recoverySentinelRemovedAfterCheck": true,
+        "outcome": "pass"
+      }
+    }
+  ],
+  "failures": [],
+  "notes": [
+    "Each run uses a fresh isolated Playwright browser context and synthetic performance operator.",
+    "Offline refresh verifies the precached app shell and actionable session restore error; API records are not served from a stale cache.",
+    "A synthetic import-validation recovery reference is checked across warm refresh, offline refresh, and reconnect, then removed from the isolated context.",
+    "This run does not simulate a different service-worker script version; upgrade activation remains a separate release check."
+  ]
+}

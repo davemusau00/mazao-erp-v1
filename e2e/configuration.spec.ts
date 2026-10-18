@@ -195,7 +195,7 @@ test('malformed successful configuration JSON is reported and Retry reloads the 
   const configuration=fixture();await page.route('**/api/v1/auth/me',route=>route.fulfill({json:session(configuration)}));
   await page.addInitScript(()=>{(window as any).__apiTimings=[];window.addEventListener('mazao:api-request-completed',(event:Event)=>(window as any).__apiTimings.push((event as CustomEvent).detail));});
   let reads=0;
-  await page.route('**/api/v1/configuration',route=>{reads++;return reads===1?route.fulfill({status:200,contentType:'application/json',headers:{'x-request-id':'req-fixture-config-1'},body:'{"configuration":'}):route.fulfill({json:{configuration},headers:{'x-request-id':'req-fixture-config-2','server-timing':'app;dur=1.4'}});});
+  await page.route('**/api/v1/configuration',route=>{reads++;return reads===1?route.fulfill({status:200,contentType:'application/json',headers:{'x-request-id':'req-fixture-config-1'},body:'{"configuration":'}):route.fulfill({json:{configuration},headers:{'x-request-id':'req-fixture-config-2','server-timing':'app;dur=1.4, nginx;dur=2.1'}});});
   await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByRole('alert')).toContainText('unreadable response');
   await page.getByText('Recent request diagnostics (1)').click();
@@ -204,10 +204,26 @@ test('malformed successful configuration JSON is reported and Retry reloads the 
   await expect(page.getByRole('button',{name:'Retry loading settings'})).toBeVisible();
   await page.getByRole('button',{name:'Retry loading settings'}).click();
   await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('COUNTRYSIDE RESORT');
-  const timing=await page.evaluate(()=>(window as any).__apiTimings.find((entry:any)=>entry.route==='/configuration'));
-  expect(timing).toMatchObject({requestId:'req-fixture-config-2',status:200,serverAppMs:1.4});
+  const timing=await page.evaluate(()=>(window as any).__apiTimings.find((entry:any)=>entry.requestId==='req-fixture-config-2'));
+  expect(timing).toMatchObject({requestId:'req-fixture-config-2',status:200,serverAppMs:1.4,serverNginxMs:2.1});
+  expect(timing.parseMs).toBeGreaterThanOrEqual(0);
   expect(timing.responseBytes).toBeGreaterThan(0);expect(timing.headersMs).toBeGreaterThanOrEqual(0);expect(timing.bodyMs).toBeGreaterThanOrEqual(0);
   expect(reads).toBe(2);
+});
+
+test('workspace timing separates the React commit from the first usable state',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);
+  await page.addInitScript(()=>{
+    (window as any).__workspaceTimings=[];
+    for(const name of ['mazao:workspace-rendered','mazao:workspace-render-cycle','mazao:workspace-first-usable'])window.addEventListener(name,(event:Event)=>(window as any).__workspaceTimings.push({name,detail:(event as CustomEvent).detail}));
+  });
+  await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__workspaceTimings.some((entry:any)=>entry.name==='mazao:workspace-first-usable'&&entry.detail.workspace==='manage'))).toBe(true);
+  const timings=await page.evaluate(()=>(window as any).__workspaceTimings.filter((entry:any)=>entry.detail.workspace==='manage'));
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-rendered')?.detail.durationMs).toBeGreaterThanOrEqual(0);
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-render-cycle')?.detail.durationMs).toBeGreaterThanOrEqual(0);
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-first-usable')?.detail).toMatchObject({workspace:'manage',outcome:'ready',blockingReadCount:0});
 });
 
 test('staff stays usable when the independent business configuration read fails',async({page})=>{
@@ -265,6 +281,37 @@ test('management overview exposes connected setup and disabled admin modules wit
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await page.locator('.manage-grid').getByRole('button',{name:/Data import/}).click();
   await expect(page.getByRole('heading',{name:'Import products from CSV'})).toBeVisible();
+});
+
+test('opening Setup checklist from the workspace navigation loads its checklist section',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);
+  let configurationReads=0;
+  await page.unroute('**/api/v1/configuration');
+  await page.route('**/api/v1/configuration',route=>{configurationReads++;return route.fulfill({json:{configuration}});});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  await page.getByRole('button',{name:'Setup checklist, Partial',exact:true}).click();
+  await expect(page.getByText('Complete the remaining setup checks before selling.')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Setup checklist, Partial',exact:true})).toHaveAttribute('aria-current','page');
+  expect(configurationReads).toBeGreaterThanOrEqual(2);
+});
+
+test('internal workspace navigation cancels the obsolete shift status read',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration,['shift.open','shift.close']);
+  let currentReads=0;let cancelledReads=0;
+  page.on('requestfailed',request=>{if(request.url().endsWith('/api/v1/shifts/current'))cancelledReads++;});
+  await page.route('**/api/v1/shifts/current',async route=>{
+    currentReads++;
+    if(currentReads===1){await new Promise(resolve=>setTimeout(resolve,1500));await route.fulfill({json:{shift:null}}).catch(()=>{});return;}
+    await route.fulfill({json:{shift:null}});
+  });
+  await page.route('**/api/v1/shifts/close-reports',route=>route.fulfill({json:{reports:[]}}));
+  await page.goto('/');await expect.poll(()=>currentReads).toBe(1);
+  await page.getByRole('button',{name:'Open a shift',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Cash control'})).toBeVisible();
+  await expect.poll(()=>cancelledReads).toBeGreaterThan(0);
+  await expect.poll(()=>currentReads).toBe(2);
 });
 
 test('cashier navigation shows unsupported restaurant work as disabled and keeps management private',async({page})=>{

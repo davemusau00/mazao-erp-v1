@@ -10,7 +10,7 @@ import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
 import { getOperationalAnalytics } from './operationalAnalytics.js';
-import { getSaleReceipt } from './receipts.js';
+import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
@@ -21,6 +21,7 @@ import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from
 import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
 import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
+import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -38,13 +39,67 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
-  const requestStartedAt=new WeakMap<object,number>();
-  app.addHook('onRequest', async request => { requestStartedAt.set(request, performance.now()); });
+  app.addHook('onRequest', (request, _reply, done) => {
+    const metrics: RequestMetrics = {
+      requestId: request.id,
+      startedAt: performance.now(),
+      poolWaitMs: 0,
+      queryMs: 0,
+      queryCount: 0,
+    };
+    requestMetricsStorage.run(metrics, done);
+  });
+  app.addHook('preHandler', async () => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics && metrics.handlerStartedAt === undefined) metrics.handlerStartedAt = performance.now();
+  });
+  app.addHook('preSerialization', async (_request, _reply, payload) => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics) {
+      const now = performance.now();
+      if (metrics.handlerStartedAt !== undefined) metrics.handlerMs = elapsedMs(metrics.handlerStartedAt, now);
+      metrics.serializationStartedAt = now;
+    }
+    return payload;
+  });
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-request-id', request.id);
-    const started=requestStartedAt.get(request);
-    if(started!==undefined)reply.header('server-timing',`app;dur=${Math.max(0,performance.now()-started).toFixed(1)}`);
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics) {
+      const now = performance.now();
+      if (metrics.serializationStartedAt !== undefined) metrics.serializationMs = elapsedMs(metrics.serializationStartedAt, now);
+      const length = Buffer.isBuffer(payload) || payload instanceof Uint8Array
+        ? payload.byteLength
+        : typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : Number(reply.getHeader('content-length'));
+      if (Number.isFinite(length) && length >= 0) metrics.responseBytes = length;
+      reply.header('server-timing', [
+        `app;dur=${milliseconds(elapsedMs(metrics.startedAt, now))}`,
+        `handler;dur=${milliseconds(metrics.handlerMs)}`,
+        `db;dur=${milliseconds(metrics.queryMs)}`,
+        `dbpool;dur=${milliseconds(metrics.poolWaitMs)}`,
+        `serialize;dur=${milliseconds(metrics.serializationMs)}`,
+        `dbqueries;desc=${metrics.queryCount}`,
+      ].join(', '));
+    }
     return payload;
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics && process.env.MAZAO_REQUEST_METRICS_LOG === '1') {
+      request.log.info({
+        request_id: metrics.requestId,
+        route: request.routeOptions.url ?? 'unmatched',
+        method: request.method,
+        status_code: reply.statusCode,
+        duration_ms: Number(milliseconds(elapsedMs(metrics.startedAt))),
+        response_bytes: metrics.responseBytes ?? null,
+        db_pool_wait_ms: Number(milliseconds(metrics.poolWaitMs)),
+        db_query_ms: Number(milliseconds(metrics.queryMs)),
+        db_query_count: metrics.queryCount,
+        handler_ms: Number(milliseconds(metrics.handlerMs)),
+        serialization_ms: Number(milliseconds(metrics.serializationMs)),
+      }, 'request performance');
+    }
   });
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff').header('referrer-policy', 'same-origin');
@@ -265,6 +320,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
   app.get<{ Params: { orderId: string } }>('/api/v1/sales/orders/:orderId/receipt', async request =>
     getSaleReceipt(request.operator!, request.params.orderId));
+  app.get<{ Params: { orderId: string; kind: string } }>('/api/v1/sales/orders/:orderId/receipt/assets/:kind', async (request, reply) => {
+    const image = await getSaleReceiptAsset(request.operator!, request.params.orderId, request.params.kind);
+    if (!image) throw new DomainError('NOT_FOUND', 'Historical receipt image was not found for this outlet.', 404);
+    return reply.type('image/png').header('cache-control', 'private, no-store').header('x-content-type-options', 'nosniff').send(image);
+  });
   app.get('/api/v1/customers', async request => listCustomerAccounts(request.operator!));
   app.get<{ Params: { customerId: string } }>('/api/v1/customers/:customerId/statement', async request =>
     getCustomerStatement(request.operator!, request.params.customerId));

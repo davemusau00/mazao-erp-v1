@@ -156,13 +156,17 @@ class ApiClient {
     if(!requestId)return;
     window.dispatchEvent(new CustomEvent('mazao:api-request-failed',{detail:{requestId,route:requestRoute(path),code:cause.code,status:cause.status,durationMs:Math.round(durationMs)}}));
   }
-  private reportRequestCompletion(path:string,response:Response,headersMs:number,bodyMs:number,responseBytes:number){
+  private reportRequestCompletion(path:string,response:Response,headersMs:number,bodyMs:number,parseMs:number,responseBytes:number|null,outcome:string){
     if(typeof window==='undefined')return;
     const requestId=(response.headers.get('x-request-id')??'').replace(/[^A-Za-z0-9._:-]/g,'').slice(0,128);
     if(!requestId)return;
     const timing=response.headers.get('server-timing')??'';
-    const serverAppMs=/\bapp;dur=(\d+(?:\.\d+)?)/.exec(timing)?.[1];
-    window.dispatchEvent(new CustomEvent('mazao:api-request-completed',{detail:{requestId,route:requestRoute(path),status:response.status,headersMs:Math.round(headersMs),bodyMs:Math.round(bodyMs),responseBytes,...(serverAppMs?{serverAppMs:Number(serverAppMs)}:{})}}));
+    const duration=(name:string)=>new RegExp(`(?:^|,\\s*)${name};dur=(\\d+(?:\\.\\d+)?)`).exec(timing)?.[1];
+    const queryCount=/\bdbqueries;desc=(\d+)\b/.exec(timing)?.[1];
+    const serverAppMs=duration('app');const serverHandlerMs=duration('handler');const serverDbMs=duration('db');
+    const serverDbPoolMs=duration('dbpool');const serverSerializationMs=duration('serialize');
+    const serverNginxMs=duration('nginx');
+    window.dispatchEvent(new CustomEvent('mazao:api-request-completed',{detail:{requestId,route:requestRoute(path),status:response.status,outcome,headersMs:Math.round(headersMs),bodyMs:Math.round(bodyMs),parseMs:Math.round(parseMs),responseBytes,...(serverAppMs?{serverAppMs:Number(serverAppMs)}:{}),...(serverHandlerMs?{serverHandlerMs:Number(serverHandlerMs)}:{}),...(serverDbMs?{serverDbMs:Number(serverDbMs)}:{}),...(serverDbPoolMs?{serverDbPoolMs:Number(serverDbPoolMs)}:{}),...(serverSerializationMs?{serverSerializationMs:Number(serverSerializationMs)}:{}),...(serverNginxMs?{serverNginxMs:Number(serverNginxMs)}:{}),...(queryCount?{serverDbQueryCount:Number(queryCount)}:{})}}));
   }
   private async performRequest<T>(path:string,init:RequestInit={}):Promise<T>{
     const method=(init.method??'GET').toUpperCase();const isRead=method==='GET';
@@ -210,23 +214,28 @@ class ApiClient {
       let bodyText:string;
       try { bodyText=await response.text(); }
       catch {
+        this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,0,null,'incomplete_body');
         if(controller?.signal.aborted&&controller.signal.reason==='timeout')throw new ApiClientError(isRead?`The response body did not finish within ${READ_TIMEOUT_MS/1000} seconds. Retry this read.`:'The server did not confirm this change before the response timed out. Keep its original command ID and check status before retrying.',isRead?'REQUEST_TIMED_OUT':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
         if(controller?.signal.aborted)throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',response.status,response.headers.get('x-request-id')??requestId);
         throw new ApiClientError(response.ok?'The server response ended before its body was complete. Retry this read.':`Request failed (${response.status}) and its error response was incomplete.`,'INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
       }
-      let body:unknown;
+      let body:unknown;let parseMs=0;let invalidJson=false;
+      const parseStartedAt=performance.now();
       try { body=JSON.parse(bodyText); }
       catch {
-        if(response.ok)throw new ApiClientError('The server returned an unreadable response. Retry this read; no data was accepted.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+        invalidJson=true;
         body=undefined;
       }
+      parseMs=performance.now()-parseStartedAt;
+      const receivedBytes=new TextEncoder().encode(bodyText).length;
+      this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,parseMs,receivedBytes,invalidJson?(response.ok?'invalid_json':'invalid_error_json'):(response.ok?'success':'http_error'));
+      if(invalidJson&&response.ok)throw new ApiClientError('The server returned an unreadable response. Retry this read; no data was accepted.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
       if(!response.ok){
         if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
         const error=isRecord(body)&&isRecord(body.error)?body.error:{};
         throw Object.assign(new ApiClientError(typeof error.message==='string'?error.message:`Request failed (${response.status}).`,typeof error.code==='string'?error.code:`HTTP_${response.status}`,response.status,response.headers.get('x-request-id')??requestId),{details:error.details});
       }
       if(!isRecord(body))throw new ApiClientError('The server returned an unexpected response shape. Retry this read.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
-      this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,new TextEncoder().encode(bodyText).length);
       return body as T;
     } finally {cleanup();}
   }
@@ -257,7 +266,7 @@ class ApiClient {
         if(response.status===401){this.csrf='';this.publish(null);}
         throw new ApiClientError(message,code,response.status,response.headers.get('x-request-id')??requestId);
       }
-      this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,new TextEncoder().encode(text).length);
+      this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,0,new TextEncoder().encode(text).length,'success');
       return text;
     }catch(cause){
       if(cause instanceof ApiClientError)throw cause;
