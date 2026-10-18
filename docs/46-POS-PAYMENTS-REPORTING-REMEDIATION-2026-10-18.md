@@ -4,7 +4,7 @@ Date: 18 October 2026. Branch: `feat/product-finishing`.
 
 ## Status and agreed requirements
 
-**Investigation complete; implementation and acceptance pending.** This document records current source findings and an executable fix sequence. It does not claim new functionality is implemented, tested or deployed. The investigation used repository reads; no tests, live requests, production changes or business-data changes were performed.
+**Implementation is complete on feat/product-finishing; production release is pending.** This replaces the investigation-only status below. The branch contains the agreed cashier-confirmed M-Pesa flow, fixed-amount item discounts, customer-facing wording and number formatting, and expanded accounting/reporting workflows. A real command-recovery defect found during release validation has also been fixed. Technical performance acceptance remains **FAIL** with the product owner's previously recorded exception acceptance in docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md; that does not replace the exact-main CI and current-production backup/restore gates.
 
 The user confirmed:
 
@@ -16,7 +16,29 @@ The recommended quantity rule is an amount applied **once to the entire selected
 
 Proposed initial discount authorization: introduce `commerce.discount` in the active API permission map for owner, admin, manager and cashier, require a reason for a nonzero discount, and record the operator. This is a proposed permission policy, not an existing grant or a user decision about discount limits. Do not reuse archived prototype permissions as authorization. Keep any later amount limits or supervisor-approval rules explicit and enforce them in the API.
 
-## Current implementation and concrete defects
+## Implementation and release progress
+
+- Manual M-Pesa settlement records a transaction reference and requires cashier confirmation. The server keeps payment, receipt, shift and journal evidence in the existing authoritative command transaction.
+- Item discounts are fixed currency amounts on individual sale lines. The amount applies once to the complete line, not once per unit and not to the whole basket.
+- Reachable business workflows use plain customer-facing language and consistent money/quantity formatting.
+- Accounting now includes an editable account display catalogue, controls and expanded supported reports. Reports state their source coverage and keep financial records server-authoritative.
+- Lost-response recovery validates the command ID returned by the status endpoint's outer envelope before it removes the original recovery record. It keeps the original command ID and does not create a new payment retry.
+
+The live API was checked read-only during release preparation: HTTPS liveness/readiness returned live/ready, the current API container was healthy, and production is at migration head 017_configuration_assets. Candidate migrations 018–020 are applied only after the required fresh backup and isolated restore. No production business rows or services have been changed by this preparation.
+
+### Validation recorded for this release candidate
+
+- npm run typecheck: passed.
+- Production build: passed; the main JavaScript bundle is 487.32 KB (132.12 KB gzip), with accounting/reporting workspaces split into lazy chunks.
+- npm run test:integration against the disposable PostgreSQL 16 database with migrations 001–020: **17/17 passed**, including lost-response settings, stock-count and import recovery; fixed-amount financial flows; staff setup; login throttling; and the supported real-DB journeys.
+- Earlier branch validation also passed 120 API/PostgreSQL tests, 59 Chromium journeys, and 36 Firefox/Chromium desktop/mobile checks. Exact-commit CI will rerun the release workflow before merge.
+- Live read-only preflight: HTTPS live and ready; Mazao API and PostgreSQL healthy; nginx -t passed with administrator privileges; current production schema head is 017_configuration_assets. Disk availability was 104 GB and memory availability 5.7 GiB at the preflight snapshot. Protected ServOS and SMS containers were recorded for post-activation comparison.
+
+**Still pending:** feature-branch CI on the final merge candidate, exact-main CI and artifacts, a fresh off-host backup restored offline with the current live migration head and balanced journals, then activation and post-activation protected-service/HTTPS/database checks.
+
+## Investigation baseline and original findings
+
+The following table records defects found at the start of the investigation; it is not a claim that each item remains open after the implementation above.
 
 Only screens reachable from `src/App.tsx` count as implemented. `FinanceWorkspace.tsx`, older receipt/sync components and generic UI contract types contain designs that are not active services.
 
@@ -230,7 +252,7 @@ Implementation verification must include disposable production-shaped PostgreSQL
 
 Browser evidence must cover Firefox and Chromium, the viewport matrix in `docs/15-TESTING-ACCEPTANCE.md`, touch/keyboard access, meaningful loading/empty/error/retry states, navigation cancellation and cold/warm/offline/reconnection behavior. Keep IndexedDB recovery data and original command IDs across upgrades. No financial operation becomes offline-authorized through these changes.
 
-Record actual commands/results and distinguish planned checks from executed evidence. **No acceptance tests have been added or run as part of this investigation.** Production release remains a separate action requiring exact accepted changes, compatible migration/rollback and verified backup evidence. Prior owner acceptance of performance exceptions does not establish acceptance for these new financial workflows.
+Record actual commands/results and distinguish planned checks from executed evidence. Financial acceptance remains tied to the real PostgreSQL and browser journeys, including unchanged authoritative stock, order, payment, receipt, journal and historical records. Production release remains a separate gate requiring exact-main CI, verified artifacts, compatible additive migrations and a fresh isolated restore of the current production database. Owner acceptance of performance exceptions does not establish financial-workflow acceptance.
 
 ## References
 
