@@ -6,6 +6,8 @@ import { stableStringify } from './security.js';
 import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationSnapshot } from './configuration.js';
 import { executeProductImportCommand, validateCatalogMetadata } from './productImport.js';
 import { executeStaffCommand } from './staff.js';
+import { revalidateOperator } from './identityAuthority.js';
+import { requireCommandAuthority } from './commandAuthorization.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -115,25 +117,8 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   if (envelope.tenantId && envelope.tenantId !== session.tenantId) throw new DomainError('FORBIDDEN', 'Command tenant does not match the authenticated session.', 403);
   // Permissions and assignment authority are rechecked inside the transaction,
   // so an earlier HTTP preflight cannot preserve a revoked or changed role.
-  const actor=await client.query<{role:ApiSession['role']}>(`SELECT m.role FROM identity.sessions s
-    JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
-    JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id AND d.outlet_id=s.outlet_id
-    JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
-    WHERE s.id=$1 AND s.user_id=$2 AND s.tenant_id=$3 AND s.outlet_id=$4 AND s.device_id=$5 AND s.revoked_at IS NULL AND s.expires_at>now()
-      AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id FOR SHARE OF s,u,m,d,o`,
-    [session.sessionId,session.userId,session.tenantId,session.outletId,session.deviceId]);
-  if(!actor.rowCount)throw new DomainError('UNAUTHENTICATED','The operator session or assignment changed. Sign in again.',401);
-  session={...session,role:actor.rows[0].role};
-  // Configuration changes must be observed within the command transaction,
-  // including when a capability changed after authentication preflight.
-  const capabilities = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1', [session.tenantId]);
-  session = { ...session, capabilities: capabilities.rows.map(row => row.capability) };
-  if (envelope.type.startsWith('catalog.') || envelope.type.startsWith('inventory.')) requireCapability(session, 'inventory');
-  if (envelope.type.startsWith('shift.')) requireCapability(session, 'commerce');
-  if (envelope.type === 'sales.order.settle' || envelope.type === 'sales.order.refund') {
-    requireCapability(session, 'commerce');
-    requireCapability(session, 'inventory');
-  }
+  session = await revalidateOperator(client, session);
+  requireCommandAuthority(session, envelope.type);
   switch (envelope.type) {
     case 'staff.member.create':
     case 'staff.member.update':
@@ -174,8 +159,6 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
 }
 
 async function createCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requireCapability(session, 'commerce');
-  requirePermission(session, 'customers.manage');
   const name = envelope.payload.name;
   const phone = envelope.payload.phone;
   const email = envelope.payload.email;
@@ -193,8 +176,6 @@ async function createCustomerAccount(client: PoolClient, session: ApiSession, en
 }
 
 async function updateCustomerAccount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requireCapability(session, 'commerce');
-  requirePermission(session, 'customers.manage');
   const id = envelope.payload.customerId;
   if (typeof id !== 'string') throw new DomainError('VALIDATION_FAILED', 'customerId is required.');
   const expectedVersion = versionFor(envelope, `customer:${id}`);
@@ -222,8 +203,6 @@ async function updateCustomerAccount(client: PoolClient, session: ApiSession, en
 }
 
 async function recordCustomerRepayment(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requireCapability(session, 'commerce');
-  requirePermission(session, 'customers.settle');
   const customerId = envelope.payload.customerId;
   const shiftId = envelope.payload.shiftId;
   const amountMinor = asMinor(envelope.payload.amountMinor, 'amountMinor');
@@ -291,7 +270,6 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
 }
 
 async function createProduct(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'catalog.manage');
   const { sku, name, baseUnit, currency, sellingPriceMinor, costPriceMinor } = envelope.payload;
   if (typeof sku !== 'string' || !/^[\w.-]{1,64}$/.test(sku) || typeof name !== 'string' || !name.trim() || name.length > 160 || typeof baseUnit !== 'string' || !/^[\w.-]{1,24}$/.test(baseUnit)) {
     throw new DomainError('VALIDATION_FAILED', 'SKU, item name, and base unit are required and must be valid.');
@@ -324,7 +302,6 @@ async function createProduct(client: PoolClient, session: ApiSession, envelope: 
 }
 
 async function receiveInventory(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'inventory.receive');
   const documentReference=envelope.payload.documentReference;
   const supplierName=envelope.payload.supplierName;
   if(documentReference!==undefined&&(typeof documentReference!=='string'||documentReference.trim().length>120)) throw new DomainError('VALIDATION_FAILED','Delivery reference must be 120 characters or fewer.');
@@ -367,7 +344,6 @@ async function receiveInventory(client: PoolClient, session: ApiSession, envelop
 }
 
 async function openStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'inventory.count');
   const areaLabel = envelope.payload.areaLabel;
   if (areaLabel !== undefined && (typeof areaLabel !== 'string' || areaLabel.trim().length > 100)) {
     throw new DomainError('VALIDATION_FAILED', 'Count label must be 100 characters or fewer.');
@@ -406,7 +382,6 @@ async function openStockCount(client: PoolClient, session: ApiSession, envelope:
 }
 
 async function saveStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'inventory.count');
   const countId = envelope.payload.countId;
   if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
   const expectedVersion = versionFor(envelope, `count:${countId}`);
@@ -459,7 +434,6 @@ async function saveStockCount(client: PoolClient, session: ApiSession, envelope:
 }
 
 async function postStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'inventory.count.approve');
   const countId = envelope.payload.countId;
   if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
   const expectedVersion = versionFor(envelope, `count:${countId}`);
@@ -560,7 +534,6 @@ async function postStockCount(client: PoolClient, session: ApiSession, envelope:
 }
 
 async function cancelStockCount(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'inventory.count.approve');
   const countId = envelope.payload.countId;
   if (typeof countId !== 'string') throw new DomainError('VALIDATION_FAILED', 'countId is required.');
   const expectedVersion = versionFor(envelope, `count:${countId}`);
@@ -586,7 +559,6 @@ async function cancelStockCount(client: PoolClient, session: ApiSession, envelop
 }
 
 async function openShift(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'shift.open');
   const openingFloat = asMinor(envelope.payload.openingFloatMinor, 'openingFloatMinor');
   const expected = versionFor(envelope, 'shift:new');
   if (expected !== undefined) throw new DomainError('VALIDATION_FAILED', 'A new shift does not accept an expected version.');
@@ -615,7 +587,6 @@ async function openShift(client: PoolClient, session: ApiSession, envelope: Comm
 }
 
 async function recordShiftCashMovement(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'shift.payout');
   const shiftId = envelope.payload.shiftId;
   const movementType = envelope.payload.movementType;
   const amount = asMinor(envelope.payload.amountMinor, 'amountMinor');
@@ -666,7 +637,6 @@ async function recordShiftCashMovement(client: PoolClient, session: ApiSession, 
 }
 
 async function closeShift(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'shift.close');
   const shiftId = envelope.payload.shiftId;
   if (typeof shiftId !== 'string') throw new DomainError('VALIDATION_FAILED', 'shiftId is required.');
   const expected = versionFor(envelope, `shift:${shiftId}`);
@@ -713,9 +683,9 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
     [shiftId, session.tenantId, session.outletId, session.userId, counted, variance, expected],
   );
   if (!closedShift.rowCount) throw new DomainError('VERSION_CONFLICT', 'The shift changed while it was being closed.', 409);
-  const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,u.full_name operator_name,t.currency,
+  const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,m.display_name operator_name,t.currency,
       to_char($3::timestamptz AT TIME ZONE o.time_zone,'YYYY-MM-DD') business_date
-    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.users u ON u.id=$2
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.memberships m ON m.tenant_id=t.id AND m.user_id=$2
     WHERE t.id=$1 AND o.id=$4`, [session.tenantId, session.userId, closedShift.rows[0].closed_at, session.outletId]);
   const snapshot = identity.rows[0];
   if (!snapshot) throw new DomainError('INTERNAL_ERROR', 'Shift close identity snapshot could not be loaded.', 500);
@@ -746,7 +716,6 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
 }
 
 async function settleSale(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  requirePermission(session, 'commerce.sell');
   const lines = envelope.payload.lines;
   const tenders = envelope.payload.tenders;
   const customerIdValue = envelope.payload.customerId;
@@ -784,8 +753,11 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   if (!shift.rowCount) throw new DomainError('NOT_FOUND', 'Open shift was not found for this operator.', 404);
   if (Number(shift.rows[0].version) !== expectedShift) throw new DomainError('VERSION_CONFLICT', 'The open shift changed. Refresh and retry using the current version.', 409, { currentVersion: Number(shift.rows[0].version) });
 
-  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile
-    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
+  const tenant = await client.query<{ currency: string; tenant_name: string; outlet_name: string; outlet_time_zone: string; business_profile: unknown; outlet_profile: unknown; logo_asset_id: string | null; receipt_qr_asset_id: string | null }>(`SELECT t.currency,t.name tenant_name,o.name outlet_name,o.time_zone outlet_time_zone,t.business_profile,o.outlet_profile,logo.id logo_asset_id,receipt_qr.id receipt_qr_asset_id
+    FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id
+    LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='logo' AND status='ACTIVE' LIMIT 1) logo ON true
+    LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='receipt_qr' AND status='ACTIVE' LIMIT 1) receipt_qr ON true
+    WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
   const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string; product_version: string }> = [];
@@ -849,7 +821,7 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     [orderId, session.tenantId, session.outletId, shiftId, session.userId, currency, subtotal, tax, total, receiptNumber,
       tenant.rows[0].tenant_name, tenant.rows[0].outlet_name, tenant.rows[0].outlet_time_zone,
       customerId ? null : tenderTotal, customerId ? null : tenderTotal - total, customerId, customer?.name ?? null, customerId ? total : 0,
-      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile))],
+      JSON.stringify(receiptConfigurationSnapshot(tenant.rows[0].business_profile, tenant.rows[0].outlet_profile, { logoId: tenant.rows[0].logo_asset_id, receiptQrId: tenant.rows[0].receipt_qr_asset_id }))],
   );
   for (const line of computed) {
     await client.query(
@@ -917,7 +889,6 @@ export function refundPortionMinor(originalMinor:number,alreadyRefundedMinor:num
 }
 
 async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requirePermission(session,'commerce.refund');
   const orderId=envelope.payload.orderId;const reason=envelope.payload.reason;const rawLines=envelope.payload.lines;
   if(typeof orderId!=='string'||typeof reason!=='string'||reason.trim().length<3||reason.trim().length>500)throw new DomainError('VALIDATION_FAILED','A sale ID and return reason are required.');
   if(!Array.isArray(rawLines)||rawLines.length<1||rawLines.length>100)throw new DomainError('VALIDATION_FAILED','Select at least one order line to refund.');
@@ -970,7 +941,6 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
 }
 
 async function createHotelRoom(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.manage');
   const roomNumber=envelope.payload.roomNumber;const roomType=envelope.payload.roomType;const rate=asMinor(envelope.payload.nightlyRateMinor,'nightlyRateMinor');
   if(typeof roomNumber!=='string'||!roomNumber.trim()||roomNumber.trim().length>24||typeof roomType!=='string'||!roomType.trim()||roomType.trim().length>80||rate===0)throw new DomainError('VALIDATION_FAILED','Room number, room type, and a positive nightly rate are required.');
   const tenant=await client.query<{currency:string;business_profile:unknown}>('SELECT currency,business_profile FROM core.tenants WHERE id=$1',[session.tenantId]);const roomId=randomUUID();
@@ -990,7 +960,6 @@ async function assertRoomAvailable(client:PoolClient,session:ApiSession,roomId:s
 }
 
 async function createReservation(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.frontdesk');
   const roomId=envelope.payload.roomId;const guestName=envelope.payload.guestName;const guestContact=envelope.payload.guestContact;
   if(typeof roomId!=='string'||typeof guestName!=='string'||!guestName.trim()||guestName.trim().length>160||(guestContact!==undefined&&(typeof guestContact!=='string'||guestContact.length>80)))throw new DomainError('VALIDATION_FAILED','Room and guest name are required.');
   const checkIn=dateOnly(envelope.payload.checkInDate,'checkInDate');const checkOut=dateOnly(envelope.payload.checkOutDate,'checkOutDate');if(checkOut<=checkIn)throw new DomainError('VALIDATION_FAILED','Check-out date must be after check-in date.');
@@ -1003,7 +972,7 @@ async function createReservation(client:PoolClient,session:ApiSession,envelope:C
 }
 
 async function cancelReservation(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.frontdesk');const reservationId=envelope.payload.reservationId;
+  const reservationId=envelope.payload.reservationId;
   if(typeof reservationId!=='string')throw new DomainError('VALIDATION_FAILED','reservationId is required.');const expected=versionFor(envelope,`reservation:${reservationId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected reservation version is required.');
   const result=await client.query<{version:string;room_id:string}>(`UPDATE hospitality.reservations SET status='CANCELLED',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' AND version=$4 RETURNING version,room_id`,[reservationId,session.tenantId,session.outletId,expected]);
   if(!result.rowCount)throw new DomainError('VERSION_CONFLICT','Reservation was changed, cancelled, or checked in already.',409);
@@ -1012,7 +981,6 @@ async function cancelReservation(client:PoolClient,session:ApiSession,envelope:C
 }
 
 async function checkInGuest(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.frontdesk');
   const reservationId=envelope.payload.reservationId;let roomId=envelope.payload.roomId;let guestName=envelope.payload.guestName;let guestContact=envelope.payload.guestContact;let checkIn='';let checkOut='';
   if(typeof reservationId==='string'){
     const reservation=await client.query<{room_id:string;guest_name:string;guest_contact:string|null;check_in_date:string;check_out_date:string;nightly_rate_minor:string;tax_rate_bps:number;currency:string;version:string}>(`SELECT room_id,guest_name,guest_contact,to_char(check_in_date,'YYYY-MM-DD') check_in_date,to_char(check_out_date,'YYYY-MM-DD') check_out_date,nightly_rate_minor,tax_rate_bps,currency,version FROM hospitality.reservations WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' FOR UPDATE`,[reservationId,session.tenantId,session.outletId]);
@@ -1036,7 +1004,6 @@ async function checkInGuest(client:PoolClient,session:ApiSession,envelope:Comman
 }
 
 async function checkOutGuest(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.frontdesk');
   const stayId=envelope.payload.stayId;const tendered=asMinor(envelope.payload.tenderedMinor,'tenderedMinor');if(typeof stayId!=='string')throw new DomainError('VALIDATION_FAILED','stayId is required.');const expectedStay=versionFor(envelope,`stay:${stayId}`);if(!expectedStay)throw new DomainError('VALIDATION_FAILED','Expected stay version is required.');
   const stay=await client.query<{room_id:string;folio_id:string;guest_name:string;check_in_date:string;expected_check_out_date:string;local_today:string;nightly_rate_minor:string;tax_rate_bps:number;currency:string;version:string;nights:number}>(`SELECT s.room_id,f.id folio_id,s.guest_name,to_char(s.check_in_date,'YYYY-MM-DD') check_in_date,to_char(s.expected_check_out_date,'YYYY-MM-DD') expected_check_out_date,to_char(now() AT TIME ZONE o.time_zone,'YYYY-MM-DD') local_today,s.nightly_rate_minor,s.tax_rate_bps,s.currency,s.version,(s.expected_check_out_date-s.check_in_date)::int nights FROM hospitality.stays s JOIN hospitality.folios f ON f.stay_id=s.id AND f.tenant_id=s.tenant_id AND f.outlet_id=s.outlet_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id WHERE s.id=$1 AND s.tenant_id=$2 AND s.outlet_id=$3 AND s.status='CHECKED_IN' FOR UPDATE OF s,f`,[stayId,session.tenantId,session.outletId]);
   if(!stay.rowCount)throw new DomainError('NOT_FOUND','Active guest stay was not found.',404);const stayRow=stay.rows[0];if(Number(stayRow.version)!==expectedStay)throw new DomainError('VERSION_CONFLICT','Guest bill changed. Refresh before checkout.',409,{currentVersion:Number(stayRow.version)});
@@ -1061,7 +1028,7 @@ async function checkOutGuest(client:PoolClient,session:ApiSession,envelope:Comma
 }
 
 async function markRoomReady(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  requireCapability(session,'hospitality');requirePermission(session,'hotel.housekeeping');const roomId=envelope.payload.roomId;if(typeof roomId!=='string')throw new DomainError('VALIDATION_FAILED','roomId is required.');const expected=versionFor(envelope,`room:${roomId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected room version is required.');const room=await roomForUpdate(client,session,roomId);if(room.status!=='DIRTY'||Number(room.version)!==expected)throw new DomainError('VERSION_CONFLICT','Only a dirty room at its current version can be marked ready.',409,{roomStatus:room.status,currentVersion:Number(room.version)});await client.query(`UPDATE hospitality.rooms SET status='READY',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND version=$4`,[roomId,session.tenantId,session.outletId,expected]);await client.query(`INSERT INTO hospitality.housekeeping_events(id,tenant_id,outlet_id,room_id,command_id,actor_id,from_status,to_status) VALUES($1,$2,$3,$4,$5,$6,'DIRTY','READY')`,[randomUUID(),session.tenantId,session.outletId,roomId,envelope.commandId,session.userId]);const value={roomId,status:'READY',version:expected+1};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
+  const roomId=envelope.payload.roomId;if(typeof roomId!=='string')throw new DomainError('VALIDATION_FAILED','roomId is required.');const expected=versionFor(envelope,`room:${roomId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected room version is required.');const room=await roomForUpdate(client,session,roomId);if(room.status!=='DIRTY'||Number(room.version)!==expected)throw new DomainError('VERSION_CONFLICT','Only a dirty room at its current version can be marked ready.',409,{roomStatus:room.status,currentVersion:Number(room.version)});await client.query(`UPDATE hospitality.rooms SET status='READY',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND version=$4`,[roomId,session.tenantId,session.outletId,expected]);await client.query(`INSERT INTO hospitality.housekeeping_events(id,tenant_id,outlet_id,room_id,command_id,actor_id,from_status,to_status) VALUES($1,$2,$3,$4,$5,$6,'DIRTY','READY')`,[randomUUID(),session.tenantId,session.outletId,roomId,envelope.commandId,session.userId]);const value={roomId,status:'READY',version:expected+1};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
 }
 
 export function hashCommand(envelope: CommandEnvelope): Buffer {

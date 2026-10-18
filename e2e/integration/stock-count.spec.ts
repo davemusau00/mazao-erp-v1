@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { expect, test, type Page } from '@playwright/test';
 import { hashPassword } from '../../apps/api/src/security';
 
+// Keep this spec's sign-ins separate from the shared integration API rate-limit bucket.
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '198.51.100.8' } });
+
 const pool = new Pool({ connectionString: process.env.MAZAO_E2E_DATABASE_URL });
 test.afterAll(async () => { await pool.end(); });
 
@@ -64,7 +67,7 @@ for (const scenario of [
     await second.getByLabel('Counted quantity', { exact: true }).fill('9');
     await second.getByLabel('Reason for difference').fill('Reviewed damaged stock');
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('Count draft is saved on the server');
+    await expect(page.getByRole('status').filter({ hasText: 'Count draft is saved on the server' })).toBeVisible();
     await page.reload();
     await expect(page.getByLabel('Signed in as Count Browser Admin')).toBeVisible();
     await openCountWorkspace(page);
@@ -84,15 +87,16 @@ for (const scenario of [
     }
     await confirm.click();
     if (scenario.lostResponse) {
-      await expect(page.getByRole('button', { name: 'Check command status', exact: true })).toBeVisible();
+      await expect(page.getByRole('dialog').getByRole('button', { name: 'Check command status', exact: true })).toBeVisible();
       await page.unroute('**/api/v1/commands');
       await page.reload();
       await expect(page.getByLabel('Signed in as Count Browser Admin')).toBeVisible();
       await openCountWorkspace(page);
-      await page.getByRole('button', { name: 'Check command status', exact: true }).click();
-      await expect(page.getByRole('status')).toContainText('Server confirmed the count command');
+      const restoredCommand = page.getByRole('main').getByRole('status').filter({ hasText: 'An unresolved count command was restored.' });
+      await restoredCommand.getByRole('button', { name: 'Check command status', exact: true }).click();
+      await expect(page.getByRole('status').filter({ hasText: 'Server confirmed the count command' })).toBeVisible();
     } else {
-      await expect(page.getByRole('status')).toContainText('Count posted: 2 stock adjustments');
+      await expect(page.getByRole('status').filter({ hasText: 'Count posted: 2 stock adjustments' })).toBeVisible();
     }
     await expect(page.getByRole('heading', { name: 'No open outlet count' })).toBeVisible();
     await page.getByRole('button', { name: 'View details', exact: true }).click();

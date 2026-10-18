@@ -1,0 +1,6138 @@
+{
+  "runStartedAt": "2026-10-17T22:34:55.273Z",
+  "browser": "Firefox",
+  "runtime": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:157.0) Gecko/20100101 Firefox/157.0",
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "serviceWorkerControlled": true,
+    "serviceWorkerState": "activated"
+  },
+  "sampleCountPerWorkspace": 50,
+  "samples": [
+    {
+      "workspace": "today",
+      "sample": 1,
+      "durationMs": 21,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 1975
+    },
+    {
+      "workspace": "today",
+      "sample": 2,
+      "durationMs": 20,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 2176
+    },
+    {
+      "workspace": "today",
+      "sample": 3,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 2377
+    },
+    {
+      "workspace": "today",
+      "sample": 4,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 2593
+    },
+    {
+      "workspace": "today",
+      "sample": 5,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 2776
+    },
+    {
+      "workspace": "today",
+      "sample": 6,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 2959
+    },
+    {
+      "workspace": "today",
+      "sample": 7,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 3176
+    },
+    {
+      "workspace": "today",
+      "sample": 8,
+      "durationMs": 36,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 3392
+    },
+    {
+      "workspace": "today",
+      "sample": 9,
+      "durationMs": 43,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 3625
+    },
+    {
+      "workspace": "today",
+      "sample": 10,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 3843
+    },
+    {
+      "workspace": "today",
+      "sample": 11,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 4042
+    },
+    {
+      "workspace": "today",
+      "sample": 12,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 4258
+    },
+    {
+      "workspace": "today",
+      "sample": 13,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 4476
+    },
+    {
+      "workspace": "today",
+      "sample": 14,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 4692
+    },
+    {
+      "workspace": "today",
+      "sample": 15,
+      "durationMs": 34,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 4909
+    },
+    {
+      "workspace": "today",
+      "sample": 16,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 5126
+    },
+    {
+      "workspace": "today",
+      "sample": 17,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 5342
+    },
+    {
+      "workspace": "today",
+      "sample": 18,
+      "durationMs": 38,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 5559
+    },
+    {
+      "workspace": "today",
+      "sample": 19,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 5775
+    },
+    {
+      "workspace": "today",
+      "sample": 20,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 5991
+    },
+    {
+      "workspace": "today",
+      "sample": 21,
+      "durationMs": 38,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 6242
+    },
+    {
+      "workspace": "today",
+      "sample": 22,
+      "durationMs": 40,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 6459
+    },
+    {
+      "workspace": "today",
+      "sample": 23,
+      "durationMs": 29,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 6659
+    },
+    {
+      "workspace": "today",
+      "sample": 24,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 6876
+    },
+    {
+      "workspace": "today",
+      "sample": 25,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 7092
+    },
+    {
+      "workspace": "today",
+      "sample": 26,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 7275
+    },
+    {
+      "workspace": "today",
+      "sample": 27,
+      "durationMs": 38,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 7475
+    },
+    {
+      "workspace": "today",
+      "sample": 28,
+      "durationMs": 40,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 7675
+    },
+    {
+      "workspace": "today",
+      "sample": 29,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 7858
+    },
+    {
+      "workspace": "today",
+      "sample": 30,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 8042
+    },
+    {
+      "workspace": "today",
+      "sample": 31,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 8242
+    },
+    {
+      "workspace": "today",
+      "sample": 32,
+      "durationMs": 39,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 8459
+    },
+    {
+      "workspace": "today",
+      "sample": 33,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 8657
+    },
+    {
+      "workspace": "today",
+      "sample": 34,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 8875
+    },
+    {
+      "workspace": "today",
+      "sample": 35,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 9091
+    },
+    {
+      "workspace": "today",
+      "sample": 36,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 9324
+    },
+    {
+      "workspace": "today",
+      "sample": 37,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 9525
+    },
+    {
+      "workspace": "today",
+      "sample": 38,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 9725
+    },
+    {
+      "workspace": "today",
+      "sample": 39,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 9926
+    },
+    {
+      "workspace": "today",
+      "sample": 40,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 10124
+    },
+    {
+      "workspace": "today",
+      "sample": 41,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 10308
+    },
+    {
+      "workspace": "today",
+      "sample": 42,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 10508
+    },
+    {
+      "workspace": "today",
+      "sample": 43,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 10708
+    },
+    {
+      "workspace": "today",
+      "sample": 44,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 10891
+    },
+    {
+      "workspace": "today",
+      "sample": 45,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 11108
+    },
+    {
+      "workspace": "today",
+      "sample": 46,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 11324
+    },
+    {
+      "workspace": "today",
+      "sample": 47,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 11541
+    },
+    {
+      "workspace": "today",
+      "sample": 48,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 11741
+    },
+    {
+      "workspace": "today",
+      "sample": 49,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 11941
+    },
+    {
+      "workspace": "today",
+      "sample": 50,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 12125
+    },
+    {
+      "workspace": "sell",
+      "sample": 1,
+      "durationMs": 125,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 12342
+    },
+    {
+      "workspace": "sell",
+      "sample": 2,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 13614
+    },
+    {
+      "workspace": "sell",
+      "sample": 3,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 14779
+    },
+    {
+      "workspace": "sell",
+      "sample": 4,
+      "durationMs": 138,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 16075
+    },
+    {
+      "workspace": "sell",
+      "sample": 5,
+      "durationMs": 91,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 17457
+    },
+    {
+      "workspace": "sell",
+      "sample": 6,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 18644
+    },
+    {
+      "workspace": "sell",
+      "sample": 7,
+      "durationMs": 66,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 19894
+    },
+    {
+      "workspace": "sell",
+      "sample": 8,
+      "durationMs": 91,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 21057
+    },
+    {
+      "workspace": "sell",
+      "sample": 9,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 22279
+    },
+    {
+      "workspace": "sell",
+      "sample": 10,
+      "durationMs": 112,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 23409
+    },
+    {
+      "workspace": "sell",
+      "sample": 11,
+      "durationMs": 79,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 24558
+    },
+    {
+      "workspace": "sell",
+      "sample": 12,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 25613
+    },
+    {
+      "workspace": "sell",
+      "sample": 13,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 26779
+    },
+    {
+      "workspace": "sell",
+      "sample": 14,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 28006
+    },
+    {
+      "workspace": "sell",
+      "sample": 15,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 29089
+    },
+    {
+      "workspace": "sell",
+      "sample": 16,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 30361
+    },
+    {
+      "workspace": "sell",
+      "sample": 17,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 31406
+    },
+    {
+      "workspace": "sell",
+      "sample": 18,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 32513
+    },
+    {
+      "workspace": "sell",
+      "sample": 19,
+      "durationMs": 131,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 33747
+    },
+    {
+      "workspace": "sell",
+      "sample": 20,
+      "durationMs": 66,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 34960
+    },
+    {
+      "workspace": "sell",
+      "sample": 21,
+      "durationMs": 76,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 35989
+    },
+    {
+      "workspace": "sell",
+      "sample": 22,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 37259
+    },
+    {
+      "workspace": "sell",
+      "sample": 23,
+      "durationMs": 63,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 38291
+    },
+    {
+      "workspace": "sell",
+      "sample": 24,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 39373
+    },
+    {
+      "workspace": "sell",
+      "sample": 25,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 40460
+    },
+    {
+      "workspace": "sell",
+      "sample": 26,
+      "durationMs": 75,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 41909
+    },
+    {
+      "workspace": "sell",
+      "sample": 27,
+      "durationMs": 76,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 43074
+    },
+    {
+      "workspace": "sell",
+      "sample": 28,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 44576
+    },
+    {
+      "workspace": "sell",
+      "sample": 29,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 45608
+    },
+    {
+      "workspace": "sell",
+      "sample": 30,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 46744
+    },
+    {
+      "workspace": "sell",
+      "sample": 31,
+      "durationMs": 66,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 47744
+    },
+    {
+      "workspace": "sell",
+      "sample": 32,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 48771
+    },
+    {
+      "workspace": "sell",
+      "sample": 33,
+      "durationMs": 77,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 49954
+    },
+    {
+      "workspace": "sell",
+      "sample": 34,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 51170
+    },
+    {
+      "workspace": "sell",
+      "sample": 35,
+      "durationMs": 84,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 52360
+    },
+    {
+      "workspace": "sell",
+      "sample": 36,
+      "durationMs": 75,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 53438
+    },
+    {
+      "workspace": "sell",
+      "sample": 37,
+      "durationMs": 74,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 54621
+    },
+    {
+      "workspace": "sell",
+      "sample": 38,
+      "durationMs": 91,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 56018
+    },
+    {
+      "workspace": "sell",
+      "sample": 39,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 57791
+    },
+    {
+      "workspace": "sell",
+      "sample": 40,
+      "durationMs": 104,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 58874
+    },
+    {
+      "workspace": "sell",
+      "sample": 41,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 60403
+    },
+    {
+      "workspace": "sell",
+      "sample": 42,
+      "durationMs": 74,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 61536
+    },
+    {
+      "workspace": "sell",
+      "sample": 43,
+      "durationMs": 105,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 62925
+    },
+    {
+      "workspace": "sell",
+      "sample": 44,
+      "durationMs": 94,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 64322
+    },
+    {
+      "workspace": "sell",
+      "sample": 45,
+      "durationMs": 88,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 66057
+    },
+    {
+      "workspace": "sell",
+      "sample": 46,
+      "durationMs": 84,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 67243
+    },
+    {
+      "workspace": "sell",
+      "sample": 47,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 68607
+    },
+    {
+      "workspace": "sell",
+      "sample": 48,
+      "durationMs": 76,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 69780
+    },
+    {
+      "workspace": "sell",
+      "sample": 49,
+      "durationMs": 77,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 70837
+    },
+    {
+      "workspace": "sell",
+      "sample": 50,
+      "durationMs": 84,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 72008
+    },
+    {
+      "workspace": "sales",
+      "sample": 1,
+      "durationMs": 174,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 73145
+    },
+    {
+      "workspace": "sales",
+      "sample": 2,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 73481
+    },
+    {
+      "workspace": "sales",
+      "sample": 3,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 73840
+    },
+    {
+      "workspace": "sales",
+      "sample": 4,
+      "durationMs": 48,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 74173
+    },
+    {
+      "workspace": "sales",
+      "sample": 5,
+      "durationMs": 45,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 74418
+    },
+    {
+      "workspace": "sales",
+      "sample": 6,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 74822
+    },
+    {
+      "workspace": "sales",
+      "sample": 7,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 75185
+    },
+    {
+      "workspace": "sales",
+      "sample": 8,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 75546
+    },
+    {
+      "workspace": "sales",
+      "sample": 9,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 75984
+    },
+    {
+      "workspace": "sales",
+      "sample": 10,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 76305
+    },
+    {
+      "workspace": "sales",
+      "sample": 11,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 76886
+    },
+    {
+      "workspace": "sales",
+      "sample": 12,
+      "durationMs": 62,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 78784
+    },
+    {
+      "workspace": "sales",
+      "sample": 13,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 83038
+    },
+    {
+      "workspace": "sales",
+      "sample": 14,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 83587
+    },
+    {
+      "workspace": "sales",
+      "sample": 15,
+      "durationMs": 46,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 84284
+    },
+    {
+      "workspace": "sales",
+      "sample": 16,
+      "durationMs": 47,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 84676
+    },
+    {
+      "workspace": "sales",
+      "sample": 17,
+      "durationMs": 51,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 84999
+    },
+    {
+      "workspace": "sales",
+      "sample": 18,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 85374
+    },
+    {
+      "workspace": "sales",
+      "sample": 19,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 85693
+    },
+    {
+      "workspace": "sales",
+      "sample": 20,
+      "durationMs": 51,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 86019
+    },
+    {
+      "workspace": "sales",
+      "sample": 21,
+      "durationMs": 47,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 86409
+    },
+    {
+      "workspace": "sales",
+      "sample": 22,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 86726
+    },
+    {
+      "workspace": "sales",
+      "sample": 23,
+      "durationMs": 47,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 87063
+    },
+    {
+      "workspace": "sales",
+      "sample": 24,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 87392
+    },
+    {
+      "workspace": "sales",
+      "sample": 25,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 87767
+    },
+    {
+      "workspace": "sales",
+      "sample": 26,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 88182
+    },
+    {
+      "workspace": "sales",
+      "sample": 27,
+      "durationMs": 90,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 88516
+    },
+    {
+      "workspace": "sales",
+      "sample": 28,
+      "durationMs": 107,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 88968
+    },
+    {
+      "workspace": "sales",
+      "sample": 29,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 89610
+    },
+    {
+      "workspace": "sales",
+      "sample": 30,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 89973
+    },
+    {
+      "workspace": "sales",
+      "sample": 31,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 90294
+    },
+    {
+      "workspace": "sales",
+      "sample": 32,
+      "durationMs": 51,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 90639
+    },
+    {
+      "workspace": "sales",
+      "sample": 33,
+      "durationMs": 51,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 90998
+    },
+    {
+      "workspace": "sales",
+      "sample": 34,
+      "durationMs": 45,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 91251
+    },
+    {
+      "workspace": "sales",
+      "sample": 35,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 91726
+    },
+    {
+      "workspace": "sales",
+      "sample": 36,
+      "durationMs": 45,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 91984
+    },
+    {
+      "workspace": "sales",
+      "sample": 37,
+      "durationMs": 47,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 92377
+    },
+    {
+      "workspace": "sales",
+      "sample": 38,
+      "durationMs": 48,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 92776
+    },
+    {
+      "workspace": "sales",
+      "sample": 39,
+      "durationMs": 47,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 93126
+    },
+    {
+      "workspace": "sales",
+      "sample": 40,
+      "durationMs": 48,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 93451
+    },
+    {
+      "workspace": "sales",
+      "sample": 41,
+      "durationMs": 82,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 93855
+    },
+    {
+      "workspace": "sales",
+      "sample": 42,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 94241
+    },
+    {
+      "workspace": "sales",
+      "sample": 43,
+      "durationMs": 63,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 94617
+    },
+    {
+      "workspace": "sales",
+      "sample": 44,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 94986
+    },
+    {
+      "workspace": "sales",
+      "sample": 45,
+      "durationMs": 48,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 95318
+    },
+    {
+      "workspace": "sales",
+      "sample": 46,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 95654
+    },
+    {
+      "workspace": "sales",
+      "sample": 47,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 96165
+    },
+    {
+      "workspace": "sales",
+      "sample": 48,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 96544
+    },
+    {
+      "workspace": "sales",
+      "sample": 49,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 96861
+    },
+    {
+      "workspace": "sales",
+      "sample": 50,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 97185
+    },
+    {
+      "workspace": "stock",
+      "sample": 1,
+      "durationMs": 159,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 97632
+    },
+    {
+      "workspace": "stock",
+      "sample": 2,
+      "durationMs": 237,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 100018
+    },
+    {
+      "workspace": "stock",
+      "sample": 3,
+      "durationMs": 132,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 102588
+    },
+    {
+      "workspace": "stock",
+      "sample": 4,
+      "durationMs": 246,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 105121
+    },
+    {
+      "workspace": "stock",
+      "sample": 5,
+      "durationMs": 138,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 107853
+    },
+    {
+      "workspace": "stock",
+      "sample": 6,
+      "durationMs": 131,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 110160
+    },
+    {
+      "workspace": "stock",
+      "sample": 7,
+      "durationMs": 247,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 112845
+    },
+    {
+      "workspace": "stock",
+      "sample": 8,
+      "durationMs": 132,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 115059
+    },
+    {
+      "workspace": "stock",
+      "sample": 9,
+      "durationMs": 116,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 117201
+    },
+    {
+      "workspace": "stock",
+      "sample": 10,
+      "durationMs": 192,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 119545
+    },
+    {
+      "workspace": "stock",
+      "sample": 11,
+      "durationMs": 130,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 122810
+    },
+    {
+      "workspace": "stock",
+      "sample": 12,
+      "durationMs": 721,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 125970
+    },
+    {
+      "workspace": "stock",
+      "sample": 13,
+      "durationMs": 149,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 131228
+    },
+    {
+      "workspace": "stock",
+      "sample": 14,
+      "durationMs": 264,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 133890
+    },
+    {
+      "workspace": "stock",
+      "sample": 15,
+      "durationMs": 183,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 136399
+    },
+    {
+      "workspace": "stock",
+      "sample": 16,
+      "durationMs": 162,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 138579
+    },
+    {
+      "workspace": "stock",
+      "sample": 17,
+      "durationMs": 172,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 143221
+    },
+    {
+      "workspace": "stock",
+      "sample": 18,
+      "durationMs": 245,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 146407
+    },
+    {
+      "workspace": "stock",
+      "sample": 19,
+      "durationMs": 116,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 148579
+    },
+    {
+      "workspace": "stock",
+      "sample": 20,
+      "durationMs": 120,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 150780
+    },
+    {
+      "workspace": "stock",
+      "sample": 21,
+      "durationMs": 562,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 153631
+    },
+    {
+      "workspace": "stock",
+      "sample": 22,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 158077
+    },
+    {
+      "workspace": "stock",
+      "sample": 23,
+      "durationMs": 152,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 161258
+    },
+    {
+      "workspace": "stock",
+      "sample": 24,
+      "durationMs": 237,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 164037
+    },
+    {
+      "workspace": "stock",
+      "sample": 25,
+      "durationMs": 163,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 166888
+    },
+    {
+      "workspace": "stock",
+      "sample": 26,
+      "durationMs": 249,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 169351
+    },
+    {
+      "workspace": "stock",
+      "sample": 27,
+      "durationMs": 142,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 172458
+    },
+    {
+      "workspace": "stock",
+      "sample": 28,
+      "durationMs": 176,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 174775
+    },
+    {
+      "workspace": "stock",
+      "sample": 29,
+      "durationMs": 127,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 177024
+    },
+    {
+      "workspace": "stock",
+      "sample": 30,
+      "durationMs": 118,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 179927
+    },
+    {
+      "workspace": "stock",
+      "sample": 31,
+      "durationMs": 134,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 182004
+    },
+    {
+      "workspace": "stock",
+      "sample": 32,
+      "durationMs": 122,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 184088
+    },
+    {
+      "workspace": "stock",
+      "sample": 33,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 186730
+    },
+    {
+      "workspace": "stock",
+      "sample": 34,
+      "durationMs": 193,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 189435
+    },
+    {
+      "workspace": "stock",
+      "sample": 35,
+      "durationMs": 261,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 195514
+    },
+    {
+      "workspace": "stock",
+      "sample": 36,
+      "durationMs": 132,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 201272
+    },
+    {
+      "workspace": "stock",
+      "sample": 37,
+      "durationMs": 137,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 204017
+    },
+    {
+      "workspace": "stock",
+      "sample": 38,
+      "durationMs": 148,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 206290
+    },
+    {
+      "workspace": "stock",
+      "sample": 39,
+      "durationMs": 150,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 208861
+    },
+    {
+      "workspace": "stock",
+      "sample": 40,
+      "durationMs": 165,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 211121
+    },
+    {
+      "workspace": "stock",
+      "sample": 41,
+      "durationMs": 133,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 215707
+    },
+    {
+      "workspace": "stock",
+      "sample": 42,
+      "durationMs": 117,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 218116
+    },
+    {
+      "workspace": "stock",
+      "sample": 43,
+      "durationMs": 135,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 220506
+    },
+    {
+      "workspace": "stock",
+      "sample": 44,
+      "durationMs": 129,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 223163
+    },
+    {
+      "workspace": "stock",
+      "sample": 45,
+      "durationMs": 121,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 225319
+    },
+    {
+      "workspace": "stock",
+      "sample": 46,
+      "durationMs": 133,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 227629
+    },
+    {
+      "workspace": "stock",
+      "sample": 47,
+      "durationMs": 129,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 230335
+    },
+    {
+      "workspace": "stock",
+      "sample": 48,
+      "durationMs": 138,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 233445
+    },
+    {
+      "workspace": "stock",
+      "sample": 49,
+      "durationMs": 172,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 237263
+    },
+    {
+      "workspace": "stock",
+      "sample": 50,
+      "durationMs": 132,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 242607
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 1,
+      "durationMs": 553,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 245957
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 2,
+      "durationMs": 193,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 249582
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 3,
+      "durationMs": 233,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 252093
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 4,
+      "durationMs": 164,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 254935
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 5,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 257574
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 6,
+      "durationMs": 475,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 261648
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 7,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 264406
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 8,
+      "durationMs": 215,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 267168
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 9,
+      "durationMs": 225,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 270338
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 10,
+      "durationMs": 178,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 273547
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 11,
+      "durationMs": 184,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 276287
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 12,
+      "durationMs": 158,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 279140
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 13,
+      "durationMs": 315,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 281917
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 14,
+      "durationMs": 311,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 285991
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 15,
+      "durationMs": 165,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 289118
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 16,
+      "durationMs": 169,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 291987
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 17,
+      "durationMs": 177,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 294889
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 18,
+      "durationMs": 175,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 297753
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 19,
+      "durationMs": 187,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 301899
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 20,
+      "durationMs": 246,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 306060
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 21,
+      "durationMs": 187,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 313215
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 22,
+      "durationMs": 409,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 316888
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 23,
+      "durationMs": 173,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 320218
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 24,
+      "durationMs": 191,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 323415
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 25,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 325968
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 26,
+      "durationMs": 156,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 329267
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 27,
+      "durationMs": 355,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 332447
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 28,
+      "durationMs": 486,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 336474
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 29,
+      "durationMs": 171,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 340940
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 30,
+      "durationMs": 345,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 344256
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 31,
+      "durationMs": 166,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 346630
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 32,
+      "durationMs": 174,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 349946
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 33,
+      "durationMs": 368,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 353400
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 34,
+      "durationMs": 183,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 356347
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 35,
+      "durationMs": 174,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 359529
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 36,
+      "durationMs": 169,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 361631
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 37,
+      "durationMs": 458,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 365150
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 38,
+      "durationMs": 168,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 368380
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 39,
+      "durationMs": 158,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 371623
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 40,
+      "durationMs": 247,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 373994
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 41,
+      "durationMs": 219,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 378830
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 42,
+      "durationMs": 204,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 387085
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 43,
+      "durationMs": 350,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 390551
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 44,
+      "durationMs": 227,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 394823
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 45,
+      "durationMs": 238,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 398567
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 46,
+      "durationMs": 271,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 401963
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 47,
+      "durationMs": 182,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 404791
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 48,
+      "durationMs": 164,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 407270
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 49,
+      "durationMs": 482,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 410987
+    },
+    {
+      "workspace": "stock-count",
+      "sample": 50,
+      "durationMs": 424,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 414241
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 1,
+      "durationMs": 274,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 417171
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 2,
+      "durationMs": 94,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 417597
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 3,
+      "durationMs": 83,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 417854
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 4,
+      "durationMs": 92,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 418285
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 5,
+      "durationMs": 97,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 418738
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 6,
+      "durationMs": 100,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 419172
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 7,
+      "durationMs": 368,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 420113
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 8,
+      "durationMs": 180,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 420845
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 9,
+      "durationMs": 171,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 421564
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 10,
+      "durationMs": 194,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 422257
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 11,
+      "durationMs": 109,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 423557
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 12,
+      "durationMs": 98,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 423819
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 13,
+      "durationMs": 93,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 424497
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 14,
+      "durationMs": 97,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 424752
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 15,
+      "durationMs": 118,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 425191
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 16,
+      "durationMs": 102,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 425674
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 17,
+      "durationMs": 128,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 426169
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 18,
+      "durationMs": 121,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 426830
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 19,
+      "durationMs": 138,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 427379
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 20,
+      "durationMs": 107,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 427898
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 21,
+      "durationMs": 134,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 428392
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 22,
+      "durationMs": 104,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 428826
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 23,
+      "durationMs": 102,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 429272
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 24,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 429975
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 25,
+      "durationMs": 104,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 430427
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 26,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 430858
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 27,
+      "durationMs": 115,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 431619
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 28,
+      "durationMs": 112,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 432185
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 29,
+      "durationMs": 132,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 432818
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 30,
+      "durationMs": 113,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 433819
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 31,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 434655
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 32,
+      "durationMs": 99,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 435221
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 33,
+      "durationMs": 115,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 435671
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 34,
+      "durationMs": 110,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 436131
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 35,
+      "durationMs": 110,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 436869
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 36,
+      "durationMs": 105,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 437142
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 37,
+      "durationMs": 97,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 437567
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 38,
+      "durationMs": 111,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 438452
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 39,
+      "durationMs": 118,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 439006
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 40,
+      "durationMs": 144,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 439600
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 41,
+      "durationMs": 103,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 441017
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 42,
+      "durationMs": 95,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 441683
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 43,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 442138
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 44,
+      "durationMs": 95,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 442665
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 45,
+      "durationMs": 122,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 443112
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 46,
+      "durationMs": 137,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 443827
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 47,
+      "durationMs": 195,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 444852
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 48,
+      "durationMs": 178,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 446150
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 49,
+      "durationMs": 160,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 446990
+    },
+    {
+      "workspace": "purchasing",
+      "sample": 50,
+      "durationMs": 115,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 448220
+    },
+    {
+      "workspace": "hotel",
+      "sample": 1,
+      "durationMs": 98,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 448625
+    },
+    {
+      "workspace": "hotel",
+      "sample": 2,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 448961
+    },
+    {
+      "workspace": "hotel",
+      "sample": 3,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 449309
+    },
+    {
+      "workspace": "hotel",
+      "sample": 4,
+      "durationMs": 97,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 449700
+    },
+    {
+      "workspace": "hotel",
+      "sample": 5,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 450033
+    },
+    {
+      "workspace": "hotel",
+      "sample": 6,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 450340
+    },
+    {
+      "workspace": "hotel",
+      "sample": 7,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 450646
+    },
+    {
+      "workspace": "hotel",
+      "sample": 8,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 450913
+    },
+    {
+      "workspace": "hotel",
+      "sample": 9,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 451294
+    },
+    {
+      "workspace": "hotel",
+      "sample": 10,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 451614
+    },
+    {
+      "workspace": "hotel",
+      "sample": 11,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 452116
+    },
+    {
+      "workspace": "hotel",
+      "sample": 12,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 452500
+    },
+    {
+      "workspace": "hotel",
+      "sample": 13,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 452815
+    },
+    {
+      "workspace": "hotel",
+      "sample": 14,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 453135
+    },
+    {
+      "workspace": "hotel",
+      "sample": 15,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 453455
+    },
+    {
+      "workspace": "hotel",
+      "sample": 16,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 453752
+    },
+    {
+      "workspace": "hotel",
+      "sample": 17,
+      "durationMs": 102,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 454147
+    },
+    {
+      "workspace": "hotel",
+      "sample": 18,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 454562
+    },
+    {
+      "workspace": "hotel",
+      "sample": 19,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 454867
+    },
+    {
+      "workspace": "hotel",
+      "sample": 20,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 455183
+    },
+    {
+      "workspace": "hotel",
+      "sample": 21,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 455494
+    },
+    {
+      "workspace": "hotel",
+      "sample": 22,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 455806
+    },
+    {
+      "workspace": "hotel",
+      "sample": 23,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 456110
+    },
+    {
+      "workspace": "hotel",
+      "sample": 24,
+      "durationMs": 61,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 456363
+    },
+    {
+      "workspace": "hotel",
+      "sample": 25,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 456796
+    },
+    {
+      "workspace": "hotel",
+      "sample": 26,
+      "durationMs": 173,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 457355
+    },
+    {
+      "workspace": "hotel",
+      "sample": 27,
+      "durationMs": 193,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 458776
+    },
+    {
+      "workspace": "hotel",
+      "sample": 28,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 463587
+    },
+    {
+      "workspace": "hotel",
+      "sample": 29,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 464453
+    },
+    {
+      "workspace": "hotel",
+      "sample": 30,
+      "durationMs": 115,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 464987
+    },
+    {
+      "workspace": "hotel",
+      "sample": 31,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 465303
+    },
+    {
+      "workspace": "hotel",
+      "sample": 32,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 465611
+    },
+    {
+      "workspace": "hotel",
+      "sample": 33,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 465960
+    },
+    {
+      "workspace": "hotel",
+      "sample": 34,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 466316
+    },
+    {
+      "workspace": "hotel",
+      "sample": 35,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 466745
+    },
+    {
+      "workspace": "hotel",
+      "sample": 36,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 467063
+    },
+    {
+      "workspace": "hotel",
+      "sample": 37,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 467382
+    },
+    {
+      "workspace": "hotel",
+      "sample": 38,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 467644
+    },
+    {
+      "workspace": "hotel",
+      "sample": 39,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 468022
+    },
+    {
+      "workspace": "hotel",
+      "sample": 40,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 468333
+    },
+    {
+      "workspace": "hotel",
+      "sample": 41,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 468647
+    },
+    {
+      "workspace": "hotel",
+      "sample": 42,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 469033
+    },
+    {
+      "workspace": "hotel",
+      "sample": 43,
+      "durationMs": 77,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 469328
+    },
+    {
+      "workspace": "hotel",
+      "sample": 44,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 469769
+    },
+    {
+      "workspace": "hotel",
+      "sample": 45,
+      "durationMs": 68,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 470104
+    },
+    {
+      "workspace": "hotel",
+      "sample": 46,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 470405
+    },
+    {
+      "workspace": "hotel",
+      "sample": 47,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 470714
+    },
+    {
+      "workspace": "hotel",
+      "sample": 48,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 471028
+    },
+    {
+      "workspace": "hotel",
+      "sample": 49,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 471294
+    },
+    {
+      "workspace": "hotel",
+      "sample": 50,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 471658
+    },
+    {
+      "workspace": "reservations",
+      "sample": 1,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 471904
+    },
+    {
+      "workspace": "reservations",
+      "sample": 2,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 472228
+    },
+    {
+      "workspace": "reservations",
+      "sample": 3,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 472551
+    },
+    {
+      "workspace": "reservations",
+      "sample": 4,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 472832
+    },
+    {
+      "workspace": "reservations",
+      "sample": 5,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 473139
+    },
+    {
+      "workspace": "reservations",
+      "sample": 6,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 473418
+    },
+    {
+      "workspace": "reservations",
+      "sample": 7,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 473702
+    },
+    {
+      "workspace": "reservations",
+      "sample": 8,
+      "durationMs": 106,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 474044
+    },
+    {
+      "workspace": "reservations",
+      "sample": 9,
+      "durationMs": 103,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 474458
+    },
+    {
+      "workspace": "reservations",
+      "sample": 10,
+      "durationMs": 85,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 474793
+    },
+    {
+      "workspace": "reservations",
+      "sample": 11,
+      "durationMs": 60,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 475086
+    },
+    {
+      "workspace": "reservations",
+      "sample": 12,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 475383
+    },
+    {
+      "workspace": "reservations",
+      "sample": 13,
+      "durationMs": 66,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 475675
+    },
+    {
+      "workspace": "reservations",
+      "sample": 14,
+      "durationMs": 61,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 475927
+    },
+    {
+      "workspace": "reservations",
+      "sample": 15,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 476250
+    },
+    {
+      "workspace": "reservations",
+      "sample": 16,
+      "durationMs": 82,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 476587
+    },
+    {
+      "workspace": "reservations",
+      "sample": 17,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 476841
+    },
+    {
+      "workspace": "reservations",
+      "sample": 18,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 477110
+    },
+    {
+      "workspace": "reservations",
+      "sample": 19,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 477399
+    },
+    {
+      "workspace": "reservations",
+      "sample": 20,
+      "durationMs": 49,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 477650
+    },
+    {
+      "workspace": "reservations",
+      "sample": 21,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 477919
+    },
+    {
+      "workspace": "reservations",
+      "sample": 22,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 478185
+    },
+    {
+      "workspace": "reservations",
+      "sample": 23,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 478533
+    },
+    {
+      "workspace": "reservations",
+      "sample": 24,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 478794
+    },
+    {
+      "workspace": "reservations",
+      "sample": 25,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 479101
+    },
+    {
+      "workspace": "reservations",
+      "sample": 26,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 479381
+    },
+    {
+      "workspace": "reservations",
+      "sample": 27,
+      "durationMs": 76,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 479835
+    },
+    {
+      "workspace": "reservations",
+      "sample": 28,
+      "durationMs": 61,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 480093
+    },
+    {
+      "workspace": "reservations",
+      "sample": 29,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 480439
+    },
+    {
+      "workspace": "reservations",
+      "sample": 30,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 480711
+    },
+    {
+      "workspace": "reservations",
+      "sample": 31,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 480988
+    },
+    {
+      "workspace": "reservations",
+      "sample": 32,
+      "durationMs": 68,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 481288
+    },
+    {
+      "workspace": "reservations",
+      "sample": 33,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 481561
+    },
+    {
+      "workspace": "reservations",
+      "sample": 34,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 481846
+    },
+    {
+      "workspace": "reservations",
+      "sample": 35,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 482128
+    },
+    {
+      "workspace": "reservations",
+      "sample": 36,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 482413
+    },
+    {
+      "workspace": "reservations",
+      "sample": 37,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 482693
+    },
+    {
+      "workspace": "reservations",
+      "sample": 38,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 482973
+    },
+    {
+      "workspace": "reservations",
+      "sample": 39,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 483265
+    },
+    {
+      "workspace": "reservations",
+      "sample": 40,
+      "durationMs": 52,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 483544
+    },
+    {
+      "workspace": "reservations",
+      "sample": 41,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 483875
+    },
+    {
+      "workspace": "reservations",
+      "sample": 42,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 484195
+    },
+    {
+      "workspace": "reservations",
+      "sample": 43,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 484486
+    },
+    {
+      "workspace": "reservations",
+      "sample": 44,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 484755
+    },
+    {
+      "workspace": "reservations",
+      "sample": 45,
+      "durationMs": 82,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 485072
+    },
+    {
+      "workspace": "reservations",
+      "sample": 46,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 485437
+    },
+    {
+      "workspace": "reservations",
+      "sample": 47,
+      "durationMs": 51,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 485725
+    },
+    {
+      "workspace": "reservations",
+      "sample": 48,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 485993
+    },
+    {
+      "workspace": "reservations",
+      "sample": 49,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 486271
+    },
+    {
+      "workspace": "reservations",
+      "sample": 50,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 3,
+      "observedAtMs": 486585
+    },
+    {
+      "workspace": "customers",
+      "sample": 1,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 487150
+    },
+    {
+      "workspace": "customers",
+      "sample": 2,
+      "durationMs": 82,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 487923
+    },
+    {
+      "workspace": "customers",
+      "sample": 3,
+      "durationMs": 83,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 488708
+    },
+    {
+      "workspace": "customers",
+      "sample": 4,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 489518
+    },
+    {
+      "workspace": "customers",
+      "sample": 5,
+      "durationMs": 75,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 490468
+    },
+    {
+      "workspace": "customers",
+      "sample": 6,
+      "durationMs": 77,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 490875
+    },
+    {
+      "workspace": "customers",
+      "sample": 7,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 492222
+    },
+    {
+      "workspace": "customers",
+      "sample": 8,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 492993
+    },
+    {
+      "workspace": "customers",
+      "sample": 9,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 493712
+    },
+    {
+      "workspace": "customers",
+      "sample": 10,
+      "durationMs": 99,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 494486
+    },
+    {
+      "workspace": "customers",
+      "sample": 11,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 495205
+    },
+    {
+      "workspace": "customers",
+      "sample": 12,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 495938
+    },
+    {
+      "workspace": "customers",
+      "sample": 13,
+      "durationMs": 102,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 496927
+    },
+    {
+      "workspace": "customers",
+      "sample": 14,
+      "durationMs": 75,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 497751
+    },
+    {
+      "workspace": "customers",
+      "sample": 15,
+      "durationMs": 74,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 498720
+    },
+    {
+      "workspace": "customers",
+      "sample": 16,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 499443
+    },
+    {
+      "workspace": "customers",
+      "sample": 17,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 500258
+    },
+    {
+      "workspace": "customers",
+      "sample": 18,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 500964
+    },
+    {
+      "workspace": "customers",
+      "sample": 19,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 501798
+    },
+    {
+      "workspace": "customers",
+      "sample": 20,
+      "durationMs": 74,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 502586
+    },
+    {
+      "workspace": "customers",
+      "sample": 21,
+      "durationMs": 76,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 503599
+    },
+    {
+      "workspace": "customers",
+      "sample": 22,
+      "durationMs": 119,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 504513
+    },
+    {
+      "workspace": "customers",
+      "sample": 23,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 505480
+    },
+    {
+      "workspace": "customers",
+      "sample": 24,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 506212
+    },
+    {
+      "workspace": "customers",
+      "sample": 25,
+      "durationMs": 80,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 506967
+    },
+    {
+      "workspace": "customers",
+      "sample": 26,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 507698
+    },
+    {
+      "workspace": "customers",
+      "sample": 27,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 508408
+    },
+    {
+      "workspace": "customers",
+      "sample": 28,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 509126
+    },
+    {
+      "workspace": "customers",
+      "sample": 29,
+      "durationMs": 82,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 509975
+    },
+    {
+      "workspace": "customers",
+      "sample": 30,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 510777
+    },
+    {
+      "workspace": "customers",
+      "sample": 31,
+      "durationMs": 945,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 512500
+    },
+    {
+      "workspace": "customers",
+      "sample": 32,
+      "durationMs": 116,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 515251
+    },
+    {
+      "workspace": "customers",
+      "sample": 33,
+      "durationMs": 93,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 516055
+    },
+    {
+      "workspace": "customers",
+      "sample": 34,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 517203
+    },
+    {
+      "workspace": "customers",
+      "sample": 35,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 517908
+    },
+    {
+      "workspace": "customers",
+      "sample": 36,
+      "durationMs": 73,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 518666
+    },
+    {
+      "workspace": "customers",
+      "sample": 37,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 519378
+    },
+    {
+      "workspace": "customers",
+      "sample": 38,
+      "durationMs": 81,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 520117
+    },
+    {
+      "workspace": "customers",
+      "sample": 39,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 520883
+    },
+    {
+      "workspace": "customers",
+      "sample": 40,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 521645
+    },
+    {
+      "workspace": "customers",
+      "sample": 41,
+      "durationMs": 72,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 522493
+    },
+    {
+      "workspace": "customers",
+      "sample": 42,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 523216
+    },
+    {
+      "workspace": "customers",
+      "sample": 43,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 523915
+    },
+    {
+      "workspace": "customers",
+      "sample": 44,
+      "durationMs": 68,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 524662
+    },
+    {
+      "workspace": "customers",
+      "sample": 45,
+      "durationMs": 86,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 525425
+    },
+    {
+      "workspace": "customers",
+      "sample": 46,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 526134
+    },
+    {
+      "workspace": "customers",
+      "sample": 47,
+      "durationMs": 101,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 527063
+    },
+    {
+      "workspace": "customers",
+      "sample": 48,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 527957
+    },
+    {
+      "workspace": "customers",
+      "sample": 49,
+      "durationMs": 70,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 528772
+    },
+    {
+      "workspace": "customers",
+      "sample": 50,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 529669
+    },
+    {
+      "workspace": "shifts",
+      "sample": 1,
+      "durationMs": 69,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 529954
+    },
+    {
+      "workspace": "shifts",
+      "sample": 2,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 530139
+    },
+    {
+      "workspace": "shifts",
+      "sample": 3,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 530320
+    },
+    {
+      "workspace": "shifts",
+      "sample": 4,
+      "durationMs": 21,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 530504
+    },
+    {
+      "workspace": "shifts",
+      "sample": 5,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 530688
+    },
+    {
+      "workspace": "shifts",
+      "sample": 6,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 530887
+    },
+    {
+      "workspace": "shifts",
+      "sample": 7,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 531088
+    },
+    {
+      "workspace": "shifts",
+      "sample": 8,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 531273
+    },
+    {
+      "workspace": "shifts",
+      "sample": 9,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 531454
+    },
+    {
+      "workspace": "shifts",
+      "sample": 10,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 531637
+    },
+    {
+      "workspace": "shifts",
+      "sample": 11,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 531820
+    },
+    {
+      "workspace": "shifts",
+      "sample": 12,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532004
+    },
+    {
+      "workspace": "shifts",
+      "sample": 13,
+      "durationMs": 34,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532204
+    },
+    {
+      "workspace": "shifts",
+      "sample": 14,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532387
+    },
+    {
+      "workspace": "shifts",
+      "sample": 15,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532571
+    },
+    {
+      "workspace": "shifts",
+      "sample": 16,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532754
+    },
+    {
+      "workspace": "shifts",
+      "sample": 17,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 532938
+    },
+    {
+      "workspace": "shifts",
+      "sample": 18,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 533137
+    },
+    {
+      "workspace": "shifts",
+      "sample": 19,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 533504
+    },
+    {
+      "workspace": "shifts",
+      "sample": 20,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 533721
+    },
+    {
+      "workspace": "shifts",
+      "sample": 21,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 533954
+    },
+    {
+      "workspace": "shifts",
+      "sample": 22,
+      "durationMs": 45,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 534788
+    },
+    {
+      "workspace": "shifts",
+      "sample": 23,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 535353
+    },
+    {
+      "workspace": "shifts",
+      "sample": 24,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 535540
+    },
+    {
+      "workspace": "shifts",
+      "sample": 25,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 535721
+    },
+    {
+      "workspace": "shifts",
+      "sample": 26,
+      "durationMs": 29,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 535920
+    },
+    {
+      "workspace": "shifts",
+      "sample": 27,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 536103
+    },
+    {
+      "workspace": "shifts",
+      "sample": 28,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 536290
+    },
+    {
+      "workspace": "shifts",
+      "sample": 29,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 536504
+    },
+    {
+      "workspace": "shifts",
+      "sample": 30,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 536686
+    },
+    {
+      "workspace": "shifts",
+      "sample": 31,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 536870
+    },
+    {
+      "workspace": "shifts",
+      "sample": 32,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 537055
+    },
+    {
+      "workspace": "shifts",
+      "sample": 33,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 537304
+    },
+    {
+      "workspace": "shifts",
+      "sample": 34,
+      "durationMs": 39,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 537573
+    },
+    {
+      "workspace": "shifts",
+      "sample": 35,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 537770
+    },
+    {
+      "workspace": "shifts",
+      "sample": 36,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 537956
+    },
+    {
+      "workspace": "shifts",
+      "sample": 37,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 538139
+    },
+    {
+      "workspace": "shifts",
+      "sample": 38,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 538321
+    },
+    {
+      "workspace": "shifts",
+      "sample": 39,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 538525
+    },
+    {
+      "workspace": "shifts",
+      "sample": 40,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 538738
+    },
+    {
+      "workspace": "shifts",
+      "sample": 41,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 538987
+    },
+    {
+      "workspace": "shifts",
+      "sample": 42,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 539170
+    },
+    {
+      "workspace": "shifts",
+      "sample": 43,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 539354
+    },
+    {
+      "workspace": "shifts",
+      "sample": 44,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 539538
+    },
+    {
+      "workspace": "shifts",
+      "sample": 45,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 539754
+    },
+    {
+      "workspace": "shifts",
+      "sample": 46,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 539937
+    },
+    {
+      "workspace": "shifts",
+      "sample": 47,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 540120
+    },
+    {
+      "workspace": "shifts",
+      "sample": 48,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 540303
+    },
+    {
+      "workspace": "shifts",
+      "sample": 49,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 540486
+    },
+    {
+      "workspace": "shifts",
+      "sample": 50,
+      "durationMs": 22,
+      "outcome": "ready",
+      "blockingReadCount": 2,
+      "observedAtMs": 540670
+    },
+    {
+      "workspace": "money",
+      "sample": 1,
+      "durationMs": 96,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 540871
+    },
+    {
+      "workspace": "money",
+      "sample": 2,
+      "durationMs": 63,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 541103
+    },
+    {
+      "workspace": "money",
+      "sample": 3,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 541322
+    },
+    {
+      "workspace": "money",
+      "sample": 4,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 541536
+    },
+    {
+      "workspace": "money",
+      "sample": 5,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 541769
+    },
+    {
+      "workspace": "money",
+      "sample": 6,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 542003
+    },
+    {
+      "workspace": "money",
+      "sample": 7,
+      "durationMs": 64,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 542237
+    },
+    {
+      "workspace": "money",
+      "sample": 8,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 542453
+    },
+    {
+      "workspace": "money",
+      "sample": 9,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 542669
+    },
+    {
+      "workspace": "money",
+      "sample": 10,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 542887
+    },
+    {
+      "workspace": "money",
+      "sample": 11,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 543103
+    },
+    {
+      "workspace": "money",
+      "sample": 12,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 543321
+    },
+    {
+      "workspace": "money",
+      "sample": 13,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 543536
+    },
+    {
+      "workspace": "money",
+      "sample": 14,
+      "durationMs": 65,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 543786
+    },
+    {
+      "workspace": "money",
+      "sample": 15,
+      "durationMs": 129,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 544088
+    },
+    {
+      "workspace": "money",
+      "sample": 16,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 544352
+    },
+    {
+      "workspace": "money",
+      "sample": 17,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 544569
+    },
+    {
+      "workspace": "money",
+      "sample": 18,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 544802
+    },
+    {
+      "workspace": "money",
+      "sample": 19,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 545019
+    },
+    {
+      "workspace": "money",
+      "sample": 20,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 545235
+    },
+    {
+      "workspace": "money",
+      "sample": 21,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 545470
+    },
+    {
+      "workspace": "money",
+      "sample": 22,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 545686
+    },
+    {
+      "workspace": "money",
+      "sample": 23,
+      "durationMs": 58,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 545903
+    },
+    {
+      "workspace": "money",
+      "sample": 24,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 546119
+    },
+    {
+      "workspace": "money",
+      "sample": 25,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 546336
+    },
+    {
+      "workspace": "money",
+      "sample": 26,
+      "durationMs": 67,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 546586
+    },
+    {
+      "workspace": "money",
+      "sample": 27,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 546803
+    },
+    {
+      "workspace": "money",
+      "sample": 28,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 547036
+    },
+    {
+      "workspace": "money",
+      "sample": 29,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 547253
+    },
+    {
+      "workspace": "money",
+      "sample": 30,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 547469
+    },
+    {
+      "workspace": "money",
+      "sample": 31,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 547686
+    },
+    {
+      "workspace": "money",
+      "sample": 32,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 547904
+    },
+    {
+      "workspace": "money",
+      "sample": 33,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 548136
+    },
+    {
+      "workspace": "money",
+      "sample": 34,
+      "durationMs": 53,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 548353
+    },
+    {
+      "workspace": "money",
+      "sample": 35,
+      "durationMs": 50,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 548568
+    },
+    {
+      "workspace": "money",
+      "sample": 36,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 548786
+    },
+    {
+      "workspace": "money",
+      "sample": 37,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 549002
+    },
+    {
+      "workspace": "money",
+      "sample": 38,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 549236
+    },
+    {
+      "workspace": "money",
+      "sample": 39,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 549469
+    },
+    {
+      "workspace": "money",
+      "sample": 40,
+      "durationMs": 71,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 549719
+    },
+    {
+      "workspace": "money",
+      "sample": 41,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 549935
+    },
+    {
+      "workspace": "money",
+      "sample": 42,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 550169
+    },
+    {
+      "workspace": "money",
+      "sample": 43,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 550385
+    },
+    {
+      "workspace": "money",
+      "sample": 44,
+      "durationMs": 57,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 550602
+    },
+    {
+      "workspace": "money",
+      "sample": 45,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 550819
+    },
+    {
+      "workspace": "money",
+      "sample": 46,
+      "durationMs": 59,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 551053
+    },
+    {
+      "workspace": "money",
+      "sample": 47,
+      "durationMs": 54,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 551269
+    },
+    {
+      "workspace": "money",
+      "sample": 48,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 551485
+    },
+    {
+      "workspace": "money",
+      "sample": 49,
+      "durationMs": 55,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 551702
+    },
+    {
+      "workspace": "money",
+      "sample": 50,
+      "durationMs": 56,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 551918
+    },
+    {
+      "workspace": "reports",
+      "sample": 1,
+      "durationMs": 344,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 552368
+    },
+    {
+      "workspace": "reports",
+      "sample": 2,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 552552
+    },
+    {
+      "workspace": "reports",
+      "sample": 3,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 552769
+    },
+    {
+      "workspace": "reports",
+      "sample": 4,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 552985
+    },
+    {
+      "workspace": "reports",
+      "sample": 5,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 553202
+    },
+    {
+      "workspace": "reports",
+      "sample": 6,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 553418
+    },
+    {
+      "workspace": "reports",
+      "sample": 7,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 553619
+    },
+    {
+      "workspace": "reports",
+      "sample": 8,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 553835
+    },
+    {
+      "workspace": "reports",
+      "sample": 9,
+      "durationMs": 48,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 554069
+    },
+    {
+      "workspace": "reports",
+      "sample": 10,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 554285
+    },
+    {
+      "workspace": "reports",
+      "sample": 11,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 554502
+    },
+    {
+      "workspace": "reports",
+      "sample": 12,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 554701
+    },
+    {
+      "workspace": "reports",
+      "sample": 13,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 554902
+    },
+    {
+      "workspace": "reports",
+      "sample": 14,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 555102
+    },
+    {
+      "workspace": "reports",
+      "sample": 15,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 555302
+    },
+    {
+      "workspace": "reports",
+      "sample": 16,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 555501
+    },
+    {
+      "workspace": "reports",
+      "sample": 17,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 555719
+    },
+    {
+      "workspace": "reports",
+      "sample": 18,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 555934
+    },
+    {
+      "workspace": "reports",
+      "sample": 19,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 556135
+    },
+    {
+      "workspace": "reports",
+      "sample": 20,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 556334
+    },
+    {
+      "workspace": "reports",
+      "sample": 21,
+      "durationMs": 46,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 556568
+    },
+    {
+      "workspace": "reports",
+      "sample": 22,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 556768
+    },
+    {
+      "workspace": "reports",
+      "sample": 23,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 556985
+    },
+    {
+      "workspace": "reports",
+      "sample": 24,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 557202
+    },
+    {
+      "workspace": "reports",
+      "sample": 25,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 557402
+    },
+    {
+      "workspace": "reports",
+      "sample": 26,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 557619
+    },
+    {
+      "workspace": "reports",
+      "sample": 27,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 557835
+    },
+    {
+      "workspace": "reports",
+      "sample": 28,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 558052
+    },
+    {
+      "workspace": "reports",
+      "sample": 29,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 558268
+    },
+    {
+      "workspace": "reports",
+      "sample": 30,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 558485
+    },
+    {
+      "workspace": "reports",
+      "sample": 31,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 558685
+    },
+    {
+      "workspace": "reports",
+      "sample": 32,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 558901
+    },
+    {
+      "workspace": "reports",
+      "sample": 33,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 559102
+    },
+    {
+      "workspace": "reports",
+      "sample": 34,
+      "durationMs": 33,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 559301
+    },
+    {
+      "workspace": "reports",
+      "sample": 35,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 559518
+    },
+    {
+      "workspace": "reports",
+      "sample": 36,
+      "durationMs": 39,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 559738
+    },
+    {
+      "workspace": "reports",
+      "sample": 37,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 559935
+    },
+    {
+      "workspace": "reports",
+      "sample": 38,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 560134
+    },
+    {
+      "workspace": "reports",
+      "sample": 39,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 560334
+    },
+    {
+      "workspace": "reports",
+      "sample": 40,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 560551
+    },
+    {
+      "workspace": "reports",
+      "sample": 41,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 560752
+    },
+    {
+      "workspace": "reports",
+      "sample": 42,
+      "durationMs": 35,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 560967
+    },
+    {
+      "workspace": "reports",
+      "sample": 43,
+      "durationMs": 37,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 561168
+    },
+    {
+      "workspace": "reports",
+      "sample": 44,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 561384
+    },
+    {
+      "workspace": "reports",
+      "sample": 45,
+      "durationMs": 34,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 561584
+    },
+    {
+      "workspace": "reports",
+      "sample": 46,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 561801
+    },
+    {
+      "workspace": "reports",
+      "sample": 47,
+      "durationMs": 34,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 562018
+    },
+    {
+      "workspace": "reports",
+      "sample": 48,
+      "durationMs": 39,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 562237
+    },
+    {
+      "workspace": "reports",
+      "sample": 49,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 562434
+    },
+    {
+      "workspace": "reports",
+      "sample": 50,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 562634
+    },
+    {
+      "workspace": "manage",
+      "sample": 1,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 562726
+    },
+    {
+      "workspace": "manage",
+      "sample": 2,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 562895
+    },
+    {
+      "workspace": "manage",
+      "sample": 3,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 563060
+    },
+    {
+      "workspace": "manage",
+      "sample": 4,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 563210
+    },
+    {
+      "workspace": "manage",
+      "sample": 5,
+      "durationMs": 4,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 563377
+    },
+    {
+      "workspace": "manage",
+      "sample": 6,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 563543
+    },
+    {
+      "workspace": "manage",
+      "sample": 7,
+      "durationMs": 4,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 563731
+    },
+    {
+      "workspace": "manage",
+      "sample": 8,
+      "durationMs": 4,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564028
+    },
+    {
+      "workspace": "manage",
+      "sample": 9,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564242
+    },
+    {
+      "workspace": "manage",
+      "sample": 10,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564393
+    },
+    {
+      "workspace": "manage",
+      "sample": 11,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564543
+    },
+    {
+      "workspace": "manage",
+      "sample": 12,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564691
+    },
+    {
+      "workspace": "manage",
+      "sample": 13,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 564859
+    },
+    {
+      "workspace": "manage",
+      "sample": 14,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565008
+    },
+    {
+      "workspace": "manage",
+      "sample": 15,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565160
+    },
+    {
+      "workspace": "manage",
+      "sample": 16,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565341
+    },
+    {
+      "workspace": "manage",
+      "sample": 17,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565509
+    },
+    {
+      "workspace": "manage",
+      "sample": 18,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565659
+    },
+    {
+      "workspace": "manage",
+      "sample": 19,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565810
+    },
+    {
+      "workspace": "manage",
+      "sample": 20,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 565959
+    },
+    {
+      "workspace": "manage",
+      "sample": 21,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566126
+    },
+    {
+      "workspace": "manage",
+      "sample": 22,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566292
+    },
+    {
+      "workspace": "manage",
+      "sample": 23,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566442
+    },
+    {
+      "workspace": "manage",
+      "sample": 24,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566625
+    },
+    {
+      "workspace": "manage",
+      "sample": 25,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566775
+    },
+    {
+      "workspace": "manage",
+      "sample": 26,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 566942
+    },
+    {
+      "workspace": "manage",
+      "sample": 27,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567091
+    },
+    {
+      "workspace": "manage",
+      "sample": 28,
+      "durationMs": 4,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567243
+    },
+    {
+      "workspace": "manage",
+      "sample": 29,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567392
+    },
+    {
+      "workspace": "manage",
+      "sample": 30,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567558
+    },
+    {
+      "workspace": "manage",
+      "sample": 31,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567709
+    },
+    {
+      "workspace": "manage",
+      "sample": 32,
+      "durationMs": 4,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 567876
+    },
+    {
+      "workspace": "manage",
+      "sample": 33,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568024
+    },
+    {
+      "workspace": "manage",
+      "sample": 34,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568193
+    },
+    {
+      "workspace": "manage",
+      "sample": 35,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568342
+    },
+    {
+      "workspace": "manage",
+      "sample": 36,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568508
+    },
+    {
+      "workspace": "manage",
+      "sample": 37,
+      "durationMs": 7,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568663
+    },
+    {
+      "workspace": "manage",
+      "sample": 38,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568825
+    },
+    {
+      "workspace": "manage",
+      "sample": 39,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 568992
+    },
+    {
+      "workspace": "manage",
+      "sample": 40,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569143
+    },
+    {
+      "workspace": "manage",
+      "sample": 41,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569309
+    },
+    {
+      "workspace": "manage",
+      "sample": 42,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569458
+    },
+    {
+      "workspace": "manage",
+      "sample": 43,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569610
+    },
+    {
+      "workspace": "manage",
+      "sample": 44,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569792
+    },
+    {
+      "workspace": "manage",
+      "sample": 45,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 569941
+    },
+    {
+      "workspace": "manage",
+      "sample": 46,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 570108
+    },
+    {
+      "workspace": "manage",
+      "sample": 47,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 570258
+    },
+    {
+      "workspace": "manage",
+      "sample": 48,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 570408
+    },
+    {
+      "workspace": "manage",
+      "sample": 49,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 570558
+    },
+    {
+      "workspace": "manage",
+      "sample": 50,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 570709
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 1,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 570833
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 2,
+      "durationMs": 45,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571054
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 3,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571250
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 4,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571433
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 5,
+      "durationMs": 27,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571618
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 6,
+      "durationMs": 27,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571802
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 7,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 571983
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 8,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 572183
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 9,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 572367
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 10,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 572549
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 11,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 572750
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 12,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 572949
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 13,
+      "durationMs": 28,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 573150
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 14,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 573333
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 15,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 573517
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 16,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 573699
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 17,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 573899
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 18,
+      "durationMs": 38,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 574116
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 19,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 574333
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 20,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 574533
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 21,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 574716
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 22,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 574899
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 23,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 575084
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 24,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 575266
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 25,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 575449
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 26,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 575632
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 27,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 575816
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 28,
+      "durationMs": 27,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 576017
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 29,
+      "durationMs": 32,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 576267
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 30,
+      "durationMs": 31,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 576583
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 31,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 576766
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 32,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 576950
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 33,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 577149
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 34,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 577332
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 35,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 577516
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 36,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 577704
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 37,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 577882
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 38,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578066
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 39,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578249
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 40,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578433
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 41,
+      "durationMs": 23,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578616
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 42,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578799
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 43,
+      "durationMs": 24,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 578982
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 44,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 579165
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 45,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 579365
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 46,
+      "durationMs": 25,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 579566
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 47,
+      "durationMs": 30,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 579782
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 48,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 579966
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 49,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 580149
+    },
+    {
+      "workspace": "onboarding",
+      "sample": 50,
+      "durationMs": 26,
+      "outcome": "ready",
+      "blockingReadCount": 1,
+      "observedAtMs": 580333
+    },
+    {
+      "workspace": "help",
+      "sample": 1,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 580426
+    },
+    {
+      "workspace": "help",
+      "sample": 2,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 580657
+    },
+    {
+      "workspace": "help",
+      "sample": 3,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 580839
+    },
+    {
+      "workspace": "help",
+      "sample": 4,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581024
+    },
+    {
+      "workspace": "help",
+      "sample": 5,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581224
+    },
+    {
+      "workspace": "help",
+      "sample": 6,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581424
+    },
+    {
+      "workspace": "help",
+      "sample": 7,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581607
+    },
+    {
+      "workspace": "help",
+      "sample": 8,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581807
+    },
+    {
+      "workspace": "help",
+      "sample": 9,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 581991
+    },
+    {
+      "workspace": "help",
+      "sample": 10,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 582173
+    },
+    {
+      "workspace": "help",
+      "sample": 11,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 582373
+    },
+    {
+      "workspace": "help",
+      "sample": 12,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 582558
+    },
+    {
+      "workspace": "help",
+      "sample": 13,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 582741
+    },
+    {
+      "workspace": "help",
+      "sample": 14,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 582941
+    },
+    {
+      "workspace": "help",
+      "sample": 15,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 583124
+    },
+    {
+      "workspace": "help",
+      "sample": 16,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 583307
+    },
+    {
+      "workspace": "help",
+      "sample": 17,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 583490
+    },
+    {
+      "workspace": "help",
+      "sample": 18,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 583673
+    },
+    {
+      "workspace": "help",
+      "sample": 19,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 583872
+    },
+    {
+      "workspace": "help",
+      "sample": 20,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 584076
+    },
+    {
+      "workspace": "help",
+      "sample": 21,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 584289
+    },
+    {
+      "workspace": "help",
+      "sample": 22,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 584490
+    },
+    {
+      "workspace": "help",
+      "sample": 23,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 584673
+    },
+    {
+      "workspace": "help",
+      "sample": 24,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 584873
+    },
+    {
+      "workspace": "help",
+      "sample": 25,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585057
+    },
+    {
+      "workspace": "help",
+      "sample": 26,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585239
+    },
+    {
+      "workspace": "help",
+      "sample": 27,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585423
+    },
+    {
+      "workspace": "help",
+      "sample": 28,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585607
+    },
+    {
+      "workspace": "help",
+      "sample": 29,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585790
+    },
+    {
+      "workspace": "help",
+      "sample": 30,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 585973
+    },
+    {
+      "workspace": "help",
+      "sample": 31,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 586156
+    },
+    {
+      "workspace": "help",
+      "sample": 32,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 586340
+    },
+    {
+      "workspace": "help",
+      "sample": 33,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 586542
+    },
+    {
+      "workspace": "help",
+      "sample": 34,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 586724
+    },
+    {
+      "workspace": "help",
+      "sample": 35,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 586906
+    },
+    {
+      "workspace": "help",
+      "sample": 36,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 587089
+    },
+    {
+      "workspace": "help",
+      "sample": 37,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 587290
+    },
+    {
+      "workspace": "help",
+      "sample": 38,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 587472
+    },
+    {
+      "workspace": "help",
+      "sample": 39,
+      "durationMs": 1,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 587655
+    },
+    {
+      "workspace": "help",
+      "sample": 40,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 587858
+    },
+    {
+      "workspace": "help",
+      "sample": 41,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 588076
+    },
+    {
+      "workspace": "help",
+      "sample": 42,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 588307
+    },
+    {
+      "workspace": "help",
+      "sample": 43,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 588505
+    },
+    {
+      "workspace": "help",
+      "sample": 44,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 588689
+    },
+    {
+      "workspace": "help",
+      "sample": 45,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 588872
+    },
+    {
+      "workspace": "help",
+      "sample": 46,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 589057
+    },
+    {
+      "workspace": "help",
+      "sample": 47,
+      "durationMs": 3,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 589241
+    },
+    {
+      "workspace": "help",
+      "sample": 48,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 589423
+    },
+    {
+      "workspace": "help",
+      "sample": 49,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 589607
+    },
+    {
+      "workspace": "help",
+      "sample": 50,
+      "durationMs": 2,
+      "outcome": "ready",
+      "blockingReadCount": 0,
+      "observedAtMs": 589822
+    }
+  ],
+  "summary": {
+    "today": {
+      "sampleCount": 50,
+      "p50Ms": 30,
+      "p95Ms": 40,
+      "p99ObservedMs": 43,
+      "maxMs": 43,
+      "errorCount": 0
+    },
+    "sell": {
+      "sampleCount": 50,
+      "p50Ms": 75,
+      "p95Ms": 125,
+      "p99ObservedMs": 138,
+      "maxMs": 138,
+      "errorCount": 0
+    },
+    "sales": {
+      "sampleCount": 50,
+      "p50Ms": 50,
+      "p95Ms": 90,
+      "p99ObservedMs": 174,
+      "maxMs": 174,
+      "errorCount": 0
+    },
+    "stock": {
+      "sampleCount": 50,
+      "p50Ms": 148,
+      "p95Ms": 264,
+      "p99ObservedMs": 721,
+      "maxMs": 721,
+      "errorCount": 0
+    },
+    "stock-count": {
+      "sampleCount": 50,
+      "p50Ms": 187,
+      "p95Ms": 482,
+      "p99ObservedMs": 553,
+      "maxMs": 553,
+      "errorCount": 0
+    },
+    "purchasing": {
+      "sampleCount": 50,
+      "p50Ms": 110,
+      "p95Ms": 195,
+      "p99ObservedMs": 368,
+      "maxMs": 368,
+      "errorCount": 0
+    },
+    "hotel": {
+      "sampleCount": 50,
+      "p50Ms": 60,
+      "p95Ms": 115,
+      "p99ObservedMs": 193,
+      "maxMs": 193,
+      "errorCount": 0
+    },
+    "reservations": {
+      "sampleCount": 50,
+      "p50Ms": 57,
+      "p95Ms": 85,
+      "p99ObservedMs": 106,
+      "maxMs": 106,
+      "errorCount": 0
+    },
+    "customers": {
+      "sampleCount": 50,
+      "p50Ms": 72,
+      "p95Ms": 116,
+      "p99ObservedMs": 945,
+      "maxMs": 945,
+      "errorCount": 0
+    },
+    "shifts": {
+      "sampleCount": 50,
+      "p50Ms": 24,
+      "p95Ms": 45,
+      "p99ObservedMs": 69,
+      "maxMs": 69,
+      "errorCount": 0
+    },
+    "money": {
+      "sampleCount": 50,
+      "p50Ms": 56,
+      "p95Ms": 71,
+      "p99ObservedMs": 129,
+      "maxMs": 129,
+      "errorCount": 0
+    },
+    "reports": {
+      "sampleCount": 50,
+      "p50Ms": 32,
+      "p95Ms": 46,
+      "p99ObservedMs": 344,
+      "maxMs": 344,
+      "errorCount": 0
+    },
+    "manage": {
+      "sampleCount": 50,
+      "p50Ms": 3,
+      "p95Ms": 4,
+      "p99ObservedMs": 7,
+      "maxMs": 7,
+      "errorCount": 0
+    },
+    "onboarding": {
+      "sampleCount": 50,
+      "p50Ms": 26,
+      "p95Ms": 32,
+      "p99ObservedMs": 45,
+      "maxMs": 45,
+      "errorCount": 0
+    },
+    "help": {
+      "sampleCount": 50,
+      "p50Ms": 2,
+      "p95Ms": 3,
+      "p99ObservedMs": 3,
+      "maxMs": 3,
+      "errorCount": 0
+    }
+  }
+}

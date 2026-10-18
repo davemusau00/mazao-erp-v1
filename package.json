@@ -15,6 +15,13 @@
     "api:dev": "tsx watch apps/api/src/server.ts",
     "db:migrate": "tsx apps/api/src/migration.ts",
     "api:bootstrap": "tsx apps/api/scripts/bootstrap.ts",
+    "perf:seed": "tsx apps/api/scripts/performance-fixture.ts",
+    "perf:collect": "node scripts/performance/collect-firefox.mjs",
+    "perf:workspaces": "node scripts/performance/collect-workspaces.mjs",
+    "perf:browser": "node scripts/performance/browser-reliability.mjs",
+    "perf:sw-upgrade": "node scripts/performance/service-worker-upgrade.mjs",
+    "perf:assert": "node scripts/performance/assert-performance.mjs",
+    "perf:plans": "node scripts/performance/collect-query-plans.mjs",
     "test:api": "tsx --import ./apps/api/test/support/isolate-database.mjs --test apps/api/test/*.test.ts"
   },
   "dependencies": {

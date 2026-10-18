@@ -10,16 +10,18 @@ import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
 import { getOperationalAnalytics } from './operationalAnalytics.js';
-import { getSaleReceipt } from './receipts.js';
+import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
-import { getConfiguration, readBusinessProfile } from './configuration.js';
-import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, requireProductImportAccess } from './productImport.js';
+import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
+import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
 import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
-import { listAssignments, listOperatorSessions, listStaff, requireStaffCommandPermission, STAFF_COMMANDS } from './staff.js';
-import { revalidateOperator, requireIdentityPermission } from './identityAuthority.js';
+import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from './staff.js';
+import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
+import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
+import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -29,11 +31,79 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   const { production, allowedOrigins, trustedProxyIps } = readRuntimeConfig();
   const loggerOptions=options.logger&&typeof options.logger==='object'?options.logger:{};
   const app = Fastify({ logger: {...loggerOptions,redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576,
+    requestIdHeader: 'x-request-id',
+    genReqId: request => {
+      const candidate = request.headers['x-request-id'];
+      return typeof candidate === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(candidate) ? candidate : randomUUID();
+    },
     trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
+  app.addHook('onRequest', (request, _reply, done) => {
+    const metrics: RequestMetrics = {
+      requestId: request.id,
+      startedAt: performance.now(),
+      poolWaitMs: 0,
+      queryMs: 0,
+      queryCount: 0,
+    };
+    requestMetricsStorage.run(metrics, done);
+  });
+  app.addHook('preHandler', async () => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics && metrics.handlerStartedAt === undefined) metrics.handlerStartedAt = performance.now();
+  });
+  app.addHook('preSerialization', async (_request, _reply, payload) => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics) {
+      const now = performance.now();
+      if (metrics.handlerStartedAt !== undefined) metrics.handlerMs = elapsedMs(metrics.handlerStartedAt, now);
+      metrics.serializationStartedAt = now;
+    }
+    return payload;
+  });
+  app.addHook('onSend', async (request, reply, payload) => {
+    reply.header('x-request-id', request.id);
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics) {
+      const now = performance.now();
+      if (metrics.serializationStartedAt !== undefined) metrics.serializationMs = elapsedMs(metrics.serializationStartedAt, now);
+      const length = Buffer.isBuffer(payload) || payload instanceof Uint8Array
+        ? payload.byteLength
+        : typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : Number(reply.getHeader('content-length'));
+      if (Number.isFinite(length) && length >= 0) metrics.responseBytes = length;
+      reply.header('server-timing', [
+        `app;dur=${milliseconds(elapsedMs(metrics.startedAt, now))}`,
+        `handler;dur=${milliseconds(metrics.handlerMs)}`,
+        `db;dur=${milliseconds(metrics.queryMs)}`,
+        `dbpool;dur=${milliseconds(metrics.poolWaitMs)}`,
+        `serialize;dur=${milliseconds(metrics.serializationMs)}`,
+        `dbqueries;desc=${metrics.queryCount}`,
+      ].join(', '));
+    }
+    return payload;
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    const metrics = requestMetricsStorage.getStore();
+    if (metrics && process.env.MAZAO_REQUEST_METRICS_LOG === '1') {
+      request.log.info({
+        request_id: metrics.requestId,
+        route: request.routeOptions.url ?? 'unmatched',
+        method: request.method,
+        status_code: reply.statusCode,
+        duration_ms: Number(milliseconds(elapsedMs(metrics.startedAt))),
+        response_bytes: metrics.responseBytes ?? null,
+        db_pool_wait_ms: Number(milliseconds(metrics.poolWaitMs)),
+        db_query_ms: Number(milliseconds(metrics.queryMs)),
+        db_query_count: metrics.queryCount,
+        handler_ms: Number(milliseconds(metrics.handlerMs)),
+        serialization_ms: Number(milliseconds(metrics.serializationMs)),
+      }, 'request performance');
+    }
+  });
   app.addHook('onSend', async (_request, reply, payload) => {
-    reply.header('x-content-type-options', 'nosniff').header('referrer-policy', 'same-origin').header('cache-control', 'no-store');
+    reply.header('x-content-type-options', 'nosniff').header('referrer-policy', 'same-origin');
+    if (reply.getHeader('cache-control') === undefined) reply.header('cache-control', 'no-store');
     return payload;
   });
   app.addHook('onRequest', async (request, reply) => {
@@ -67,7 +137,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
     const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
     if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const assignments=await pool.query(`SELECT u.id user_id,u.email,u.full_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
+    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
@@ -87,7 +157,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = production ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.full_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readBusinessProfile(row.business_profile).taxPolicy,capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readTaxPolicy(row.tax_policy),capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
   });
   // The plugin installs an onRoute hook during boot. Defer route registration
   // until then, while keeping buildApp's synchronous public interface.
@@ -100,7 +170,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
-    const result = await pool.query(`SELECT s.id session_id,s.user_id,u.full_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
+    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.sessions s JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
       JOIN core.tenants t ON t.id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
@@ -108,7 +178,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id`, [hashToken(token)]);
     if (!result.rowCount) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Session is expired or access was revoked.' } });
     const r = result.rows[0];
-    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.full_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readBusinessProfile(r.business_profile).taxPolicy,timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
+    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readTaxPolicy(r.tax_policy),timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
@@ -128,6 +198,18 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
   app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
+  app.get<{ Params:{ assetId:string } }>('/api/v1/configuration/assets/:assetId', async (request, reply) => {
+    const image = await getConfigurationAsset(request.operator!, request.params.assetId);
+    if (!image) throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
+  });
+  app.get<{ Params:{ kind:string } }>('/api/v1/configuration/assets/legacy/:kind', async (request, reply) => {
+    if (request.params.kind !== 'logo' && request.params.kind !== 'receipt_qr') throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    const image = await getConfigurationAsset(request.operator!, undefined, request.params.kind);
+    if (!image) throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
+    return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
+  });
+  app.post<{ Body:unknown }>('/api/v1/configuration/assets', async request => inTransaction(client => stageConfigurationAsset(client,request.operator!,request.body)));
   app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{
@@ -227,17 +309,22 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const permissions=ROLE_PERMISSIONS[operator.role];
     if(!permissions.some(permission=>permission==='commerce.sell'||permission==='commerce.refund'||permission==='finance.view')) throw new DomainError('FORBIDDEN','Your role cannot review sales.',403);
     const canReadCost=permissions.includes('finance.view');
-    const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,u.full_name cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
+    const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,o.operator_name_snapshot cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
         COALESCE((SELECT SUM(p.amount_minor) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),0)::text paid_minor,
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
         COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
-      FROM commerce.orders o JOIN identity.users u ON u.id=o.operator_id
+      FROM commerce.orders o
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),amountDueMinor:Number(r.customer_amount_due_minor),customerName:r.customer_name_snapshot,refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:r.customer_account_id?'customer_credit':'cash',lines:r.lines}))};
   });
   app.get<{ Params: { orderId: string } }>('/api/v1/sales/orders/:orderId/receipt', async request =>
     getSaleReceipt(request.operator!, request.params.orderId));
+  app.get<{ Params: { orderId: string; kind: string } }>('/api/v1/sales/orders/:orderId/receipt/assets/:kind', async (request, reply) => {
+    const image = await getSaleReceiptAsset(request.operator!, request.params.orderId, request.params.kind);
+    if (!image) throw new DomainError('NOT_FOUND', 'Historical receipt image was not found for this outlet.', 404);
+    return reply.type('image/png').header('cache-control', 'private, no-store').header('x-content-type-options', 'nosniff').send(image);
+  });
   app.get('/api/v1/customers', async request => listCustomerAccounts(request.operator!));
   app.get<{ Params: { customerId: string } }>('/api/v1/customers/:customerId/statement', async request =>
     getCustomerStatement(request.operator!, request.params.customerId));
@@ -291,17 +378,19 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
-        if(envelope.type.startsWith('catalog.import.')){
-          try{requireProductImportAccess(s);}catch(error){if(!(error instanceof DomainError))throw error;return {status:'REJECTED',code:error.code,message:error.message};}
-        }
-        const old=await client.query('SELECT request_hash,status,response,actor_id FROM system.commands WHERE tenant_id=$1 AND command_id=$2 FOR UPDATE',[s.tenantId,envelope.commandId]);
-        if ((STAFF_COMMANDS as readonly string[]).includes(envelope.type)) {
+        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,d.outlet_id
+          FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
+          WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[s.tenantId,envelope.commandId]);
+        if ((STAFF_COMMANDS as readonly string[]).includes(old.rows[0].command_type)) {
           await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
-          const fresh=await revalidateOperator(client,s);
-          requireStaffCommandPermission(fresh,envelope.type);
-          if(old.rows[0].actor_id!==s.userId)throw new DomainError('FORBIDDEN','This access operation belongs to another operator.',403);
         }
-        if(envelope.type.startsWith('catalog.import.')&&old.rows[0].actor_id!==s.userId)return {status:'REJECTED',code:'FORBIDDEN',message:'This import operation belongs to another operator.'};
+        const fresh=await revalidateOperator(client,s);
+        try { requireCommandRecoveryAuthority(fresh,old.rows[0],'replay'); }
+        catch(error) {
+          // Preserve import's existing definite rejected-envelope contract.
+          if(!(error instanceof DomainError)||!old.rows[0].command_type.startsWith('catalog.import.'))throw error;
+          return {status:'REJECTED',code:error.code,message:error.message};
+        }
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
@@ -324,22 +413,15 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     });
     return reply.code(200).send({commandId:envelope.commandId,...outcome});
   });
-  app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async (request,reply) => {
-    const r=await pool.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
+  app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async request => inTransaction(async client => {
+    const operator=await revalidateOperator(client,request.operator!);
+    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
       FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
-      WHERE c.tenant_id=$1 AND c.command_id=$2`,[request.operator!.tenantId,request.params.commandId]);
-    if (!r.rowCount) return reply.code(404).send({error:{code:'NOT_FOUND',message:'Command was not found.'}});
-    if(r.rows[0].command_type==='staff.password.set'){
-      if(r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
-      requireIdentityPermission(request.operator!,'staff.manage');
-    }
-    if(r.rows[0].command_type==='auth.password.change'&&r.rows[0].actor_id!==request.operator!.userId)return reply.code(404).send({error:{code:'NOT_FOUND',message:'Credential operation was not found.'}});
-    if(r.rows[0].command_type.startsWith('catalog.import.')){
-      requireProductImportAccess(request.operator!);
-      if(r.rows[0].outlet_id!==request.operator!.outletId||r.rows[0].actor_id!==request.operator!.userId)throw new DomainError('NOT_FOUND','Import operation was not found in your operator/outlet scope.',404);
-    }
+      WHERE c.tenant_id=$1 AND c.command_id=$2 FOR SHARE OF c,d`,[operator.tenantId,request.params.commandId]);
+    if (!r.rowCount) throw new DomainError('NOT_FOUND','Command was not found.',404);
+    requireCommandRecoveryAuthority(operator,r.rows[0],'status');
     const {command_type:_,actor_id:__,outlet_id:___,...status}=r.rows[0];
     return {commandId:request.params.commandId,...status};
-  });
+  }));
   return app;
 }

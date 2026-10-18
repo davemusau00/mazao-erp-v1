@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { expect, test } from '@playwright/test';
 import { hashPassword } from '../../apps/api/src/security';
 
+// Keep this spec's sign-ins separate from the shared integration API rate-limit bucket.
+test.use({ extraHTTPHeaders: { 'x-forwarded-for': '198.51.100.7' } });
+
 const pool = new Pool({ connectionString: process.env.MAZAO_E2E_DATABASE_URL });
 test.afterAll(async () => { await pool.end(); });
 
@@ -42,7 +45,7 @@ for (const viewport of [{ width: 1024, height: 600 }, { width: 390, height: 844 
     await expect(current).not.toContainText('T00:00');
     await page.screenshot({ path: testInfo.outputPath(`arrivals-${viewport.width}x${viewport.height}.png`), fullPage: true });
     await current.getByRole('button', { name: 'Check in', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('Guest checked in');
+    await expect(page.getByRole('status').filter({ hasText: 'Guest checked in' })).toBeVisible();
     await tasks.getByRole('button', { name: 'Checked-in guests', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Review bill and check out', exact: true })).toBeDisabled();
     await expect(page.locator('article').filter({ hasText: 'Arrival Today' })).toContainText('1 booked nights');

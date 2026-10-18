@@ -1,0 +1,594 @@
+{
+  "checkedAt": "2026-10-18T11:30:58.503Z",
+  "evidencePath": "docs/performance/evidence/after-2026-10-18/firefox-performance.json",
+  "scope": "LATENCY_ONLY",
+  "releaseAcceptance": false,
+  "thresholds": {
+    "commonApiReadP95Ms": 1500,
+    "firstUsableWorkspaceP95Ms": 3000,
+    "serialSamplesPerRoute": 30,
+    "concurrentSamplesPerRoute": 20,
+    "samplesPerWorkspace": 50
+  },
+  "routeResults": [
+    {
+      "route": "/api/v1/auth/me",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 16,
+      "responseBytesP95": 1081,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/auth/sessions",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 22,
+      "responseBytesP95": 2225,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/configuration",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 22,
+      "responseBytesP95": 2156,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/catalog/items",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 88,
+      "responseBytesP95": 1655011,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/movements",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 96,
+      "responseBytesP95": 73277,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 17,
+      "responseBytesP95": 274,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts/current",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 72,
+      "responseBytesP95": 1275321,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts/:id",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 76,
+      "responseBytesP95": 1275321,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/shifts/current",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 16,
+      "responseBytesP95": 313,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/shifts/close-reports",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 18,
+      "responseBytesP95": 35863,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/sales/orders",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 62,
+      "responseBytesP95": 248763,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/sales/orders/:id/receipt",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 44,
+      "responseBytesP95": 1469,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/customers",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 23,
+      "responseBytesP95": 145407,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/customers/:id/statement",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 17,
+      "responseBytesP95": 557,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/staff",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 24,
+      "responseBytesP95": 135761,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/devices",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 23,
+      "responseBytesP95": 186029,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/staff/:id/sessions",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 20,
+      "responseBytesP95": 85,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/catalog/imports",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 16,
+      "responseBytesP95": 14,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/rooms",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 20,
+      "responseBytesP95": 66552,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/reservations",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 23,
+      "responseBytesP95": 82518,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/stays",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 17,
+      "responseBytesP95": 24602,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/trial-balance",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 53,
+      "responseBytesP95": 1452,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/profit-loss",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 55,
+      "responseBytesP95": 1307,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/operational-analytics",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 63,
+      "responseBytesP95": 30824,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/journal-lines",
+      "mode": "serial",
+      "sampleCount": 30,
+      "p95Ms": 52,
+      "responseBytesP95": 31249,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/auth/me",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 104,
+      "responseBytesP95": 1081,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/auth/sessions",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 95,
+      "responseBytesP95": 2225,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/configuration",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 127,
+      "responseBytesP95": 2156,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/catalog/items",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 747,
+      "responseBytesP95": 1655011,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/movements",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 539,
+      "responseBytesP95": 73277,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 86,
+      "responseBytesP95": 274,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts/current",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 604,
+      "responseBytesP95": 1275321,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/inventory/counts/:id",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 714,
+      "responseBytesP95": 1275321,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/shifts/current",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 97,
+      "responseBytesP95": 313,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/shifts/close-reports",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 103,
+      "responseBytesP95": 35863,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/sales/orders",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 299,
+      "responseBytesP95": 248763,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/sales/orders/:id/receipt",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 157,
+      "responseBytesP95": 1469,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/customers",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 156,
+      "responseBytesP95": 145407,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/customers/:id/statement",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 99,
+      "responseBytesP95": 557,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/staff",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 138,
+      "responseBytesP95": 135761,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/devices",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 176,
+      "responseBytesP95": 186029,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/staff/:id/sessions",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 98,
+      "responseBytesP95": 85,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/catalog/imports",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 84,
+      "responseBytesP95": 14,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/rooms",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 116,
+      "responseBytesP95": 66552,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/reservations",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 130,
+      "responseBytesP95": 82518,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/hospitality/stays",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 108,
+      "responseBytesP95": 24602,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/trial-balance",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 345,
+      "responseBytesP95": 1452,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/profit-loss",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 260,
+      "responseBytesP95": 1307,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/operational-analytics",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 355,
+      "responseBytesP95": 30824,
+      "errorCount": 0,
+      "withinLimit": true
+    },
+    {
+      "route": "/api/v1/reports/journal-lines",
+      "mode": "concurrent",
+      "sampleCount": 20,
+      "p95Ms": 143,
+      "responseBytesP95": 31249,
+      "errorCount": 0,
+      "withinLimit": true
+    }
+  ],
+  "workspaceResults": {
+    "today": {
+      "sampleCount": 50,
+      "p50Ms": 23,
+      "p95Ms": 34,
+      "p99ObservedMs": 38,
+      "maxMs": 38,
+      "errorCount": 0
+    },
+    "sell": {
+      "sampleCount": 50,
+      "p50Ms": 79,
+      "p95Ms": 116,
+      "p99ObservedMs": 133,
+      "maxMs": 133,
+      "errorCount": 0
+    },
+    "sales": {
+      "sampleCount": 50,
+      "p50Ms": 51,
+      "p95Ms": 100,
+      "p99ObservedMs": 936,
+      "maxMs": 936,
+      "errorCount": 0
+    },
+    "stock": {
+      "sampleCount": 50,
+      "p50Ms": 110,
+      "p95Ms": 391,
+      "p99ObservedMs": 983,
+      "maxMs": 983,
+      "errorCount": 0
+    },
+    "stock-count": {
+      "sampleCount": 50,
+      "p50Ms": 179,
+      "p95Ms": 537,
+      "p99ObservedMs": 704,
+      "maxMs": 704,
+      "errorCount": 0
+    },
+    "purchasing": {
+      "sampleCount": 50,
+      "p50Ms": 84,
+      "p95Ms": 227,
+      "p99ObservedMs": 260,
+      "maxMs": 260,
+      "errorCount": 0
+    },
+    "hotel": {
+      "sampleCount": 50,
+      "p50Ms": 56,
+      "p95Ms": 282,
+      "p99ObservedMs": 1398,
+      "maxMs": 1398,
+      "errorCount": 0
+    },
+    "reservations": {
+      "sampleCount": 50,
+      "p50Ms": 53,
+      "p95Ms": 66,
+      "p99ObservedMs": 75,
+      "maxMs": 75,
+      "errorCount": 0
+    },
+    "customers": {
+      "sampleCount": 50,
+      "p50Ms": 32,
+      "p95Ms": 52,
+      "p99ObservedMs": 517,
+      "maxMs": 517,
+      "errorCount": 0
+    },
+    "shifts": {
+      "sampleCount": 50,
+      "p50Ms": 23,
+      "p95Ms": 37,
+      "p99ObservedMs": 56,
+      "maxMs": 56,
+      "errorCount": 0
+    },
+    "money": {
+      "sampleCount": 50,
+      "p50Ms": 57,
+      "p95Ms": 65,
+      "p99ObservedMs": 85,
+      "maxMs": 85,
+      "errorCount": 0
+    },
+    "reports": {
+      "sampleCount": 50,
+      "p50Ms": 32,
+      "p95Ms": 47,
+      "p99ObservedMs": 341,
+      "maxMs": 341,
+      "errorCount": 0
+    },
+    "manage": {
+      "sampleCount": 50,
+      "p50Ms": 3,
+      "p95Ms": 3,
+      "p99ObservedMs": 4,
+      "maxMs": 4,
+      "errorCount": 0
+    },
+    "onboarding": {
+      "sampleCount": 50,
+      "p50Ms": 25,
+      "p95Ms": 31,
+      "p99ObservedMs": 57,
+      "maxMs": 57,
+      "errorCount": 0
+    },
+    "help": {
+      "sampleCount": 50,
+      "p50Ms": 2,
+      "p95Ms": 4,
+      "p99ObservedMs": 14,
+      "maxMs": 14,
+      "errorCount": 0
+    }
+  },
+  "failures": [],
+  "status": "PASS",
+  "notes": [
+    "This assertion checks latency samples only; it is not the full release acceptance decision. See docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md for data completeness, browser coverage, CI, workload and restore gates.",
+    "The 20-request concurrent p95 is a local synthetic workload observation from one operator. It is not a production traffic guarantee.",
+    "Image endpoints and the legacy inline replay are measured and reported but are excluded from the common JSON API-read threshold."
+  ]
+}

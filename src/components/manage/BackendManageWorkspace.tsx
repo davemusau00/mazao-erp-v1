@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard } from 'lucide-react';
-import { apiClient, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput } from '../../services/apiClient';
+import { apiClient, ApiClientError, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput } from '../../services/apiClient';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
 import type { WorkspaceId } from '../../types/ui';
@@ -9,6 +9,7 @@ import { safeRasterImageSource } from '../../utils/html';
 import './BackendManageWorkspace.css';
 
 type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices';
+type ImageDraft={mode:'keep'|'remove'|'replace';draftId?:string;dataUrl?:string};
 const capabilityLabels:Record<string,string>={commerce:'Sales and customer accounts',inventory:'Inventory',retail:'Retail workspace',hospitality:'Rooms and guest stays'};
 const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>};
 
@@ -34,30 +35,38 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   const [busy,setBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
   const [error,setError]=useState('');
+  const [loadError,setLoadError]=useState('');
   const [notice,setNotice]=useState('');
   const [conflict,setConflict]=useState(false);
   const [unknownId,setUnknownId]=useState('');
   const [recoveryChecked,setRecoveryChecked]=useState(false);
   const [recoveryError,setRecoveryError]=useState('');
+  const [logoDraft,setLogoDraft]=useState<ImageDraft>({mode:'keep'});
+  const [receiptQrDraft,setReceiptQrDraft]=useState<ImageDraft>({mode:'keep'});
   const pending=useRef<BackendCommand|null>(null);
   const mounted=useRef(true);
+  const loadController=useRef<AbortController|null>(null);
+  const loadGeneration=useRef(0);
   const editingBlocked=!canEdit||busy||Boolean(unknownId)||conflict||!recoveryChecked;
 
   const load=async()=>{
-    setLoading(true);setError('');
+    loadController.current?.abort();const controller=new AbortController();loadController.current=controller;const generation=++loadGeneration.current;
+    setLoading(true);setError('');setLoadError('');
     try {
-      const result=await apiClient.getConfiguration();
+      const result=await apiClient.getConfiguration(controller.signal);
+      if(!mounted.current||generation!==loadGeneration.current)return;
       setConfiguration(result.configuration);
       setBusiness(businessInput(result.configuration));setOutlet(outletInput(result.configuration));
+      setLogoDraft({mode:'keep'});setReceiptQrDraft({mode:'keep'});
       setCapabilities(result.configuration.capabilities);
       const bps=result.configuration.business.taxPolicy.defaultRateBps;
       setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);
       setDirty(false);setConflict(false);
-    } catch(cause){setError(cause instanceof Error?cause.message:'Business settings could not be loaded.');}
-    finally{setLoading(false);}
+    } catch(cause){if(!(cause instanceof ApiClientError&&cause.code==='REQUEST_CANCELLED')&&mounted.current&&generation===loadGeneration.current)setLoadError(cause instanceof Error?cause.message:'Business settings could not be loaded.');}
+    finally{if(mounted.current&&generation===loadGeneration.current)setLoading(false);if(loadController.current===controller)loadController.current=null;}
   };
 
-  useEffect(()=>{void load();},[]);
+  useEffect(()=>{mounted.current=true;void load();return()=>{mounted.current=false;loadController.current?.abort();};},[]);
   useEffect(()=>{setSection(initialSection);},[initialSection]);
   const loadRecovery=async()=>{
     setRecoveryChecked(false);setRecoveryError('');
@@ -113,7 +122,19 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
     const [whole,fraction='']=taxRate.split('.');
     const rate=Number(BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0')));
     if(rate>10000){setError('The tax percentage cannot exceed 100.');return;}
-    await send(command('configuration.business.update',{...business,taxPolicy:{...business.taxPolicy,defaultRateBps:rate}},{['business:'+configuration.business.id]:configuration.business.version}));
+    setBusy(true);setError('');
+    try {
+      const logoAsset=logoDraft.mode==='replace'&&logoDraft.draftId&&logoDraft.dataUrl?await apiClient.stageConfigurationAsset('logo',logoDraft.draftId,logoDraft.dataUrl):undefined;
+      const qrAsset=receiptQrDraft.mode==='replace'&&receiptQrDraft.draftId&&receiptQrDraft.dataUrl?await apiClient.stageConfigurationAsset('receipt_qr',receiptQrDraft.draftId,receiptQrDraft.dataUrl):undefined;
+      const {logoUrl,receiptQrImage,...fields}=business;
+      const imageActions={
+        logo:logoDraft.mode==='replace'&&logoAsset?{mode:'replace',assetId:logoAsset.id}:logoDraft.mode==='remove'?{mode:'remove'}:{mode:'keep'},
+        receiptQr:receiptQrDraft.mode==='replace'&&qrAsset?{mode:'replace',assetId:qrAsset.id}:receiptQrDraft.mode==='remove'?{mode:'remove'}:{mode:'keep'},
+      };
+      await send(command('configuration.business.update',{...fields,logoUrl:/^https:\/\//i.test(logoUrl)?logoUrl:'',receiptQrImage:'',imageActions,taxPolicy:{...business.taxPolicy,defaultRateBps:rate}},{['business:'+configuration.business.id]:configuration.business.version}));
+    } catch(cause) {
+      setError(cause instanceof Error?cause.message:'Image upload did not finish. Retry saving with the same image draft; no settings command was sent.');
+    } finally {setBusy(false);}
   };
   const saveOutlet=async(event:React.FormEvent)=>{
     event.preventDefault();if(!outlet||!configuration||editingBlocked)return;
@@ -157,15 +178,18 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
         reader.onload=()=>typeof reader.result==='string'&&reader.result.startsWith('data:image/png;base64,')?resolve(reader.result):reject(new Error('The selected file is not a PNG image.'));
         reader.readAsDataURL(file);
       });
-      setBusiness(previous=>previous?{...previous,[field]:dataUrl}:previous);setDirty(true);
+      const draft={mode:'replace' as const,draftId:crypto.randomUUID(),dataUrl};
+      if(field==='logoUrl')setLogoDraft(draft);else setReceiptQrDraft(draft);setDirty(true);
     } catch(cause){setError(cause instanceof Error?cause.message:'The image file could not be read.');}
   };
   const uploadedImageField=(label:string,field:'logoUrl'|'receiptQrImage')=>{
-    const value=field==='logoUrl'?(business?.logoUrl??''):(business?.receiptQrImage??'');const preview=value&&safeRasterImageSource(value)?value:'';
+    const value=field==='logoUrl'?(business?.logoUrl??''):(business?.receiptQrImage??'');const change=field==='logoUrl'?logoDraft:receiptQrDraft;const savedPreview=value&&safeRasterImageSource(value)?value:'';
+    const preview=change.mode==='replace'?(change.dataUrl??''):change.mode==='remove'?'':savedPreview;
+    const changeDraft=(next:ImageDraft)=>{if(field==='logoUrl')setLogoDraft(next);else setReceiptQrDraft(next);setDirty(true);};
     return <div className="form-field"><label htmlFor={`business-${field}-upload`}>{label} PNG</label>
       <input id={`business-${field}-upload`} aria-label={`Upload ${label.toLowerCase()} PNG`} type="file" accept="image/png" className="min-h-11" disabled={editingBlocked} onChange={event=>{void uploadBusinessImage(field,event.currentTarget.files?.[0]);event.currentTarget.value='';}} />
-      <small>PNG only, up to 512 KB. The image is saved in server settings.</small>
-      {preview&&<div className="flex items-center gap-3 rounded-lg border border-zinc-700 p-3"><img src={preview} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/><button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>{editBusiness(field,'');}}>Remove image</button></div>}
+      <small>PNG only, up to 512 KB. Images upload separately from business settings and remain available to saved receipts.</small>
+      {(preview||change.mode==='remove')&&<div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 p-3">{preview&&<img src={preview} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/>}{change.mode==='remove'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Keep existing image</button>:change.mode==='replace'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Discard new image</button>:savedPreview&&<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'remove'})}>Remove image</button>}</div>}
     </div>;
   };
   const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'|'showQrOnReceipt'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
@@ -188,7 +212,8 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
     </nav>}
     {!canEdit&&!['staff','devices'].includes(section)&&<p className="rounded-lg border border-zinc-700 p-3 text-sm text-zinc-300">Your account can review these settings. An administrator can change them.</p>}
     {!recoveryChecked&&<div role={recoveryError?'alert':'status'} className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">{recoveryError||'Checking retained command evidence before allowing settings changes.'}{recoveryError&&<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void loadRecovery()}>Retry command recovery</button>}</div>}
-    {error&&<div role="alert" className="rounded-lg border border-rose-700 bg-rose-950/20 p-4 text-sm text-rose-200">{error}{!configuration&&<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void load()}>Retry loading settings</button>}</div>}
+    {loadError&&<div role="alert" className="rounded-lg border border-rose-700 bg-rose-950/20 p-4 text-sm text-rose-200">{loadError}<button type="button" className="ml-3 min-h-11 underline" disabled={loading} onClick={()=>void load()}>{configuration?'Retry settings refresh':'Retry loading settings'}</button></div>}
+    {error&&<div role="alert" className="rounded-lg border border-rose-700 bg-rose-950/20 p-4 text-sm text-rose-200">{error}</div>}
     {notice&&<div role={unknownId||conflict?'alert':'status'} className={`rounded-lg border p-4 text-sm ${unknownId||conflict?'border-amber-700 text-amber-200':'border-emerald-800 text-emerald-200'}`}>{notice}</div>}
     {unknownId&&<section className="workflow-panel" aria-label="Settings command recovery"><h2 className="text-lg font-semibold">Check settings save status</h2><p className="mt-2 text-sm text-zinc-300">The exact command is retained on this device. Settings stay locked until its outcome is confirmed.</p><p className="mt-2 break-all font-mono text-xs text-zinc-400">Command {unknownId}</p><div className="mt-4 flex flex-wrap gap-3"><button type="button" className="primary-action min-h-11" disabled={busy} onClick={()=>void checkStatus()}>Check status</button><button type="button" className="secondary-action min-h-11" disabled={busy} onClick={()=>pending.current&&void send(pending.current)}>Retry original command</button></div></section>}
     {conflict&&<button type="button" className="secondary-action min-h-11 self-start" onClick={()=>{if(!dirty||window.confirm('Reload current server settings? Unsaved changes will be discarded.'))void load();}}>Reload server settings</button>}
@@ -201,7 +226,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
         {configuration.currencyLocked&&<p className="text-xs text-zinc-400 md:col-span-2">Currency is fixed because this business already has monetary records.</p>}
         {businessField('Business address','address')}{businessField('Contact phone','phone',{type:'tel'})}
         {businessField('Contact email','email',{type:'email'})}{businessField('Website','website',{type:'url'})}
-        {!business.logoUrl.startsWith('data:')&&businessField('Logo image URL','logoUrl',{type:'url',maxLength:2048})}{uploadedImageField('Business logo','logoUrl')}
+        {!business.logoUrl.startsWith('data:')&&!business.logoUrl.startsWith('/api/v1/configuration/assets/')&&businessField('Logo image URL','logoUrl',{type:'url',maxLength:2048})}{uploadedImageField('Business logo','logoUrl')}
         {uploadedImageField('Payment QR','receiptQrImage')}<label className="flex min-h-11 items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={business.showQrOnReceipt} onChange={event=>{setBusiness({...business,showQrOnReceipt:event.target.checked});setDirty(true);}}/>Show payment QR on new receipts</label>
         <label className="form-field"><span id="business-receipt-header-label">Receipt header</span><textarea aria-labelledby="business-receipt-header-label" value={business.receiptHeader} maxLength={500} rows={3} onChange={event=>editBusiness('receiptHeader',event.target.value)}/></label>
         <label className="form-field"><span id="business-receipt-footer-label">Receipt footer</span><textarea aria-labelledby="business-receipt-footer-label" value={business.receiptFooter} maxLength={500} rows={3} onChange={event=>editBusiness('receiptFooter',event.target.value)}/></label>

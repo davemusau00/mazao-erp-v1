@@ -191,6 +191,69 @@ test('configuration readers cannot change settings and unauthorized operators ca
   await expect(page.getByRole('heading',{name:'Manage your business'})).toHaveCount(0);
 });
 
+test('malformed successful configuration JSON is reported and Retry reloads the panel',async({page})=>{
+  const configuration=fixture();await page.route('**/api/v1/auth/me',route=>route.fulfill({json:session(configuration)}));
+  await page.addInitScript(()=>{(window as any).__apiTimings=[];window.addEventListener('mazao:api-request-completed',(event:Event)=>(window as any).__apiTimings.push((event as CustomEvent).detail));});
+  let reads=0;
+  await page.route('**/api/v1/configuration',route=>{reads++;return reads===1?route.fulfill({status:200,contentType:'application/json',headers:{'x-request-id':'req-fixture-config-1'},body:'{"configuration":'}):route.fulfill({json:{configuration},headers:{'x-request-id':'req-fixture-config-2','server-timing':'app;dur=1.4, nginx;dur=2.1'}});});
+  await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();await page.getByRole('button',{name:/Business and outlets/}).click();
+  await expect(page.getByRole('alert')).toContainText('unreadable response');
+  await page.getByText('Recent request diagnostics (1)').click();
+  await expect(page.getByText('req-fixture-config-1',{exact:true})).toBeVisible();
+  await expect(page.getByText('/configuration',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Retry loading settings'})).toBeVisible();
+  await page.getByRole('button',{name:'Retry loading settings'}).click();
+  await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('COUNTRYSIDE RESORT');
+  const timing=await page.evaluate(()=>(window as any).__apiTimings.find((entry:any)=>entry.requestId==='req-fixture-config-2'));
+  expect(timing).toMatchObject({requestId:'req-fixture-config-2',status:200,serverAppMs:1.4,serverNginxMs:2.1});
+  expect(timing.parseMs).toBeGreaterThanOrEqual(0);
+  expect(timing.responseBytes).toBeGreaterThan(0);expect(timing.headersMs).toBeGreaterThanOrEqual(0);expect(timing.bodyMs).toBeGreaterThanOrEqual(0);
+  expect(reads).toBe(2);
+});
+
+test('workspace timing separates the React commit from the first usable state',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);
+  await page.addInitScript(()=>{
+    (window as any).__workspaceTimings=[];
+    for(const name of ['mazao:workspace-rendered','mazao:workspace-render-cycle','mazao:workspace-first-usable'])window.addEventListener(name,(event:Event)=>(window as any).__workspaceTimings.push({name,detail:(event as CustomEvent).detail}));
+  });
+  await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__workspaceTimings.some((entry:any)=>entry.name==='mazao:workspace-first-usable'&&entry.detail.workspace==='manage'))).toBe(true);
+  const timings=await page.evaluate(()=>(window as any).__workspaceTimings.filter((entry:any)=>entry.detail.workspace==='manage'));
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-rendered')?.detail.durationMs).toBeGreaterThanOrEqual(0);
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-render-cycle')?.detail.durationMs).toBeGreaterThanOrEqual(0);
+  expect(timings.find((entry:any)=>entry.name==='mazao:workspace-first-usable')?.detail).toMatchObject({workspace:'manage',outcome:'ready',blockingReadCount:0});
+});
+
+test('staff stays usable when the independent business configuration read fails',async({page})=>{
+  const configuration=fixture();
+  await page.route('**/api/v1/auth/me',route=>route.fulfill({json:session(configuration,[...permissions,'staff.view'])}));
+  await page.route('**/api/v1/configuration',route=>route.abort());
+  await page.route('**/api/v1/staff',route=>route.fulfill({json:{staff:[],roles:[{role:'admin',label:'Administrator',permissions:['staff.manage','devices.manage'],assignable:false}],outlets:[{id:configuration.outlet.id,name:configuration.outlet.name,timeZone:configuration.outlet.timeZone,active:true}],authorizationModel:'COARSE_ROLE_MAP'}}));
+  await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage your business'}).waitFor();
+  await page.locator('.manage-grid').getByRole('button',{name:/Staff/}).click();
+  await expect(page.getByRole('heading',{name:'Staff access'})).toBeVisible();
+  await expect(page.getByText('No staff memberships are recorded for this business.')).toBeVisible();
+  await expect(page.getByRole('alert').filter({hasText:'Retry loading settings'})).toBeVisible();
+});
+
+test('business logo uploads separately and the versioned command stores only its asset reference',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);
+  const onePixelPng=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/xR8AAAAASUVORK5CYII=','base64');
+  let uploaded:Record<string,any>|undefined;let command:Record<string,any>|undefined;
+  await page.route('**/api/v1/configuration/assets',route=>{uploaded=route.request().postDataJSON();return route.fulfill({json:{asset:{id:'asset-logo-test',kind:'logo',sha256:'a'.repeat(64),byteLength:onePixelPng.length}}});});
+  await page.route('**/api/v1/commands',route=>{command=route.request().postDataJSON();return route.fulfill({json:{commandId:command!.commandId,status:'CONFIRMED',value:{version:2}}});});
+  await openManage(page);
+  await page.getByLabel('Upload business logo PNG').setInputFiles({name:'logo.png',mimeType:'image/png',buffer:onePixelPng});
+  await page.getByRole('button',{name:'Save business settings'}).click();
+  await expect(page.getByText('Settings saved and confirmed by the server.')).toBeVisible();
+  expect(uploaded).toMatchObject({kind:'logo',dataUrl:`data:image/png;base64,${onePixelPng.toString('base64')}`});
+  expect(command?.payload.imageActions).toEqual({logo:{mode:'replace',assetId:'asset-logo-test'},receiptQr:{mode:'keep'}});
+  expect(JSON.stringify(command?.payload)).not.toContain('data:image/png;base64,');
+});
+
 test('management overview exposes connected setup and disabled admin modules without opening unsupported actions',async({page})=>{
   const configuration=fixture();await routeReads(page,configuration,[...permissions,'catalog.manage','staff.view','devices.view']);
   await page.route('**/api/v1/catalog/items',route=>route.fulfill({json:{items:[]}}));
@@ -218,6 +281,37 @@ test('management overview exposes connected setup and disabled admin modules wit
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await page.locator('.manage-grid').getByRole('button',{name:/Data import/}).click();
   await expect(page.getByRole('heading',{name:'Import products from CSV'})).toBeVisible();
+});
+
+test('opening Setup checklist from the workspace navigation loads its checklist section',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);
+  let configurationReads=0;
+  await page.unroute('**/api/v1/configuration');
+  await page.route('**/api/v1/configuration',route=>{configurationReads++;return route.fulfill({json:{configuration}});});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
+  await page.getByRole('button',{name:'Setup checklist, Partial',exact:true}).click();
+  await expect(page.getByText('Complete the remaining setup checks before selling.')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Setup checklist, Partial',exact:true})).toHaveAttribute('aria-current','page');
+  expect(configurationReads).toBeGreaterThanOrEqual(2);
+});
+
+test('internal workspace navigation cancels the obsolete shift status read',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration,['shift.open','shift.close']);
+  let currentReads=0;let cancelledReads=0;
+  page.on('requestfailed',request=>{if(request.url().endsWith('/api/v1/shifts/current'))cancelledReads++;});
+  await page.route('**/api/v1/shifts/current',async route=>{
+    currentReads++;
+    if(currentReads===1){await new Promise(resolve=>setTimeout(resolve,1500));await route.fulfill({json:{shift:null}}).catch(()=>{});return;}
+    await route.fulfill({json:{shift:null}});
+  });
+  await page.route('**/api/v1/shifts/close-reports',route=>route.fulfill({json:{reports:[]}}));
+  await page.goto('/');await expect.poll(()=>currentReads).toBe(1);
+  await page.getByRole('button',{name:'Open a shift',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Cash control'})).toBeVisible();
+  await expect.poll(()=>cancelledReads).toBeGreaterThan(0);
+  await expect.poll(()=>currentReads).toBe(2);
 });
 
 test('cashier navigation shows unsupported restaurant work as disabled and keeps management private',async({page})=>{

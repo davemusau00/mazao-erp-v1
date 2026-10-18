@@ -18,12 +18,25 @@ import { BackendTodayWorkspace } from './components/home/BackendTodayWorkspace';
 import { BackendStockCountWorkspace } from './components/inventory/BackendStockCountWorkspace';
 import { apiClient, type BackendSaleReceipt } from './services/apiClient';
 import { SignInForm } from './components/auth/SignInForm';
+import { normalizedWorkspaceRoute, workspaceInitialReads } from './services/workspacePerformance';
+
+function WorkspaceRenderProbe({workspace}:{workspace:string}){
+  const startedAt=useRef(performance.now());
+  const reported=useRef(false);
+  React.useLayoutEffect(()=>{
+    if(reported.current||typeof window==='undefined')return;
+    reported.current=true;
+    window.dispatchEvent(new CustomEvent('mazao:workspace-render-cycle',{detail:{workspace,durationMs:Math.round(performance.now()-startedAt.current)}}));
+  },[workspace]);
+  return null;
+}
 
 export default function App() {
   const [activeTab,setActiveTab]=useState<ActiveTab>('today');
   const [purchaseStartTab,setPurchaseStartTab]=useState<'orders'|'receive'>('orders');
   const [stockStartView,setStockStartView]=useState<'inventory'|'import'>('inventory');
   const [session,setSession]=useState(apiClient.getSession());
+  const visibleTab:ActiveTab=session&&canOpenWorkspace(session,activeTab)?activeTab:'today';
   const [sessionBootstrap,setSessionBootstrap]=useState<'checking'|'ready'|'error'>('checking');
   const [restoreError,setRestoreError]=useState('');
   const [receiptOrderId,setReceiptOrderId]=useState<string|null>(null);
@@ -31,6 +44,8 @@ export default function App() {
   const [receiptLoading,setReceiptLoading]=useState(false);
   const [receiptError,setReceiptError]=useState('');
   const receiptRequest=useRef(0);
+  const workspaceNavigationStarted=useRef(performance.now());
+  const measuredWorkspaceIdentity=useRef<string|null>(null);
 
   useEffect(()=>{
     const unsubscribe=apiClient.subscribe(setSession);
@@ -42,10 +57,12 @@ export default function App() {
     return()=>{mounted=false;unsubscribe();};
   },[]);
   useEffect(()=>{++receiptRequest.current;setReceiptOrderId(null);setReceipt(null);setReceiptLoading(false);setReceiptError('');setActiveTab('today');},[session?.user.id]);
+  const changeWorkspace=(tab:ActiveTab)=>{workspaceNavigationStarted.current=performance.now();setActiveTab(tab);};
   const navigate=(tab:ActiveTab):boolean=>{
     if(!session||!canOpenWorkspace(session,tab))return false;
     if(tab!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return false;
-    setActiveTab(tab);
+    if(tab!==activeTab)apiClient.cancelPendingReads();
+    changeWorkspace(tab);
     return true;
   };
   const openReceipt=(orderId:string)=>{
@@ -55,16 +72,52 @@ export default function App() {
   };
   const closeReceipt=()=>{++receiptRequest.current;setReceiptOrderId(null);setReceipt(null);setReceiptLoading(false);setReceiptError('');};
 
+  React.useLayoutEffect(()=>{
+    if(!session||typeof window==='undefined')return;
+    const identity=`${session.user.id}:${session.tenant.id}:${session.outlet.id}`;
+    if(measuredWorkspaceIdentity.current!==identity){measuredWorkspaceIdentity.current=identity;workspaceNavigationStarted.current=performance.now();}
+    const startedAt=workspaceNavigationStarted.current;
+    const workspace=visibleTab;
+    const expected=new Set(workspaceInitialReads(workspace,session));
+    const settled=new Set<string>();
+    let failed=false;let frame=0;let emitted=false;
+    const emitUsable=()=>{
+      if(emitted||settled.size<expected.size)return;
+      emitted=true;
+      const detail={workspace,durationMs:Math.round(performance.now()-startedAt),outcome:failed?'recovery':'ready',blockingReadCount:expected.size};
+      if(expected.size===0)window.dispatchEvent(new CustomEvent('mazao:workspace-first-usable',{detail}));
+      else frame=requestAnimationFrame(()=>window.dispatchEvent(new CustomEvent('mazao:workspace-first-usable',{detail})));
+    };
+    const onSettled=(event:Event,wasFailure:boolean)=>{
+      const detail=(event as CustomEvent<{route?:string;outcome?:string;status?:number}>).detail;
+      if(typeof detail?.route!=='string')return;
+      const route=normalizedWorkspaceRoute(detail.route);
+      if(!expected.has(route))return;
+      settled.add(route);failed ||= wasFailure||detail.outcome!==undefined&&detail.outcome!=='success'||typeof detail.status==='number'&&detail.status>=400;emitUsable();
+    };
+    const completed=(event:Event)=>onSettled(event,false);
+    const failedRead=(event:Event)=>onSettled(event,true);
+    window.addEventListener('mazao:api-request-completed',completed);
+    window.addEventListener('mazao:api-request-failed',failedRead);
+    performance.mark(`mazao:workspace:${workspace}:commit`);
+    window.dispatchEvent(new CustomEvent('mazao:workspace-rendered',{detail:{workspace,durationMs:Math.round(performance.now()-startedAt),blockingReadCount:expected.size}}));
+    if(expected.size===0)emitUsable();
+    return()=>{
+      window.removeEventListener('mazao:api-request-completed',completed);
+      window.removeEventListener('mazao:api-request-failed',failedRead);
+      if(frame)cancelAnimationFrame(frame);
+    };
+  },[visibleTab,session?.user.id,session?.tenant.id,session?.outlet.id]);
+
   if(sessionBootstrap==='checking')return <SessionBootstrapScreen status="checking"/>;
   if(sessionBootstrap==='error')return <SessionBootstrapScreen status="error" message={restoreError} onRetry={()=>{
     setSessionBootstrap('checking');setRestoreError('');
     void apiClient.restore().then(()=>setSessionBootstrap('ready')).catch(cause=>{setRestoreError(cause instanceof Error?cause.message:'The server session could not be verified.');setSessionBootstrap('error');});
   }}/>;
   if(!session)return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100"><SignInForm/></main>;
-  const visibleTab=canOpenWorkspace(session,activeTab)?activeTab:'today';
-
   return <div className="h-dvh w-screen overflow-hidden bg-[#090b10] text-zinc-100 flex flex-col font-sans antialiased">
-    <AppShell activeTab={visibleTab} onTabChange={setActiveTab}>
+    <AppShell activeTab={visibleTab} onTabChange={changeWorkspace}>
+      <WorkspaceRenderProbe key={visibleTab} workspace={visibleTab}/>
       {visibleTab==='today'&&<BackendTodayWorkspace onNavigate={navigate}/>}
       {visibleTab==='sell'&&<PointOfSaleView onOrderCompleted={openReceipt}/>}
       {visibleTab==='sales'&&<SalesHistoryView onReprintOrder={openReceipt}/>}
@@ -77,7 +130,7 @@ export default function App() {
       {visibleTab==='shifts'&&<ShiftManagerView/>}
       {visibleTab==='money'&&<BackendFinancialReportsWorkspace initialView="trial-balance"/>}
       {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
-      {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
+      {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>
     {receiptOrderId&&<BackendReceiptModal receipt={receipt} loading={receiptLoading} error={receiptError} onRetry={()=>openReceipt(receiptOrderId)} onClose={closeReceipt}/>}

@@ -31,7 +31,7 @@ async function signIn(page: Page) {
   await expect(page.getByLabel('Signed in as Staff Browser Admin')).toBeVisible();
 }
 
-test('staff and workspace administration are accepted by the API and persisted in PostgreSQL', async ({ page }) => {
+test('guided staff setup confirms membership, protected password, workspace assignment and first sign-in', async ({ page }) => {
   await signIn(page);
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Manage your business' })).toBeVisible();
@@ -45,7 +45,8 @@ test('staff and workspace administration are accepted by the API and persisted i
   await page.getByLabel('Display name', { exact: true }).fill('Browser Provisioned Operator');
   await page.getByLabel('Email', { exact: true }).fill(operatorEmail);
   await page.getByRole('button', { name: 'Create staff membership' }).click();
-  await expect(page.getByRole('status')).toContainText('server confirmed the access change');
+  await expect(page.getByText('The server confirmed the access change.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Step 2 of 4/)).toBeVisible();
   const created = await pool.query(`SELECT u.id,m.role,m.active,m.version,u.password_hash
     FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id WHERE m.tenant_id=$1 AND lower(u.email)=lower($2)`, [tenantId, operatorEmail]);
   expect(created.rowCount).toBe(1);
@@ -53,23 +54,42 @@ test('staff and workspace administration are accepted by the API and persisted i
   expect(created.rows[0].active).toBe(true);
   expect(created.rows[0].password_hash).toBeNull();
 
-  await page.getByRole('button', { name: new RegExp(operatorEmail) }).click();
   await page.getByRole('textbox', { name: 'New password', exact: true }).fill('A-long-browser-test-password-46!');
   await page.getByLabel('Confirm new password').fill('A-long-browser-test-password-46!');
   await page.getByRole('button', { name: 'Set initial password' }).click();
   await expect(page.getByText(/Password change confirmed/)).toBeVisible();
+  await expect(page.getByText(/Step 3 of 4/)).toBeVisible();
   const credential = await pool.query('SELECT password_hash,credential_version FROM identity.users WHERE id=$1', [created.rows[0].id]);
   expect(credential.rows[0].password_hash).toBeTruthy();
   expect(Number(credential.rows[0].credential_version)).toBe(2);
 
-  await page.getByRole('button', { name: 'Assignments', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Workspace assignments' })).toBeVisible();
-  await page.getByLabel('Assignment label').fill('Browser workstation');
-  await page.getByLabel('Active operator').selectOption(created.rows[0].id);
-  await page.getByRole('button', { name: 'Create assignment' }).click();
-  await expect(page.getByRole('status')).toContainText('server confirmed the access change');
+  await page.getByLabel('Workspace label').fill('Browser workstation');
+  await page.getByRole('button', { name: 'Create operator workspace assignment' }).click();
+  await expect(page.getByText('The server confirmed the access change.', { exact: true })).toBeVisible();
   const assignment = await pool.query('SELECT outlet_id,assigned_user_id,active,version FROM identity.devices WHERE tenant_id=$1 AND label=$2', [tenantId, 'Browser workstation']);
   expect(assignment.rowCount).toBe(1);
   expect(assignment.rows[0]).toMatchObject({ outlet_id: outletId, assigned_user_id: created.rows[0].id, active: true });
   expect(Number(assignment.rows[0].version)).toBe(1);
+  await expect(page.getByText(/Step 4 of 4/)).toBeVisible();
+  const guide = await page.evaluate(() => sessionStorage.getItem(Object.keys(sessionStorage).find(key => key.startsWith('mazao-staff-setup:')) ?? ''));
+  expect(guide).not.toContain('A-long-browser-test-password-46!');
+
+  const browser = page.context().browser();
+  if (!browser) throw new Error('The browser context is unavailable.');
+  const operatorContext = await browser.newContext();
+  try {
+    const operatorPage = await operatorContext.newPage();
+    await operatorPage.goto(new URL(page.url()).origin);
+    await operatorPage.getByLabel('Email', { exact: true }).fill(operatorEmail);
+    await operatorPage.getByLabel('Password', { exact: true }).fill('A-long-browser-test-password-46!');
+    await operatorPage.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(operatorPage.getByLabel('Signed in as Browser Provisioned Operator')).toBeVisible();
+  } finally {
+    await operatorContext.close();
+  }
+
+  await page.getByRole('button', { name: 'Check first sign-in' }).click();
+  await expect(page.getByRole('region', { name: 'Guided operator setup' }).getByRole('status')).toContainText('First sign-in was observed from the server. Operator setup is complete.');
+  const verified = await pool.query('SELECT count(*)::int AS sessions FROM identity.sessions WHERE user_id=$1 AND revoked_at IS NULL', [created.rows[0].id]);
+  expect(verified.rows[0].sessions).toBeGreaterThan(0);
 });

@@ -63,7 +63,7 @@ if(!sourceUrl){
       const metadata=await fixture.query('SELECT category,barcode,reorder_level::text,last_import_batch_id FROM catalog.products WHERE id=$1',[product]);
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,16);
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,17,'the complete additive upgrade reaches migration 017');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

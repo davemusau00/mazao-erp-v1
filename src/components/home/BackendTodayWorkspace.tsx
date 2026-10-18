@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Clock3, Hotel, Package, ShoppingCart, Truck } from 'lucide-react';
 import type { ActiveTab } from '../layout/AppShell';
 import { apiClient, type BackendShift } from '../../services/apiClient';
@@ -19,18 +19,28 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
   const [shift, setShift] = useState<BackendShift | null>(null);
   const [loading, setLoading] = useState(canShift);
   const [error, setError] = useState('');
+  const loadGeneration=useRef(0);
+  const loadController=useRef<AbortController|null>(null);
 
+  const loadShift=async()=>{
+    loadController.current?.abort();
+    const requestController=new AbortController();loadController.current=requestController;
+    const generation=++loadGeneration.current;
+    setLoading(true);setError('');
+    try {
+      const result=await apiClient.getCurrentShift(requestController.signal);
+      if(generation===loadGeneration.current)setShift(result.shift);
+    } catch(cause) {
+      if(generation===loadGeneration.current&&(cause as {code?:string}).code!=='REQUEST_CANCELLED')setError(cause instanceof Error ? cause.message : 'Shift status could not be loaded.');
+    } finally {
+      if(generation===loadGeneration.current)setLoading(false);
+      if(loadController.current===requestController)loadController.current=null;
+    }
+  };
   useEffect(() => {
     if (!canShift) return;
-    let active = true;
-    void apiClient.getCurrentShift().then(result => {
-      if (active) setShift(result.shift);
-    }).catch(cause => {
-      if (active) setError(cause instanceof Error ? cause.message : 'Shift status could not be loaded.');
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void loadShift();
+    return () => {loadGeneration.current++;loadController.current?.abort();};
   }, [canShift]);
 
   const shortcuts: Shortcut[] = [
@@ -51,7 +61,7 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
     {canShift && <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5" aria-labelledby="today-shift-title">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs uppercase tracking-widest text-zinc-500">Till status</p><h2 id="today-shift-title" className="mt-1 text-xl font-semibold">{loading ? 'Checking your shift…' : shift ? 'Your shift is open' : 'No open shift'}</h2><p className="mt-1 text-sm text-zinc-400">{shift ? `Opened ${new Date(shift.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: (session.outlet.timeZone ?? session.tenant.timeZone) })}` : 'Open a shift before taking cash payments.'}</p></div><button onClick={() => onNavigate('shifts')} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold">{shift ? 'Review shift' : 'Open a shift'}<ArrowRight size={16} /></button></div>
       {shift && <div className="mt-5 grid gap-3 sm:grid-cols-3"><Metric label="Opening float" value={formatMinorMoney(shift.openingFloatMinor, session.tenant.currency)} /><Metric label="Cash sales" value={formatMinorMoney(shift.cashSalesMinor, session.tenant.currency)} /><Metric label="Expected cash" value={formatMinorMoney(shift.expectedCashMinor, session.tenant.currency)} /></div>}
-      {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
+      {error && <div role="alert" className="mt-3 flex flex-wrap items-center gap-3 text-sm text-rose-300"><span>{error}</span><button type="button" disabled={loading} onClick={()=>void loadShift()} className="min-h-11 underline">Retry shift status</button></div>}
     </section>}
 
     <section aria-labelledby="today-actions-title"><div className="mb-3"><p className="text-xs uppercase tracking-widest text-zinc-500">Your work</p><h2 id="today-actions-title" className="mt-1 text-xl font-semibold">Common tasks</h2></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{shortcuts.map(item => <button key={item.id} onClick={() => onNavigate(item.id)} className="flex min-h-28 items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-left transition hover:border-blue-700 hover:bg-zinc-900"><span className="rounded-xl bg-zinc-900 p-3 text-blue-300">{item.icon}</span><span className="flex-1"><strong className="block">{item.title}</strong><small className="mt-1 block text-sm text-zinc-400">{item.detail}</small></span><ArrowRight size={16} className="mt-1 shrink-0 text-zinc-500" /></button>)}</div></section>

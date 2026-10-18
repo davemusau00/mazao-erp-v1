@@ -146,7 +146,7 @@ test('configured outlet adds and receives inventory, confirms a taxed sale and r
   await page.getByRole('button', { name: 'Add item', exact: true }).click();
   await page.getByRole('button', { name: 'Review delivery', exact: true }).click();
   await page.getByRole('button', { name: 'Post reviewed receipt', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('confirmed');
+  await expect(page.getByRole('status').filter({ hasText: 'Receipt confirmed:' })).toBeVisible();
   await page.getByRole('button', { name: 'Shifts', exact: true }).click();
   await page.getByLabel('Opening float (KES)').fill('100.00');
   await page.getByRole('button', { name: 'Open shift', exact: true }).click();
