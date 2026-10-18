@@ -51,13 +51,13 @@ test('real count retains the unsent save envelope, reloads its saved draft and r
     };
   });
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('not sent because recovery data could not be saved');
+  await expect(page.getByRole('status').filter({ hasText: 'not sent because recovery data could not be saved' })).toBeVisible();
   const original = await page.evaluate(() => (window as any).unsentCount);
   expect((await pool.query('SELECT count(*)::int n FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [tenantId, original.commandId])).rows[0].n).toBe(0);
   await expect(page.getByLabel('Counted quantity', { exact: true })).toBeDisabled();
   await page.evaluate(() => (window as any).restoreCountJournal());
   await page.getByRole('button', { name: 'Check command status', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Server confirmed the original count command');
+  await expect(page.getByRole('status').filter({ hasText: 'Server confirmed the original count command' })).toBeVisible();
   expect((await pool.query('SELECT status FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [tenantId, original.commandId])).rows[0].status).toBe('CONFIRMED');
   await page.reload(); await countWorkspace(page);
   await expect(page.getByLabel('Counted quantity', { exact: true })).toHaveValue('9.000000');
@@ -73,7 +73,8 @@ test('real count retains the unsent save envelope, reloads its saved draft and r
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Check command status', exact: true })).toBeVisible();
   await page.unroute('**/api/v1/commands'); await page.reload(); await countWorkspace(page);
   await page.getByRole('button', { name: 'Check command status', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Server confirmed the count command');
+  // Global recovery can still report its own status while this count confirms.
+  await expect(page.getByRole('status').filter({ hasText: 'Server confirmed the count command' })).toBeVisible();
   expect((await pool.query("SELECT count(*)::int n FROM inventory.movements WHERE tenant_id=$1 AND command_id=$2 AND movement_type='COUNT_ADJUSTMENT'", [tenantId, postingId])).rows[0].n).toBe(1);
   expect((await pool.query('SELECT count(*)::int n FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2', [tenantId, postingId])).rows[0].n).toBe(1);
   expect((await pool.query('SELECT quantity::text,inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1', [tenantId])).rows[0]).toEqual({ quantity: '9.000000', inventory_value_minor: '900' });
