@@ -33,7 +33,7 @@ export function AccountingControlsWorkspace() {
   const [action,setAction]=useState<Action|null>(null),[target,setTarget]=useState<Target|null>(null),[values,setValues]=useState<Record<string,string>>({}),[confirmed,setConfirmed]=useState(false);
   const [notice,setNotice]=useState(''),[sending,setSending]=useState(false),[unknown,setUnknown]=useState<BackendCommand|null>(null),[recoveryReady,setRecoveryReady]=useState(false);
   const [matching,setMatching]=useState<AccountingStatementLine|null>(null),[candidates,setCandidates]=useState<AccountingRecordMap['mpesa-payments'][]>([]),[finding,setFinding]=useState(false);
-  const inFlight=useRef(false),mounted=useRef(true);
+  const inFlight=useRef(false),mounted=useRef(true),paymentLookup=useRef<AbortController|null>(null);
   const suppliers=useRecords('suppliers',revision),receipts=useRecords('receipts',revision);
   const currency=controls?.currency??session.tenant.currency;
   const money=(minor:string)=>formatMinorMoneyText(minor,currency);
@@ -47,7 +47,7 @@ export function AccountingControlsWorkspace() {
   useEffect(()=>{
     mounted.current=true;
     void apiClient.listRecoverableCommands(session.tenant.id).then(records=>{if(!mounted.current)return;const record=records.find(row=>row.command.type.startsWith('finance.')&&row.command.deviceId===session.deviceId);if(record){setUnknown(record.command);setNotice('An accounting action needs review. Check its status before recording another action.');}setRecoveryReady(true);}).catch(()=>{if(mounted.current)setNotice('Saved accounting actions could not be checked. Enable browser storage and reopen Money.');});
-    return()=>{mounted.current=false;};
+    return()=>{mounted.current=false;paymentLookup.current?.abort();};
   },[session.tenant.id,session.deviceId]);
   const locked=sending||!!unknown||!recoveryReady;
   const open=(next:Action,row:Target|null=null)=>{
@@ -106,10 +106,11 @@ export function AccountingControlsWorkspace() {
     finally{inFlight.current=false;if(mounted.current)setSending(false);}
   };
   const findPayment=async(line:AccountingStatementLine)=>{
+    paymentLookup.current?.abort();const controller=new AbortController();paymentLookup.current=controller;
     setMatching(line);setFinding(true);setCandidates([]);setNotice('');
-    try{const result=await apiClient.listAccountingRecords('mpesa-payments',{reference:line.reference});if(mounted.current)setCandidates(result.records);}
-    catch(cause){if(mounted.current)setNotice(cause instanceof Error?cause.message:'Recorded payments could not be loaded.');}
-    finally{if(mounted.current)setFinding(false);}
+    try{const result=await apiClient.listAccountingRecords('mpesa-payments',{reference:line.reference},controller.signal);if(mounted.current&&!controller.signal.aborted)setCandidates(result.records);}
+    catch(cause){if(mounted.current&&!controller.signal.aborted)setNotice(cause instanceof Error?cause.message:'Recorded payments could not be loaded.');}
+    finally{if(mounted.current&&!controller.signal.aborted)setFinding(false);}
   };
   const match=(paymentId:string)=>{if(!matching||locked)return;void send({protocolVersion:1,commandId:crypto.randomUUID(),tenantId:session.tenant.id,deviceId:session.deviceId,type:'finance.mpesa.statement.match',occurredAt:new Date().toISOString(),expectedVersions:{},payload:{lineId:matching.id,paymentId}});};
   const paymentConfirmation=action==='expense'||action==='invoice-pay';

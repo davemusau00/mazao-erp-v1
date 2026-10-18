@@ -12,11 +12,13 @@ test('finance reader sees complete scoped sales, collections, M-Pesa and coverag
     coverage:{status:'CONFIRMED_SALES_AND_COLLECTIONS',orderCount:'4',refundCount:'1',cashPaymentCount:'3',accountChargeCount:'1',manualMpesaPaymentCount:'1',customerCollectionCount:'2',roomCashPaymentCount:'1',productCount:'14',topProductsComplete:false,scope:'This outlet only. Item sales and returns use their own business dates. Collections use their receipt dates, including collections for older sales. Room cash is shown separately from item sales. Product ranking is after item discounts and before returns.',excludedMethods:['automatic provider verification'],excludedSources:['unposted sales','external settlement statements','room revenue from item sales totals'],drawerMovementExplanation:'Cash sale receipts + customer collections + room cash + paid-ins less cash refunds and payouts. Opening floats and cash-up differences are excluded.'},
   }}));
   await page.goto('/');
-  await page.getByRole('button',{name:/^Reports/}).click();
+  let reportsNav=page.getByRole('button',{name:/^Reports/}).filter({visible:true});
+  if(await reportsNav.count()===0){await page.getByRole('button',{name:'More',exact:true}).click();reportsNav=page.getByRole('button',{name:/^Reports/}).filter({visible:true});}
+  await reportsNav.last().click();
   await expect(page.getByRole('heading',{name:'Sales & Operations Overview'})).toBeVisible();
   await expect(page.getByText(/This outlet only/)).toBeVisible();
   await expect(page.getByText('Item invoice totals')).toBeVisible();
-  await expect(page.getByText('Net sales revenue')).toBeVisible();
+  await expect(page.getByText('Net sales revenue',{exact:true}).first()).toBeVisible();
   await expect(page.getByText('Cash from sales')).toBeVisible();
   await expect(page.getByText('M-Pesa received')).toBeVisible();
   await expect(page.getByText('Customer account collections')).toBeVisible();
