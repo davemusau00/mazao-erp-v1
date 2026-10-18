@@ -66,11 +66,11 @@ try {
         Check-NativeExit 'Create restore database'
         & docker exec $container pg_restore --exit-on-error --no-owner --no-acl -U postgres -d mazao_restore /tmp/database.dump
         Check-NativeExit 'Restore encrypted off-host backup'
-        $sql = "SELECT json_build_object('migrationCount',(SELECT count(*) FROM system.schema_migrations),'tenantCount',(SELECT count(*) FROM core.tenants),'orderCount',(SELECT count(*) FROM commerce.orders),'journalCount',(SELECT count(*) FROM finance.journal_entries),'unbalancedJournalCount',(SELECT count(*) FROM (SELECT journal_entry_id FROM finance.journal_lines GROUP BY journal_entry_id HAVING sum(debit_minor)<>sum(credit_minor)) bad));"
+        $sql = "SELECT json_build_object('migrationCount',(SELECT count(*) FROM system.schema_migrations),'migrationHead',(SELECT version FROM system.schema_migrations ORDER BY version DESC LIMIT 1),'tenantCount',(SELECT count(*) FROM core.tenants),'orderCount',(SELECT count(*) FROM commerce.orders),'journalCount',(SELECT count(*) FROM finance.journal_entries),'unbalancedJournalCount',(SELECT count(*) FROM (SELECT journal_entry_id FROM finance.journal_lines GROUP BY journal_entry_id HAVING sum(debit_minor)<>sum(credit_minor)) bad));"
         $result = & docker exec $container psql -U postgres -d mazao_restore -At -v ON_ERROR_STOP=1 -c $sql
         Check-NativeExit 'Restored database control totals'
         $totals = $result | ConvertFrom-Json
-        if ($totals.migrationCount -lt 13 -or $totals.unbalancedJournalCount -ne 0) { throw 'Restored database failed migration or journal integrity checks.' }
+        if ($totals.migrationCount -lt 20 -or $totals.migrationHead -ne '020_account_display_catalog' -or $totals.unbalancedJournalCount -ne 0) { throw 'Restored database failed the current migration-head or journal integrity checks.' }
         $report.restoreVerified = $true
         $report.controlTotals = $totals
     }

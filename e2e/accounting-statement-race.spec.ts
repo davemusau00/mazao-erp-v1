@@ -12,6 +12,12 @@ const controls = {
   categories: [{ code: 'OPERATING_EXPENSE', label: 'Operating expense' }],
   paymentAccounts: [{ code: 'MOBILE_MONEY_CONTROL', label: 'M-Pesa' }], permissions: { manage: true, close: true },
 };
+const trialBalance = {
+  reportType: 'TRIAL_BALANCE', scope: 'TENANT', tenantId: 'tenant-a', tenantName: 'Business A', currency: 'KES', timeZone: 'Africa/Nairobi',
+  asOf: '2026-10-18', generatedAt: '2026-10-18T09:00:00.000Z', latestJournalAt: null,
+  coverage: { status: 'POSTED_JOURNAL_ONLY', journalEntryCount: '0', emptyJournalEntryCount: '0', unbalancedJournalEntryCount: '0', sourceTypes: [], explanation: 'Recorded journal entries only.' },
+  totals: { debitMinor: '0', creditMinor: '0', differenceMinor: '0', balanced: true }, accounts: [],
+};
 
 const statementLines = ['STATEMENT-A', 'STATEMENT-B'].map((reference, index) => ({
   id: `line-${index}`, createdAt: '2026-10-18T08:00:00.000Z', statementId: 'statement-1', statementReference: 'STMT-1',
@@ -25,6 +31,7 @@ test('a late M-Pesa lookup cannot replace the currently selected statement line'
     const path = url.pathname.replace('/api/v1', '');
     if (path === '/auth/me') return route.fulfill({ json: { user: { id: 'finance-owner', name: 'Finance owner', email: 'finance@example.test', role: 'accountant', permissions: ['finance.view', 'finance.manage', 'finance.close'] }, tenant: { id: 'tenant-a', name: 'Business A', currency: 'KES', timeZone: 'Africa/Nairobi', capabilities: ['commerce', 'inventory'] }, outlet: { id: 'outlet-a', name: 'Outlet A', timeZone: 'Africa/Nairobi' }, deviceId: 'device-a', csrfToken: 'csrf-a' } });
     if (path === '/finance/controls') return route.fulfill({ json: controls });
+    if (path === '/reports/trial-balance') return route.fulfill({ json: trialBalance });
     if (path === '/finance/records/statement-lines') return route.fulfill({ json: { records: statementLines, pageInfo: { limit: 100, hasMore: false, nextCursor: null } } });
     if (path === '/finance/records/mpesa-payments') {
       const reference = url.searchParams.get('reference');
@@ -32,6 +39,7 @@ test('a late M-Pesa lookup cannot replace the currently selected statement line'
       const suffix = reference === 'STATEMENT-A' ? 'A' : 'B';
       return route.fulfill({ json: { records: [{ id: `payment-${suffix}`, createdAt: '2026-10-18T08:00:00.000Z', reference: `PAYMENT-${suffix}`, amountMinor: '1000', currency: 'KES', outletName: 'Outlet A', operatorName: 'Cashier', matched: false }], pageInfo: { limit: 100, hasMore: false, nextCursor: null } } }).catch(() => {});
     }
+    if (path.startsWith('/finance/records/')) return route.fulfill({ json: { records: [], pageInfo: { limit: 100, hasMore: false, nextCursor: null } } });
     return route.fulfill({ json: {} });
   });
 
