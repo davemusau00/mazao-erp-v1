@@ -37,9 +37,21 @@ async function fixtureReads(page: Page) {
 
 async function navigate(page: Page, label: string) {
   const name = new RegExp(`^${label}(?:,? Limited)?$`);
-  const button = page.getByRole('button', { name }).filter({ visible: true });
-  if (await button.count() === 0) await page.getByRole('button', { name: 'More', exact: true }).click();
-  await page.getByRole('button', { name }).filter({ visible: true }).last().click();
+  const sidebarButton = page.getByRole('complementary', { name: 'Main navigation' }).getByRole('button', { name });
+  if (await sidebarButton.count() > 0 && await sidebarButton.last().isVisible()) {
+    await sidebarButton.last().click();
+    return;
+  }
+  const quickNav = page.getByRole('navigation', { name: 'Quick navigation' });
+  const quickButton = quickNav.getByRole('button', { name });
+  if (await quickButton.count() > 0 && await quickButton.last().isVisible()) {
+    await quickButton.last().click();
+    return;
+  }
+  await quickNav.getByRole('button', { name: 'More', exact: true }).click();
+  const mobileButton = page.locator('.mobile-more-panel').getByRole('button', { name });
+  await expect(mobileButton.last()).toBeVisible();
+  await mobileButton.last().click();
 }
 
 async function expectCustomerLanguage(page: Page) {

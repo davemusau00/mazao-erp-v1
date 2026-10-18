@@ -21,8 +21,13 @@ test('finance reader sees complete scoped sales, collections, M-Pesa and coverag
   await page.route('**/api/v1/reports/trial-balance**',route=>route.fulfill({json:trialBalance}));
   await page.goto('/');
   await expect(page.getByLabel('Signed in as FINANCE VIEWER')).toBeVisible();
-  let reportsNav=page.getByRole('button',{name:/^Reports/}).filter({visible:true});
-  if(await reportsNav.count()===0){await page.getByRole('button',{name:'More',exact:true}).click();reportsNav=page.getByRole('button',{name:/^Reports/}).filter({visible:true});}
+  const reportsNav=page.getByRole('button',{name:/^Reports/});
+  if(!(await reportsNav.isVisible())){
+    const moreNav=page.getByRole('button',{name:'More',exact:true});
+    await expect(moreNav).toBeVisible();
+    await moreNav.click();
+  }
+  await expect(reportsNav.last()).toBeVisible();
   await reportsNav.last().click();
   await expect(page.getByRole('heading',{name:'Sales & Operations Overview'})).toBeVisible();
   await expect(page.getByText(/This outlet only/)).toBeVisible();
