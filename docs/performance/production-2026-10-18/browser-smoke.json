@@ -1,0 +1,151 @@
+{
+  "origin": "https://mazao.davemusau.co.ke",
+  "release": "a3d5e563c737703a9b1f5df4b50bb33c5457b362",
+  "scope": "Signed-out public browser smoke; one cold sample per configuration, not workspace p95 or authenticated acceptance.",
+  "results": [
+    {
+      "browser": "chromium",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true
+        }
+      ],
+      "startedAt": "2026-10-18T12:20:38.208Z",
+      "signInVisibleMs": 65643,
+      "signInButton": {
+        "x": 441,
+        "y": 566,
+        "width": 398,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "screenshot": "chromium-1280x800.png"
+    },
+    {
+      "browser": "chromium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true
+        }
+      ],
+      "startedAt": "2026-10-18T12:20:38.212Z",
+      "signInVisibleMs": 50776,
+      "signInButton": {
+        "x": 45,
+        "y": 600,
+        "width": 300,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "screenshot": "chromium-390x844.png"
+    },
+    {
+      "browser": "firefox",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true
+        }
+      ],
+      "startedAt": "2026-10-18T12:20:39.815Z",
+      "signInVisibleMs": 38577,
+      "signInButton": {
+        "x": 441,
+        "y": 566,
+        "width": 398,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "screenshot": "firefox-1280x800.png"
+    },
+    {
+      "browser": "firefox",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true
+        }
+      ],
+      "startedAt": "2026-10-18T12:20:40.199Z",
+      "signInVisibleMs": 57004,
+      "signInButton": {
+        "x": 45,
+        "y": 600,
+        "width": 300,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "screenshot": "firefox-390x844.png"
+    }
+  ]
+}
