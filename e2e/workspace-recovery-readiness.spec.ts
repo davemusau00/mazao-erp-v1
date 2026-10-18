@@ -132,7 +132,7 @@ for (const workspace of workspaces) {
       };
     });
     await action.evaluate(element => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    await expect(page.getByText(/not sent because recovery data could not be saved/).first()).toBeVisible();
+    await expect(page.getByText(/This action was not sent because recovery details could not be saved/).first()).toBeVisible();
     expect(posts).toHaveLength(0);
     const attempted = await page.evaluate(() => (window as any).attemptedCommands);
     expect(attempted).toHaveLength(1);
@@ -143,7 +143,7 @@ for (const workspace of workspaces) {
     await status.evaluate(element => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await expect.poll(() => posts.length).toBe(1);
     expect(posts[0]).toEqual(attempted[0]);
-    await expect(page.getByText(/not sent because recovery data could not be saved/)).toHaveCount(0);
+    await expect(page.getByText(/This action was not sent because recovery details could not be saved/)).toHaveCount(0);
     expect(posts[0].type).toBe({ receiving: 'inventory.receive', count: 'inventory.count.open', hotel: 'hotel.room.create', shift: 'shift.open' }[workspace]);
     const remaining = await page.evaluate(async () => new Promise<number>((resolve, reject) => {
       const open = indexedDB.open('mazao-v1-command-journal', 1);

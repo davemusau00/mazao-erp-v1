@@ -236,7 +236,7 @@ test('staff stays usable when the independent business configuration read fails'
   await page.getByRole('heading',{name:'Manage your business'}).waitFor();
   await page.locator('.manage-grid').getByRole('button',{name:/^Staff/}).click();
   await expect(page.getByRole('heading',{name:'Staff access'})).toBeVisible();
-  await expect(page.getByText('No staff memberships are recorded for this business.')).toBeVisible();
+  await expect(page.getByText('No staff accounts are recorded for this business.')).toBeVisible();
   await expect(page.getByRole('alert').filter({hasText:'Retry loading settings'})).toBeVisible();
 });
 

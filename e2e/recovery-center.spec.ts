@@ -27,7 +27,7 @@ test('recovery center checks the retained command without resubmitting it',async
   const dialog=page.getByRole('dialog',{name:'Actions needing review'});
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Customer repayment')).toBeVisible();
-  await expect(dialog.getByText(/Nothing is automatically sent again from here/)).toBeVisible();
+  await expect(dialog.getByText(/Check status before repeating an action/)).toHaveCount(1);
   await dialog.getByRole('button',{name:'Check status'}).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   expect(commandPosts).toBe(0);

@@ -3,11 +3,11 @@ import { AppShell, canOpenWorkspace, type ActiveTab } from './components/layout/
 import { PointOfSaleView } from './components/pos/PointOfSaleView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { ShiftManagerView } from './components/shifts/ShiftManagerView';
-import { MoneyWorkspace } from './components/finance/MoneyWorkspace';
 import { lazy, Suspense } from 'react';
 
 const BackendOperationalAnalyticsWorkspace = lazy(() => import('./components/analytics/BackendOperationalAnalyticsWorkspace').then(module => ({ default: module.BackendOperationalAnalyticsWorkspace })));
 const BackendManageWorkspace = lazy(() => import('./components/manage/BackendManageWorkspace').then(module => ({ default: module.BackendManageWorkspace })));
+const MoneyWorkspace = lazy(() => import('./components/finance/MoneyWorkspace').then(module => ({ default: module.MoneyWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
@@ -128,7 +128,7 @@ export default function App() {
       {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')}/>}
       {visibleTab==='customers'&&<BackendCustomerWorkspace onNavigate={navigate}/>}
       {visibleTab==='shifts'&&<ShiftManagerView/>}
-      {visibleTab==='money'&&<MoneyWorkspace/>}
+      {visibleTab==='money'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading financial workspace…</div>}><MoneyWorkspace/></Suspense>}
       {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
       {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
