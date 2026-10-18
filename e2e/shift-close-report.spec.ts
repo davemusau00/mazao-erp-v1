@@ -54,7 +54,7 @@ test('operator opens, closes and reviews the server Z report for a business day'
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByRole('button', { name: 'Shifts', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: 'No server shift is open' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No till is open' })).toBeVisible();
   await page.getByLabel(/Opening float/).fill('5000.00');
   await page.getByRole('button', { name: 'Open shift' }).click();
   await expect(page.getByText('Shift open', { exact: true })).toBeVisible();
@@ -63,5 +63,5 @@ test('operator opens, closes and reviews the server Z report for a business day'
   await page.getByRole('button', { name: 'Close shift' }).click();
   await expect(page.getByRole('heading', { name: 'Z report' })).toBeVisible();
   await expect(page.getByText(/Cash variance:/)).toBeVisible();
-  await expect(page.getByText('Close report report-day-1 is saved below.')).toBeVisible();
+  await expect(page.getByText('Your close report is shown below.')).toBeVisible();
 });

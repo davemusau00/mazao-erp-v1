@@ -110,14 +110,14 @@ test('unknown password outcome survives closing the account and retains no passw
   await page.route('**/api/v1/commands/*', route => {
     checkedId = route.request().url().split('/').at(-1)!;
     return confirmed
-      ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: { status: 'CONFIRMED', value: { reauthenticate: true, credentialVersion: 5 } } } })
+      ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: { commandId, status: 'CONFIRMED', value: { reauthenticate: true, credentialVersion: 5 } } } })
       : route.fulfill({ status: 404, json: { error: { message: 'Command not found' } } });
   });
   await page.goto('/');
   let dialog = await openAccount(page);
   await fillOwnPassword(page);
   await dialog.getByRole('button', { name: 'Change my password', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Check password command status' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Check password change status' })).toBeVisible();
   const retained = await page.evaluate(async () => new Promise<any[]>((resolve, reject) => {
     const request = indexedDB.open('mazao-v1-secret-operations', 1);
     request.onerror = () => reject(request.error);
@@ -129,15 +129,16 @@ test('unknown password outcome survives closing the account and retains no passw
   expect(JSON.stringify(retained)).not.toContain(currentPassword);
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   dialog = await openAccountAfterPending(page);
-  await expect(dialog.getByText(`Command ${commandId}`, { exact: true })).toBeVisible();
+  await dialog.getByText('Support reference', { exact: true }).click();
+  await expect(dialog.getByText(`Reference ${commandId}`, { exact: true })).toBeVisible();
   await expect(dialog.getByLabel('New password', { exact: true })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: 'Change my password', exact: true })).toBeDisabled();
-  await dialog.getByRole('button', { name: 'Check password command status' }).click();
+  await dialog.getByRole('button', { name: 'Check password change status' }).click();
   await expect(dialog.getByRole('alert')).toContainText('No completed password operation was found yet');
   expect(checkedId).toBe(commandId);
   expect(posts).toBe(1);
   confirmed = true;
-  await dialog.getByRole('button', { name: 'Check password command status' }).click();
+  await dialog.getByRole('button', { name: 'Check password change status' }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   expect(posts).toBe(1);
 });
@@ -145,7 +146,7 @@ test('unknown password outcome survives closing the account and retains no passw
 async function openAccountAfterPending(page: Page) {
   await page.getByRole('button', { name: 'Signed in as Account Operator' }).click();
   const dialog = page.getByRole('dialog', { name: 'My account' });
-  await expect(dialog.getByRole('button', { name: 'Check password command status' })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Check password change status' })).toBeEnabled();
   return dialog;
 }
 
@@ -157,7 +158,7 @@ test('operator can revoke another own session using its exact server version', a
   await page.route('**/api/v1/commands', route => {
     sent = route.request().postDataJSON();
     records[1].revokedAt = '2026-10-16T07:00:00Z' as any;
-    return route.fulfill({ json: { commandId: sent.commandId, status: 'CONFIRMED' } });
+    return route.fulfill({ json: { commandId: sent.commandId, status: 'CONFIRMED', value: { sessionId: 'other-session' } } });
   });
   await page.goto('/');
   const dialog = await openAccount(page);
@@ -202,7 +203,7 @@ test('changing staff target clears secret fields, visibility and errors, and loc
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let payload: any;
-  await page.route('**/api/v1/staff/operator-Beta/password', async route => { payload = route.request().postDataJSON(); await held; await route.fulfill({ json: { commandId: payload.commandId, status: 'REJECTED', message: 'Credential policy rejected this request.' } }); });
+  await page.route('**/api/v1/staff/operator-Beta/password', async route => { payload = route.request().postDataJSON(); await held; await route.fulfill({ json: { commandId: payload.commandId, status: 'REJECTED', code: 'PASSWORD_POLICY_REJECTED', message: 'Credential policy rejected this request.' } }); });
   await selected.getByLabel('New password', { exact: true }).fill(newPassword);
   await selected.getByLabel('Confirm new password').fill(newPassword);
   await selected.getByRole('button', { name: 'Reset operator password', exact: true }).click();
@@ -214,7 +215,7 @@ test('changing staff target clears secret fields, visibility and errors, and loc
   await page.getByRole('button', { name: 'All settings', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Staff access' })).toBeVisible();
   release();
-  await expect(selected.getByRole('alert')).toContainText('Credential policy rejected');
+  await expect(selected.getByRole('alert')).toContainText('This action could not be completed');
   await page.getByRole('button', { name: /Operator Alpha.*alpha@example.invalid/ }).click();
   await expect(selected.getByRole('alert')).toHaveCount(0);
   await expect(selected.getByLabel('New password', { exact: true })).toHaveValue('');

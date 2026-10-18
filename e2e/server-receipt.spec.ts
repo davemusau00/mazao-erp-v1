@@ -29,10 +29,10 @@ test('receipt preview renders only the immutable server snapshot and keeps print
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText('Countryside Resort Limited')).toBeVisible();
   await expect(dialog.getByText('Kenyan tea')).toBeVisible();
-  await expect(dialog.getByText('KES 116.00').first()).toBeVisible();
-  await expect(dialog.getByText('KES 120.00')).toBeVisible();
-  await expect(dialog.getByText('KES 4.00')).toBeVisible();
+  await expect(dialog.getByText('KES 116').first()).toBeVisible();
+  await expect(dialog.getByText('KES 120')).toBeVisible();
+  await expect(dialog.getByText('KES 4')).toBeVisible();
   await expect(dialog.getByText('Thank you for visiting.')).toBeVisible();
-  await expect(dialog.getByText('Browser printing is not printer-device acknowledgement.')).toBeVisible();
+  await expect(dialog.getByText('Check your printer after closing the print dialog.')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Open print dialog' })).toBeEnabled();
 });

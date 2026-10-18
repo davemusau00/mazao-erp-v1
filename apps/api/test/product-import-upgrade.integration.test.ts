@@ -47,7 +47,7 @@ if(!sourceUrl){
       const snapshot=async()=>{
         const balances=await fixture!.query('SELECT * FROM inventory.balances ORDER BY product_id');
         const movements=await fixture!.query('SELECT * FROM inventory.movements ORDER BY id');
-        const journals=await fixture!.query('SELECT * FROM finance.journal_entries ORDER BY id');
+        const journals=await fixture!.query('SELECT id,tenant_id,source_type,source_id,currency,created_by,posted_at FROM finance.journal_entries ORDER BY id');
         const lines=await fixture!.query('SELECT * FROM finance.journal_lines ORDER BY id');
         // Migration 016 adds this one new display snapshot. Compare every
         // pre-existing order column byte-for-byte while checking the new
@@ -59,11 +59,12 @@ if(!sourceUrl){
       const before=await snapshot();
       migrate();migrate();
       assert.deepEqual(await snapshot(),before,'Migration and rerun must not rewrite existing posted or inventory evidence.');
+      assert.equal((await fixture.query('SELECT count(*)::int n FROM finance.journal_entries WHERE tenant_id=$1 AND effective_date IS NOT NULL',[tenant])).rows[0].n,0,'the additive business-date field must not rewrite historical journal dates');
       assert.equal((await fixture.query('SELECT operator_name_snapshot FROM commerce.orders WHERE id=$1',[order])).rows[0].operator_name_snapshot,'Legacy operator','the additive historical operator snapshot must come from the original global identity and remain stable on rerun.');
       const metadata=await fixture.query('SELECT category,barcode,reorder_level::text,last_import_batch_id FROM catalog.products WHERE id=$1',[product]);
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,17,'the complete additive upgrade reaches migration 017');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,20,'the complete additive upgrade reaches the current migration');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

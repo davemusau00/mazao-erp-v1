@@ -58,11 +58,12 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
     const lineResult = await client.query<{
       id: string; sku_snapshot: string; name_snapshot: string; quantity: string;
       unit_price_minor: string; tax_rate_bps: number; line_subtotal_minor: string; line_tax_minor: string;
+      discount_minor: string; discount_reason: string | null;
     }>(`SELECT id,sku_snapshot,name_snapshot,quantity::text,unit_price_minor::text,tax_rate_bps,
-        line_subtotal_minor::text,line_tax_minor::text
+        line_subtotal_minor::text,line_tax_minor::text,discount_minor::text,discount_reason
       FROM commerce.order_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 ORDER BY id`,
     [session.tenantId, session.outletId, orderIdValue]);
-    const paymentResult = await client.query<{ method: string; amount_minor: string; currency: string; status: string }>(`SELECT method,amount_minor::text,currency,status
+    const paymentResult = await client.query<{ method: string; amount_minor: string; currency: string; status: string; reference: string | null; confirmed_operator_name_snapshot: string | null; manually_confirmed_at: Date | null }>(`SELECT method,amount_minor::text,currency,status,reference,confirmed_operator_name_snapshot,manually_confirmed_at
       FROM commerce.payments WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 ORDER BY created_at,id`,
     [session.tenantId, session.outletId, orderIdValue]);
 
@@ -72,6 +73,7 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
     const amountDue = BigInt(order.customer_amount_due_minor);
     const lineSubtotal = lineResult.rows.reduce((sum, line) => sum + BigInt(line.line_subtotal_minor), 0n);
     const lineTax = lineResult.rows.reduce((sum, line) => sum + BigInt(line.line_tax_minor), 0n);
+    const discount = lineResult.rows.reduce((sum, line) => sum + BigInt(line.discount_minor), 0n);
     const paid = paymentResult.rows.reduce((sum, payment) => sum + BigInt(payment.amount_minor), 0n);
     if (lineSubtotal !== subtotal || lineTax !== tax || subtotal + tax !== total || paid + amountDue !== total || (amountDue > 0n) !== (order.customer_account_id !== null) || ((order.customer_account_id === null) !== (order.customer_name_snapshot === null))) {
       throw new DomainError('RECEIPT_INTEGRITY_FAILED', 'Stored sale lines, payment or customer charge evidence do not reconcile to the confirmed order.', 500);
@@ -108,11 +110,16 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
         quantity: line.quantity,
         unitPriceMinor: line.unit_price_minor,
         taxRateBps: line.tax_rate_bps,
+        originalSubtotalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.discount_minor)).toString(),
+        discountMinor: line.discount_minor,
+        discountReason: line.discount_reason,
         subtotalMinor: line.line_subtotal_minor,
         taxMinor: line.line_tax_minor,
         totalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.line_tax_minor)).toString(),
       })),
-      payments: paymentResult.rows.map(payment => ({ method: payment.method, amountMinor: payment.amount_minor, currency: payment.currency, status: payment.status })),
+      payments: paymentResult.rows.map(payment => ({ method: payment.method, amountMinor: payment.amount_minor, currency: payment.currency, status: payment.status, reference: payment.reference, confirmation: payment.method === 'MANUAL_MPESA' ? 'CASHIER_CONFIRMED' : 'CASH', confirmedBy: payment.confirmed_operator_name_snapshot, confirmedAt: payment.manually_confirmed_at })),
+      originalSubtotalMinor: (subtotal + discount).toString(),
+      discountMinor: discount.toString(),
       subtotalMinor: order.subtotal_minor,
       taxMinor: order.tax_minor,
       totalMinor: order.total_minor,

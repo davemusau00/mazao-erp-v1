@@ -2,6 +2,8 @@ import type { PoolClient } from 'pg';
 import { pool } from './db.js';
 import type { ApiSession } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
+import { accountMetadata, reportSourceName } from './reportMetadata.js';
+import {readAccountLabels} from './accountCatalog.js';
 
 type AccountTotal = { accountCode: string; debitMinor: string; creditMinor: string };
 type Snapshot = {
@@ -14,15 +16,7 @@ type Snapshot = {
   sourceTypes: Array<{ sourceType: string; entryCount: string }>;
 };
 
-const revenueCodes = new Set(['SALES_REVENUE', 'ROOM_REVENUE']);
-const otherIncomeCodes = new Set(['INVENTORY_COUNT_GAIN']);
-const expenseCodes = new Set(['COST_OF_GOODS_SOLD', 'INVENTORY_COUNT_SHRINKAGE', 'CASH_OVER_SHORT']);
-const knownBalanceSheetCodes = new Set([
-  'CASH_TILL', 'CASH_FLOAT_CLEARING', 'CASH_PAID_IN_CLEARING', 'CASH_PAYOUT_CLEARING',
-  'GOODS_RECEIVED_NOT_INVOICED', 'INVENTORY', 'VAT_PAYABLE',
-]);
-
-function requireFinanceView(session: ApiSession) {
+export function requireFinanceView(session: ApiSession) {
   if (!ROLE_PERMISSIONS[session.role].includes('finance.view')) {
     throw new DomainError('FORBIDDEN', 'Your role cannot access financial reports.', 403);
   }
@@ -69,7 +63,8 @@ async function inReadSnapshot<T>(run: (client: PoolClient) => Promise<T>): Promi
 }
 
 async function readSnapshot(client: PoolClient, session: ApiSession, start: string | null, end: string) {
-  ensureTimeZone(session.timeZone);
+  const timeZone = await tenantReportTimeZone(client, session);
+  const catalog=await readAccountLabels(client,session.tenantId);
 
   const result = await client.query<{
     accounts: AccountTotal[] | null;
@@ -83,8 +78,8 @@ async function readSnapshot(client: PoolClient, session: ApiSession, start: stri
         SELECT id,source_type,posted_at
         FROM finance.journal_entries
         WHERE tenant_id=$1
-          AND ($2::date IS NULL OR posted_at >= ($2::date::timestamp AT TIME ZONE $4))
-          AND posted_at < (($3::date + 1)::timestamp AT TIME ZONE $4)
+          AND ($2::date IS NULL OR coalesce(effective_date,(posted_at AT TIME ZONE $4)::date)>=$2::date)
+          AND coalesce(effective_date,(posted_at AT TIME ZONE $4)::date)<=$3::date
       ), entry_balances AS (
         SELECT e.id,e.posted_at,coalesce(sum(l.debit_minor),0) debit_minor,coalesce(sum(l.credit_minor),0) credit_minor
         FROM scoped_entries e
@@ -106,10 +101,12 @@ async function readSnapshot(client: PoolClient, session: ApiSession, start: stri
         (SELECT max(posted_at) FROM scoped_entries) latest_journal_at,
         statement_timestamp() generated_at,
         coalesce((SELECT jsonb_agg(jsonb_build_object('sourceType',source_type,'entryCount',entry_count) ORDER BY source_type) FROM source_counts),'[]'::jsonb) source_types`,
-  [session.tenantId, start, end, session.timeZone]);
+  [session.tenantId, start, end, timeZone]);
 
   const row = result.rows[0];
   return {
+    timeZone,
+    catalog,
     accounts: row.accounts ?? [],
     journalEntryCount: row.journal_entry_count,
     emptyJournalEntryCount: row.empty_journal_entry_count,
@@ -117,16 +114,27 @@ async function readSnapshot(client: PoolClient, session: ApiSession, start: stri
     latestJournalAt: row.latest_journal_at,
     generatedAt: row.generated_at,
     sourceTypes: row.source_types ?? [],
-  } satisfies Snapshot;
+  } satisfies Snapshot & {timeZone:string;catalog:Awaited<ReturnType<typeof readAccountLabels>>};
 }
 
-function accountBalanceRows(rows: AccountTotal[]) {
+/** A tenant-wide financial period must not change when an operator switches outlets. */
+export async function tenantReportTimeZone(client:PoolClient,session:ApiSession){
+  const tenant=await client.query<{time_zone:string}>('SELECT time_zone FROM core.tenants WHERE id=$1',[session.tenantId]);
+  if(!tenant.rowCount)throw new DomainError('NOT_FOUND','The business could not be found.',404);
+  const timeZone=tenant.rows[0].time_zone;
+  ensureTimeZone(timeZone);
+  return timeZone;
+}
+
+function accountBalanceRows(rows: AccountTotal[],labels=new Map<string,string>()) {
   return rows.map(account => {
     const debit = BigInt(account.debitMinor);
     const credit = BigInt(account.creditMinor);
     const net = debit - credit;
     return {
       accountCode: account.accountCode,
+      accountName: labels.get(account.accountCode)??accountMetadata(account.accountCode).name,
+      classification: accountMetadata(account.accountCode).classification,
       debitMinor: debit.toString(),
       creditMinor: credit.toString(),
       netDebitMinor: net > 0n ? net.toString() : '0',
@@ -140,7 +148,7 @@ export async function getTrialBalance(session: ApiSession, asOfValue: unknown) {
   const asOf = dateOnly(asOfValue, 'asOf');
   return inReadSnapshot(async client => {
     const snapshot = await readSnapshot(client, session, null, asOf);
-    const accounts = accountBalanceRows(snapshot.accounts);
+    const accounts = accountBalanceRows(snapshot.accounts,snapshot.catalog.labels);
     const totalDebit = accounts.reduce((sum, account) => sum + BigInt(account.netDebitMinor), 0n);
     const totalCredit = accounts.reduce((sum, account) => sum + BigInt(account.netCreditMinor), 0n);
     const difference = totalDebit - totalCredit;
@@ -150,9 +158,10 @@ export async function getTrialBalance(session: ApiSession, asOfValue: unknown) {
       tenantId: session.tenantId,
       tenantName: session.tenantName,
       currency: session.currency,
-      timeZone: session.timeZone,
+      timeZone: snapshot.timeZone,
       asOf,
       generatedAt: snapshot.generatedAt,
+      accountCatalogVersion:snapshot.catalog.version,
       latestJournalAt: snapshot.latestJournalAt,
       coverage: {
         status: 'POSTED_JOURNAL_ONLY',
@@ -178,7 +187,7 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
   const { from, to } = dateRange(fromValue, toValue);
   return inReadSnapshot(async client => {
     const snapshot = await readSnapshot(client, session, from, to);
-    const accountRows = accountBalanceRows(snapshot.accounts);
+    const accountRows = accountBalanceRows(snapshot.accounts,snapshot.catalog.labels);
     let revenue = 0n;
     let costOfGoodsSold = 0n;
     let otherIncome = 0n;
@@ -187,23 +196,24 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
     const lines = accountRows.map(account => {
       const debit = BigInt(account.debitMinor);
       const credit = BigInt(account.creditMinor);
-      if (revenueCodes.has(account.accountCode)) {
+      const metadata=accountMetadata(account.accountCode);
+      if (metadata.classification==='REVENUE') {
         const value = credit - debit;
         revenue += value;
-        return { accountCode: account.accountCode, section: 'REVENUE', amountMinor: value.toString() };
+        return { accountCode: account.accountCode, accountName:account.accountName, section: 'REVENUE', amountMinor: value.toString() };
       }
-      if (otherIncomeCodes.has(account.accountCode)) {
+      if (metadata.classification==='OTHER_INCOME') {
         const value = credit - debit;
         otherIncome += value;
-        return { accountCode: account.accountCode, section: 'OTHER_INCOME', amountMinor: value.toString() };
+        return { accountCode: account.accountCode, accountName:account.accountName, section: 'OTHER_INCOME', amountMinor: value.toString() };
       }
-      if (expenseCodes.has(account.accountCode)) {
+      if (metadata.classification==='COST_OF_GOODS_SOLD'||metadata.classification==='OTHER_OPERATING_COST') {
         const value = debit - credit;
         if (account.accountCode === 'COST_OF_GOODS_SOLD') costOfGoodsSold += value;
         else otherOperatingCosts += value;
-        return { accountCode: account.accountCode, section: account.accountCode === 'COST_OF_GOODS_SOLD' ? 'COST_OF_GOODS_SOLD' : 'OTHER_OPERATING_COST', amountMinor: value.toString() };
+        return { accountCode: account.accountCode, accountName:account.accountName, section: metadata.classification, amountMinor: value.toString() };
       }
-      if (!knownBalanceSheetCodes.has(account.accountCode)) unknownAccountCodes.push(account.accountCode);
+      if (!metadata.classification) unknownAccountCodes.push(account.accountCode);
       return null;
     }).filter((line): line is NonNullable<typeof line> => line !== null);
     const grossProfit = revenue - costOfGoodsSold;
@@ -214,10 +224,11 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
       tenantId: session.tenantId,
       tenantName: session.tenantName,
       currency: session.currency,
-      timeZone: session.timeZone,
+      timeZone: snapshot.timeZone,
       from,
       to,
       generatedAt: snapshot.generatedAt,
+      accountCatalogVersion:snapshot.catalog.version,
       latestJournalAt: snapshot.latestJournalAt,
       coverage: {
         status: 'PARTIAL',
@@ -226,7 +237,7 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
         unbalancedJournalEntryCount: snapshot.unbalancedJournalEntryCount,
         sourceTypes: snapshot.sourceTypes,
         unknownAccountCodes,
-        omittedSources: ['supplier invoices and AP', 'operating expense postings', 'payroll and accruals', 'depreciation', 'payment-provider settlement', 'period adjustments and close'],
+        omittedSources: ['payroll and accruals', 'depreciation', 'complete bank and payment-provider settlement', 'unrecorded opening balances and legacy cost evidence', 'general adjusting journals beyond supported reversals'],
         explanation: 'This operating summary covers only recognized account codes in posted journal entries. It is partial and must not be presented as net profit or a complete P&L.',
       },
       totals: {
@@ -244,7 +255,6 @@ export async function getProfitLoss(session: ApiSession, fromValue: unknown, toV
 
 export async function getJournalLines(session: ApiSession, query: { accountCode: unknown; from?: unknown; to?: unknown; asOf?: unknown; limit: unknown; offset: unknown }) {
   requireFinanceView(session);
-  ensureTimeZone(session.timeZone);
   if (typeof query.accountCode !== 'string' || !/^[A-Z0-9_]{1,64}$/.test(query.accountCode)) {
     throw new DomainError('VALIDATION_FAILED', 'accountCode must be a valid account code.');
   }
@@ -259,39 +269,46 @@ export async function getJournalLines(session: ApiSession, query: { accountCode:
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100_000) throw new DomainError('VALIDATION_FAILED', 'offset must be an integer from 0 to 100000.');
 
   return inReadSnapshot(async client => {
+    const timeZone=await tenantReportTimeZone(client,session);
+    const catalog=await readAccountLabels(client,session.tenantId);
     const start = range?.from ?? null;
     const end = asOf ?? range!.to;
     const countResult = await client.query<{ total: string }>(`SELECT count(*)::text total
       FROM finance.journal_entries je
       JOIN finance.journal_lines jl ON jl.tenant_id=je.tenant_id AND jl.journal_entry_id=je.id
       WHERE je.tenant_id=$1 AND jl.account_code=$2
-        AND ($3::date IS NULL OR je.posted_at >= ($3::date::timestamp AT TIME ZONE $5))
-        AND je.posted_at < (($4::date + 1)::timestamp AT TIME ZONE $5)`,
-    [session.tenantId, query.accountCode, start, end, session.timeZone]);
-    const entriesResult = await client.query(`SELECT je.id journal_entry_id,je.source_type,je.source_id,je.currency,je.posted_at,je.created_by,
+        AND ($3::date IS NULL OR coalesce(je.effective_date,(je.posted_at AT TIME ZONE $5)::date)>=$3::date)
+        AND coalesce(je.effective_date,(je.posted_at AT TIME ZONE $5)::date)<=$4::date`,
+    [session.tenantId, query.accountCode, start, end, timeZone]);
+    const entriesResult = await client.query(`SELECT jl.id journal_line_id,je.id journal_entry_id,je.source_type,je.source_id,je.currency,je.posted_at,je.created_by,
+        coalesce(je.effective_date,(je.posted_at AT TIME ZONE $6)::date)::text business_date,
         jl.account_code,jl.debit_minor::text debit_minor,jl.credit_minor::text credit_minor
       FROM finance.journal_entries je
       JOIN finance.journal_lines jl ON jl.tenant_id=je.tenant_id AND jl.journal_entry_id=je.id
       WHERE je.tenant_id=$1 AND jl.account_code=$2
-        AND ($3::date IS NULL OR je.posted_at >= ($3::date::timestamp AT TIME ZONE $6))
-        AND je.posted_at < (($4::date + 1)::timestamp AT TIME ZONE $6)
+        AND ($3::date IS NULL OR coalesce(je.effective_date,(je.posted_at AT TIME ZONE $6)::date)>=$3::date)
+        AND coalesce(je.effective_date,(je.posted_at AT TIME ZONE $6)::date)<=$4::date
       ORDER BY je.posted_at DESC,je.id DESC,jl.id
       LIMIT $5 OFFSET $7`,
-    [session.tenantId, query.accountCode, start, end, limit, session.timeZone, offset]);
+    [session.tenantId, query.accountCode, start, end, limit, timeZone, offset]);
     const total = BigInt(countResult.rows[0].total);
     const returned = BigInt(entriesResult.rowCount ?? 0);
     const next = BigInt(offset) + returned;
     return {
-      scope: 'TENANT', accountCode: query.accountCode, ...(asOf ? { asOf } : { from: range!.from, to: range!.to }), limit, offset, total: total.toString(),
+      scope: 'TENANT', accountCode: query.accountCode, accountName:catalog.labels.get(String(query.accountCode))??accountMetadata(String(query.accountCode)).name,timeZone,accountCatalogVersion:catalog.version, ...(asOf ? { asOf } : { from: range!.from, to: range!.to }), limit, offset, total: total.toString(),
       nextOffset: next < total ? Number(next) : null,
       entries: entriesResult.rows.map(row => ({
         journalEntryId: row.journal_entry_id,
+        journalLineId:row.journal_line_id,
         sourceType: row.source_type,
+        sourceName:reportSourceName(row.source_type),
         sourceId: row.source_id,
         currency: row.currency,
         postedAt: row.posted_at,
+        businessDate:row.business_date,
         createdBy: row.created_by,
         accountCode: row.account_code,
+        accountName:catalog.labels.get(row.account_code)??accountMetadata(row.account_code).name,
         debitMinor: row.debit_minor,
         creditMinor: row.credit_minor,
       })),

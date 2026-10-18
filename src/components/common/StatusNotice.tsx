@@ -6,12 +6,12 @@ const copy: Record<CommandStatus, { title: string; detail: string; tone: string;
   editing: { title: 'Draft', detail: 'Changes are still being edited.', tone: 'neutral', icon: <Info /> },
   validating: { title: 'Checking details', detail: 'Reviewing this action before it is sent.', tone: 'info', icon: <Info /> },
   sending: { title: 'Sending', detail: 'Keep this window open while we confirm the result.', tone: 'info', icon: <Info /> },
-  confirmed: { title: 'Confirmed', detail: 'The server confirmed this action.', tone: 'success', icon: <CheckCircle2 /> },
+  confirmed: { title: 'Confirmed', detail: 'Action completed.', tone: 'success', icon: <CheckCircle2 /> },
   rejected: { title: 'Not completed', detail: 'The action was rejected. Review the reason before editing.', tone: 'danger', icon: <AlertCircle /> },
   outcome_unknown: { title: 'Checking save status', detail: 'The response was interrupted. This action may have completed; check its status before retrying.', tone: 'warning', icon: <AlertCircle /> },
-  local_only: { title: 'Saved on this device', detail: 'This change has not been confirmed by the server.', tone: 'warning', icon: <WifiOff /> },
-  pending_sync: { title: 'Waiting to sync', detail: 'This device has saved the action locally. It is still waiting for server confirmation.', tone: 'warning', icon: <WifiOff /> },
-  conflict: { title: 'Changed elsewhere', detail: 'Review both versions before resolving this change.', tone: 'danger', icon: <AlertCircle /> },
+  local_only: { title: 'Saved on this device', detail: 'This change is saved only on this device and has not been confirmed.', tone: 'warning', icon: <WifiOff /> },
+  pending_sync: { title: 'Waiting to sync', detail: 'This device has saved the action locally. It is still waiting for confirmation.', tone: 'warning', icon: <WifiOff /> },
+  conflict: { title: 'Changed elsewhere', detail: 'Review the latest details before trying again.', tone: 'danger', icon: <AlertCircle /> },
 };
 
 export function StatusNotice({ status, commandId, onCheckStatus, onReviewActivity }: {

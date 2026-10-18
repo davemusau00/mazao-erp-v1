@@ -33,8 +33,8 @@ for (const viewport of [{ width: 1024, height: 600 }, { width: 390, height: 844 
     await expect(page.getByLabel('Signed in as Calendar Browser Operator')).toBeVisible();
     if (viewport.width < 768) {
       await page.getByRole('button', { name: 'More', exact: true }).click();
-      await page.locator('.mobile-more-panel').getByRole('button', { name: 'Hotel Partial', exact: true }).click();
-    } else await page.getByRole('button', { name: 'Hotel, Partial', exact: true }).click();
+      await page.locator('.mobile-more-panel').getByRole('button', { name: 'Hotel Limited', exact: true }).click();
+    } else await page.getByRole('button', { name: 'Hotel, Limited', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Rooms and guest stays' })).toBeVisible();
     const tasks = page.getByRole('navigation', { name: 'Hotel tasks' });
     await tasks.getByRole('button', { name: 'Reservations', exact: true }).click();

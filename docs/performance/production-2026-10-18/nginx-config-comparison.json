@@ -1,0 +1,34 @@
+{
+  "configurationRevision": "d9e71bc403d1b9c054e752769c18793227f822d7",
+  "before": [
+    "48c6a4ec1e1fd28ccf968490f07e34a1d7f755793b2108a3ed8670b1ee2a0aa2  /etc/nginx/nginx.conf",
+    "87872dccaad62eed49a560ace98b9b2b37f04245beb5194cc74692a4c2b6c9aa  /etc/nginx/sites-available/africa-sms",
+    "ce0901350a021608139b5639cf4ccd7717bef8c3a9e4f79031eb46386b67b03f  /etc/nginx/sites-available/default",
+    "fa99c59d5a75ce2abbf03e85b281800f012c754f10cda821e14a71b8076ba28d  /etc/nginx/sites-available/details",
+    "076c28a4ef1748c8a1dcbed18e304d2d72bbb55e696a7d4c889804b0138603bf  /etc/nginx/sites-available/mazao-pilot",
+    "9516f4f3cdb7bd1a6dfa23eeb1443b90e9947ba8a49cc7ce8211c3eb008664e5  /etc/nginx/sites-available/serveos-production",
+    "8f2afd559fec59182642e314491ecb7b4239c8bfe0f3c11770f3c8664c75c0bb  /etc/nginx/sites-available/serveos-production.pre-serveos-next-20261011T144001Z",
+    "ae130520a5f54c6c1c64409f8656e4b7df7e358ef80913b3c450b09bc5feb887  /etc/nginx/sites-available/sms"
+  ],
+  "after": [
+    "48c6a4ec1e1fd28ccf968490f07e34a1d7f755793b2108a3ed8670b1ee2a0aa2  /etc/nginx/nginx.conf",
+    "87872dccaad62eed49a560ace98b9b2b37f04245beb5194cc74692a4c2b6c9aa  /etc/nginx/sites-available/africa-sms",
+    "ce0901350a021608139b5639cf4ccd7717bef8c3a9e4f79031eb46386b67b03f  /etc/nginx/sites-available/default",
+    "fa99c59d5a75ce2abbf03e85b281800f012c754f10cda821e14a71b8076ba28d  /etc/nginx/sites-available/details",
+    "021429513ee5c405e29e6f31aca73333dfbecf1fe2d3258fde7264a3c8cf4ca0  /etc/nginx/sites-available/mazao-pilot",
+    "9516f4f3cdb7bd1a6dfa23eeb1443b90e9947ba8a49cc7ce8211c3eb008664e5  /etc/nginx/sites-available/serveos-production",
+    "8f2afd559fec59182642e314491ecb7b4239c8bfe0f3c11770f3c8664c75c0bb  /etc/nginx/sites-available/serveos-production.pre-serveos-next-20261011T144001Z",
+    "ae130520a5f54c6c1c64409f8656e4b7df7e358ef80913b3c450b09bc5feb887  /etc/nginx/sites-available/sms"
+  ],
+  "protectedFilesCompared": 7,
+  "protectedFilesUnchanged": true,
+  "onlyChangedFile": "/etc/nginx/sites-available/mazao-pilot",
+  "postReloadReady": true,
+  "protectedRootCodes": {
+    "detailskilonzo.com": 200,
+    "serveos.davemusau.co.ke": 200,
+    "serveosapi.davemusau.co.ke": 404,
+    "sms.detailskilonzo.com": 307,
+    "africa.detailskilonzo.com": 307
+  }
+}

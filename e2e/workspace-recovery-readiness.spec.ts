@@ -26,7 +26,7 @@ async function session(page: Page, openCount = false) {
 async function navigate(page: Page, workspace: Workspace) {
   await expect(page.getByLabel('Signed in as Readiness Manager')).toBeVisible();
   const label = { receiving: 'Purchasing', count: 'Count stock', hotel: 'Hotel', shift: 'Shifts' }[workspace];
-  const name = new RegExp(`^${label}(?:, Partial)?$`);
+  const name = new RegExp(`^${label}(?:, Limited)?$`);
   const button = page.getByRole('button', { name });
   if (!await button.isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('button', { name }).last().click();
@@ -63,7 +63,7 @@ async function interceptJournalOpen(page: Page, mode: 'delay' | 'error', retaine
 for (const workspace of workspaces) {
   test(`${workspace} waits for journal inspection before enabling writes`, async ({ page }) => {
     await interceptJournalOpen(page, 'delay'); await session(page); await page.goto('/'); await navigate(page, workspace);
-    await expect(page.getByText('Checking saved command recovery before enabling new actions…')).toBeVisible();
+    await expect(page.getByText('Checking for unfinished actions...')).toBeVisible();
     await expect(initialAction(page, workspace)).toBeDisabled();
     await expect.poll(() => page.evaluate(() => Boolean((window as any).recoveryHeld))).toBe(true);
     await page.evaluate(() => (window as any).releaseRecovery());
@@ -84,7 +84,7 @@ test('retrying a failed journal open preserves the retained receipt and replays 
   await interceptJournalOpen(page, 'error', true); await session(page);
   const posts: any[] = [];
   await page.route('**/api/v1/commands/retained-receipt-readiness', route => route.fulfill({ status: 404, json: { error: { message: 'Original command not found.' } } }));
-  await page.route('**/api/v1/commands', route => { posts.push(route.request().postDataJSON()); return route.fulfill({ json: { status: 'CONFIRMED', value: { lineCount: 1, totalMinor: 200 } } }); });
+  await page.route('**/api/v1/commands', route => { posts.push(route.request().postDataJSON()); return route.fulfill({ json: { commandId: route.request().postDataJSON().commandId, status: 'CONFIRMED', value: { lineCount: 1, totalMinor: 200 } } }); });
   await page.goto('/'); await navigate(page, 'receiving');
   await page.evaluate(() => { (window as any).recoveryMode = 'normal'; });
   await page.getByRole('button', { name: 'Retry recovery check' }).click();
@@ -119,7 +119,7 @@ for (const workspace of workspaces) {
   test(`${workspace} retains one exact command through rapid activation and a failed local journal write`, async ({ page }) => {
     await session(page); const posts: any[] = [];
     await page.route('**/api/v1/commands/**', route => route.fulfill({ status: 404, json: { error: { message: 'Original command not found.' } } }));
-    await page.route('**/api/v1/commands', route => { posts.push(route.request().postDataJSON()); return route.fulfill({ json: { status: 'CONFIRMED', value: { lineCount: 1, totalMinor: 100, version: 1 } } }); });
+    await page.route('**/api/v1/commands', route => { posts.push(route.request().postDataJSON()); return route.fulfill({ json: { commandId: route.request().postDataJSON().commandId, status: 'CONFIRMED', value: { lineCount: 1, totalMinor: 100, version: 1 } } }); });
     await page.goto('/'); await navigate(page, workspace); await expect(initialAction(page, workspace)).toBeEnabled();
     const action = await prepareAction(page, workspace);
     await page.evaluate(() => {
@@ -132,18 +132,18 @@ for (const workspace of workspaces) {
       };
     });
     await action.evaluate(element => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    await expect(page.getByText(/not sent because recovery data could not be saved/).first()).toBeVisible();
+    await expect(page.getByText(/This action was not sent because recovery details could not be saved/).first()).toBeVisible();
     expect(posts).toHaveLength(0);
     const attempted = await page.evaluate(() => (window as any).attemptedCommands);
     expect(attempted).toHaveLength(1);
     await page.evaluate(() => (window as any).restoreJournalWrite());
     const dialog = page.getByRole('dialog');
-    const status = workspace === 'receiving' ? dialog.getByRole('button', { name: 'Check receipt status' }) : workspace === 'hotel' ? dialog.getByRole('button', { name: 'Check command status' }) : page.getByRole('button', { name: 'Check command status' });
+    const status = workspace === 'receiving' ? dialog.getByRole('button', { name: 'Check receipt status' }) : workspace === 'hotel' ? dialog.getByRole('button', { name: 'Check status' }) : page.getByRole('button', { name: 'Check status' });
     await expect(status).toBeEnabled();
     await status.evaluate(element => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await expect.poll(() => posts.length).toBe(1);
     expect(posts[0]).toEqual(attempted[0]);
-    await expect(page.getByText(/not sent because recovery data could not be saved/)).toHaveCount(0);
+    await expect(page.getByText(/This action was not sent because recovery details could not be saved/)).toHaveCount(0);
     expect(posts[0].type).toBe({ receiving: 'inventory.receive', count: 'inventory.count.open', hotel: 'hotel.room.create', shift: 'shift.open' }[workspace]);
     const remaining = await page.evaluate(async () => new Promise<number>((resolve, reject) => {
       const open = indexedDB.open('mazao-v1-command-journal', 1);

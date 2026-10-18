@@ -25,7 +25,7 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
   const restore=async()=>{
     setReady(false);setError('');
     try{const records=await apiClient.listSecretOperationRecovery();setPending(records.find(record=>record.targetUserId===userId)??null);setReady(true);}
-    catch(cause){setError(cause instanceof Error?cause.message:'Password recovery metadata could not be checked.');}
+    catch(cause){setError(cause instanceof Error?cause.message:'We could not check for an unfinished password change.');}
   };
   useEffect(()=>{void restore();},[session.tenant.id,session.user.id,userId]);
   const complete=async(result:BackendCommandResult,operation:SecretOperationRecovery)=>{
@@ -34,9 +34,9 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
       setConflict(false);setNotice(`Password change confirmed. ${String(result.value?.sessionsRevoked??0)} session(s) signed out.`);
       if(result.value?.reauthenticate===true||operation.kind==='auth.password.change'){apiClient.clearAuthenticatedSession();return;}
       setVersion(Number(result.value?.credentialVersion??version));await onConfirmed?.();
-    }else if(result.status==='CONFLICT'){setConflict(true);setError(result.message??'The password version changed. Reload it before submitting another password change.');}
-    else if(result.status==='REJECTED'){setError(result.message??'The server rejected the password change. Enter the password again after correcting the issue.');}
-    else{setPending(operation);setNotice('The password change outcome is unknown. Check the original command status. Passwords have been cleared and will not be resent.');}
+    }else if(result.status==='CONFLICT'){setConflict(true);setError(result.message??'This password was changed elsewhere. Refresh before trying again.');}
+    else if(result.status==='REJECTED'){setError(result.message??'The password was not changed. Review the details and enter it again.');}
+    else{setPending(operation);setNotice('We could not confirm the password change. Check its status before trying again. Password fields have been cleared.');}
   };
   const submit=async(event:React.FormEvent<HTMLFormElement>)=>{
     event.preventDefault();if(!canChange||!ready||busy||pending||conflict||inFlight.current)return;
@@ -66,18 +66,18 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
     if(inFlight.current)return;
     setOperationBusy(true);setError('');clearInputs();
     try{const result=own?await apiClient.getOwnSessions():await apiClient.getStaffSessions(userId);setVersion(result.credentialVersion);setConflict(false);}
-    catch(cause){setError(cause instanceof Error?cause.message:'The current password version could not be loaded.');}
+    catch(cause){setError(cause instanceof Error?cause.message:'We could not refresh password details. Try again.');}
     finally{setOperationBusy(false);}
   };
   return <section className="space-y-4 rounded-xl border border-zinc-700 p-4">
     <div><h3 className="text-base font-semibold">{own?'Change my password':hasCredential?'Reset operator password':'Set initial password'}</h3><p className="mt-1 text-sm leading-6 text-zinc-400">{displayName}. A confirmed change signs out existing sessions.{own?' You will sign in again with your new password.':''}</p></div>
-    <p className="text-xs leading-5 text-zinc-400">Passwords are sent through the protected endpoint and cleared from this form. Recovery stores only operation IDs and versions.</p>
+    <p className="text-xs leading-5 text-zinc-400">Password fields are cleared after submission. If confirmation is interrupted, check status before changing the password again.</p>
     {busy&&<p role="status" className="text-sm text-amber-200">Wait for the password request before leaving or choosing another operator.</p>}
-    {!ready&&<p role={error?'alert':'status'} className="text-sm text-amber-200">{error||'Checking private password recovery metadata…'}{error&&<button type="button" className={identityButton+' mt-2'} onClick={()=>void restore()}>Retry password recovery</button>}</p>}
+    {!ready&&<p role={error?'alert':'status'} className="text-sm text-amber-200">{error||'Checking for an unfinished password change...'}{error&&<button type="button" className={identityButton+' mt-2'} onClick={()=>void restore()}>Retry password recovery</button>}</p>}
     {ready&&error&&<p role="alert" className="text-sm text-rose-300">{error}</p>}
     {notice&&<p role="status" className="text-sm text-blue-200">{notice}</p>}
-    {pending&&<div className="space-y-3 rounded-lg border border-amber-800 p-3"><h4 className="font-semibold">Check password command status</h4><p className="break-all font-mono text-xs text-zinc-400">Command {pending.commandId}</p><p className="text-sm text-amber-200">The original password is not retained. Check status before submitting another change.</p><button type="button" className={identityButton} disabled={busy} onClick={()=>void check()}>Check password command status</button></div>}
-    {conflict&&<button type="button" className={identityButton} disabled={busy} onClick={()=>void reload()}>Reload password version</button>}
+    {pending&&<div className="space-y-3 rounded-lg border border-amber-800 p-3"><h4 className="font-semibold">Check password change status</h4><details className="mt-2 text-xs text-zinc-400"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all font-mono text-xs text-zinc-400">Reference {pending.commandId}</p></details><p className="text-sm text-amber-200">The original password is not retained. Check status before submitting another change.</p><button type="button" className={identityButton} disabled={busy} onClick={()=>void check()}>Check password change status</button></div>}
+    {conflict&&<button type="button" className={identityButton} disabled={busy} onClick={()=>void reload()}>Refresh password details</button>}
     <form ref={form} onSubmit={submit} className="space-y-3">
       <fieldset disabled={!canChange||!ready||busy||Boolean(pending)||conflict} className="space-y-3">
         {own&&<label className="block text-sm text-zinc-300" htmlFor={id+'-current'}>Current password<input id={id+'-current'} name="currentPassword" type="password" autoComplete="current-password" required maxLength={256} className={identityInput}/></label>}

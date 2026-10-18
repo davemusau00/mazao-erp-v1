@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CircleAlert, PackageCheck, Plus, RefreshCw, Truck } from 'lucide-react';
 import { apiClient, type BackendCommand, type BackendProduct } from '../../services/apiClient';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
-import { currencyMinorDigits, formatMinorMoneyText, moneyInputToMinor } from '../../utils/money';
+import { formatDecimalQuantity, currencyMinorDigits, formatMinorMoneyText, moneyInputToMinor } from '../../utils/money';
 import { useCommandRecoveryReadiness } from '../../hooks/useCommandRecoveryReadiness';
 import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
 
@@ -42,7 +42,7 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
     const payloadLines = command.payload.lines as Array<{ productId: string; quantity: string; unitCostMinor: number }>;
     setLines(payloadLines.map(line => ({ productId: line.productId, quantity: line.quantity, unitCost: minorInput(line.unitCostMinor, currency) })));
     setSupplierName(String(command.payload.supplierName ?? '')); setReference(String(command.payload.documentReference ?? ''));
-    setReviewOpen(true); setNotice('An unresolved delivery receipt is restored. Check its original command status before changing the delivery.');
+    setReviewOpen(true); setNotice('A stock delivery needs review. Check its status before changing the delivery.');
   });
   const locked = busy || !!unknownId || !recovery.ready;
   const refresh = async () => {
@@ -71,7 +71,7 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
       setNotice(`Receipt confirmed: ${String(outcome.value?.lineCount ?? lines.length)} lines, ${formatMinorMoneyText(BigInt(String(outcome.value?.totalMinor ?? 0)), currency)} accrued.`); await refresh();
     } else if (outcome.status === 'REJECTED' || outcome.status === 'CONFLICT') {
       pending.current = null; setUnknownId(''); setNotice(outcome.message ?? `Receipt ${outcome.status.toLowerCase()}. Review the delivery.`);
-    } else { setUnknownId(command.commandId); setNotice('Receipt outcome is unknown. Check the original command status before trying again.'); }
+    } else { setUnknownId(command.commandId); setNotice('We could not confirm this delivery. Check its status before trying again.'); }
     if (['CONFIRMED', 'REJECTED', 'CONFLICT'].includes(outcome.status ?? '')) await recovery.inspect();
   };
   const post = async () => {
@@ -93,10 +93,10 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
     } catch (failure) { setNotice(failure instanceof Error ? failure.message : 'Receipt status could not be checked.'); }
     finally { recovery.finish(); setBusy(false); }
   };
-  const lineList = <div className="space-y-3">{lines.length ? lines.map((line, index) => <article key={`${line.productId}-${index}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-3"><div><strong className="text-sm">{productById.get(line.productId)?.name ?? `Item ${line.productId}`}</strong><p className="mt-1 text-xs text-zinc-400">{line.quantity} {productById.get(line.productId)?.unit} × {line.unitCost} {currency} per unit</p></div><span className="font-mono text-sm">{formatMinorMoneyText(extendedCost(line, currency), currency)}</span><button type="button" disabled={locked} onClick={() => setLines(previous => previous.filter((_, position) => position !== index))} className="min-h-11 px-3 text-xs text-zinc-400">Remove</button></article>) : <p className="py-8 text-center text-zinc-500">Choose items and quantities from the delivery paperwork.</p>}</div>;
+  const lineList = <div className="space-y-3">{lines.length ? lines.map((line, index) => <article key={`${line.productId}-${index}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-3"><div><strong className="text-sm">{productById.get(line.productId)?.name ?? `Item ${line.productId}`}</strong><p className="mt-1 text-xs text-zinc-400">{formatDecimalQuantity(line.quantity)} {productById.get(line.productId)?.unit} × {line.unitCost} {currency} per unit</p></div><span className="font-mono text-sm">{formatMinorMoneyText(extendedCost(line, currency), currency)}</span><button type="button" disabled={locked} onClick={() => setLines(previous => previous.filter((_, position) => position !== index))} className="min-h-11 px-3 text-xs text-zinc-400">Remove</button></article>) : <p className="py-8 text-center text-zinc-500">Choose items and quantities from the delivery paperwork.</p>}</div>;
   return <main className="page-stack">
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-blue-300">Purchasing · {session.outlet.name}</p><h1 className="mt-1 text-3xl font-bold">Receive a delivery</h1><p className="mt-2 text-sm text-zinc-400">Review received quantities and costs before posting stock and inventory accrual.</p></div><button type="button" disabled={loading || locked} onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-sm"><RefreshCw size={16} />Refresh</button></header>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-blue-300">Purchasing · {session.outlet.name}</p><h1 className="mt-1 text-3xl font-bold">Receive a delivery</h1><p className="mt-2 text-sm text-zinc-400">Review received quantities and costs before adding this delivery to stock.</p></div><button type="button" disabled={loading || locked} onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-sm"><RefreshCw size={16} />Refresh</button></header>
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-800 p-3 text-sm text-rose-200"><CircleAlert size={16} />{error}</div>}
     {notice && <div role={unknownId ? 'alert' : 'status'} className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-800 p-3 text-sm text-blue-200"><PackageCheck size={16} /><span>{notice}</span>{unknownId && <button type="button" disabled={busy} onClick={() => void recover()} className="min-h-11 underline">Check receipt status</button>}</div>}
     <section className="workflow-panel"><div className="panel-heading"><div><h2>Delivery paperwork</h2><p>{currency} · quantities in the item's base unit</p></div><Truck size={19} /></div>
@@ -104,7 +104,7 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
       {lineList}<div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-zinc-300">{lines.length} delivery {lines.length === 1 ? 'line' : 'lines'} · {formatMinorMoneyText(receiptTotal, currency)}</p><button type="button" disabled={!lines.length || locked || loading || !!error} onClick={() => setReviewOpen(true)} className="primary-action">Review delivery</button></div>
     </section>
     <ResponsiveDialog isOpen={reviewOpen} onClose={() => { if (!locked) setReviewOpen(false); }} title="Review delivery receipt" subtitle={`${currency} · ${session.outlet.name}`} footerActions={<><button type="button" disabled={locked} onClick={() => setReviewOpen(false)} className="quiet-action">Return to delivery</button><button type="button" disabled={locked || !lines.length || !!error} onClick={() => void post()} className="primary-action">{busy ? 'Posting receipt…' : 'Post reviewed receipt'}</button></>}>
-      <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} /><p className="text-sm text-zinc-300">{supplierName || 'Supplier not named'} · {reference || 'No reference supplied'}</p>{lineList}<p className="font-semibold">Receipt cost {formatMinorMoneyText(receiptTotal, currency)}</p><p className="text-xs leading-5 text-zinc-400">Confirmation records stock movements, carrying value and an inventory accrual journal together. Supplier name is retained as receipt evidence.</p>{notice && <p role={unknownId ? 'alert' : 'status'} className="text-amber-200">{notice}{unknownId && <button type="button" disabled={busy} onClick={() => void recover()} className="ml-3 min-h-11 underline">Check receipt status</button>}</p>}
+      <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} /><p className="text-sm text-zinc-300">{supplierName || 'Supplier not named'} · {reference || 'No reference supplied'}</p>{lineList}<p className="font-semibold">Receipt cost {formatMinorMoneyText(receiptTotal, currency)}</p><p className="text-xs leading-5 text-zinc-400">Confirmation records the stock quantity and value together. The supplier name is kept with this delivery.</p>{notice && <p role={unknownId ? 'alert' : 'status'} className="text-amber-200">{notice}{unknownId && <button type="button" disabled={busy} onClick={() => void recover()} className="ml-3 min-h-11 underline">Check receipt status</button>}</p>}
     </ResponsiveDialog>
   </main>;
 }

@@ -6,6 +6,8 @@ const baseURL = process.env.MAZAO_PERF_BASE_URL ?? 'http://127.0.0.1:55445';
 const email = process.env.MAZAO_PERF_EMAIL;
 const password = process.env.MAZAO_PERF_PASSWORD;
 const outputDirectory = process.env.MAZAO_PERF_OUTPUT ?? 'docs/performance/evidence/before';
+const extraApiPaths = (process.env.MAZAO_PERF_EXTRA_API_PATHS ?? '').split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+if (extraApiPaths.some(path => !path.startsWith('/api/v1/'))) throw new Error('Extra performance routes must be same-origin /api/v1 paths.');
 if (!email || !password) throw new Error('Set MAZAO_PERF_EMAIL and MAZAO_PERF_PASSWORD for the disposable performance operator.');
 
 function uuid(value) {
@@ -188,6 +190,7 @@ const apiPaths = [
   '/api/v1/reports/trial-balance?asOf=2026-10-17','/api/v1/reports/profit-loss?from=2026-01-01&to=2026-10-17',
   '/api/v1/reports/operational-analytics?from=2026-01-01&to=2026-10-17',
   '/api/v1/reports/journal-lines?accountCode=CASH_TILL&from=2026-01-01&to=2026-10-17&limit=100&offset=0',
+  ...extraApiPaths,
 ];
 const routeSamples = await runRouteSamples(apiPaths);
 const routeSummary = Object.groupBy(routeSamples, sample => `${sample.path}|${sample.mode}`);

@@ -42,10 +42,12 @@ jobs:
         run: bun run db:migrate
       - run: bun run typecheck
       - run: bun run test:api
-      - name: Install Chromium for browser acceptance
-        run: bunx playwright install --with-deps chromium
+      - name: Install Chromium and Firefox for browser acceptance
+        run: bunx playwright install --with-deps chromium firefox
       - name: Build PWA and run browser acceptance
         run: bun run test:e2e
+      - name: Cross-browser desktop and mobile viewport acceptance
+        run: bunx playwright test --config playwright.browser-matrix.config.ts
       - name: Real API and PostgreSQL browser integration
         env:
           MAZAO_E2E_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test

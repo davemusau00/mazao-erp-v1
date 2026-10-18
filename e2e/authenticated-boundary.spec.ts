@@ -25,7 +25,7 @@ test('server session restore failure blocks automatic demo fallback', async ({ p
   await page.route('**/api/v1/auth/me', route => route.abort('failed'));
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Server session could not be verified' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'We could not check your sign-in' })).toBeVisible();
   await expect(page.getByText('Local demo workspace')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Good day' })).toHaveCount(0);
 
@@ -48,13 +48,13 @@ test('authenticated shell uses server identity and hides local operator, sync an
 
   await expect(page.getByLabel('Signed in as David Kibet')).toBeVisible();
   await expect(page.getByText('Apex Supermarket', { exact: true })).toBeVisible();
-  await expect(page.getByText('Nairobi Central · David Kibet · manager')).toBeVisible();
+  await expect(page.getByText('Nairobi Central · David Kibet · Manager')).toBeVisible();
   await expect(page.getByText('Local demo workspace')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Local preview (online|offline)/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open diagnostics' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /DEMO OPERATOR/i })).toHaveCount(0);
   await expect(page.getByText('Local preview workspace.')).toHaveCount(0);
-  await expect(page.getByText('This workspace is using the authenticated server outlet.')).toBeVisible();
+  await expect(page.getByText('Check the outlet shown above before starting work.')).toBeVisible();
 });
 
 test('sign-in submits password-manager autofill values without React change events', async ({ page }) => {
@@ -93,8 +93,8 @@ test('rejected sign-in and sign-out keep production outside the demo workspace',
   await page.route('**/api/v1/shifts/current', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"shift":null}' }));
   await page.route('**/api/v1/auth/logout', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"signed_out"}' }));
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Sign out of server' })).toBeVisible();
-  await page.getByRole('button', { name: 'Sign out of server' }).click();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to Mazao' })).toBeVisible();
   await expect(page.getByText('Local demo workspace')).toHaveCount(0);
 });

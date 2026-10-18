@@ -3,11 +3,11 @@ import { AppShell, canOpenWorkspace, type ActiveTab } from './components/layout/
 import { PointOfSaleView } from './components/pos/PointOfSaleView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { ShiftManagerView } from './components/shifts/ShiftManagerView';
-import { BackendFinancialReportsWorkspace } from './components/finance/BackendFinancialReportsWorkspace';
 import { lazy, Suspense } from 'react';
 
 const BackendOperationalAnalyticsWorkspace = lazy(() => import('./components/analytics/BackendOperationalAnalyticsWorkspace').then(module => ({ default: module.BackendOperationalAnalyticsWorkspace })));
 const BackendManageWorkspace = lazy(() => import('./components/manage/BackendManageWorkspace').then(module => ({ default: module.BackendManageWorkspace })));
+const MoneyWorkspace = lazy(() => import('./components/finance/MoneyWorkspace').then(module => ({ default: module.MoneyWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
@@ -52,7 +52,7 @@ export default function App() {
     let mounted=true;
     void apiClient.restore().then(()=>{if(mounted)setSessionBootstrap('ready');}).catch(cause=>{
       if(!mounted)return;
-      setRestoreError(cause instanceof Error?cause.message:'The server session could not be verified.');setSessionBootstrap('error');
+      setRestoreError(cause instanceof Error?cause.message:'We could not check your sign-in. Try again.');setSessionBootstrap('error');
     });
     return()=>{mounted=false;unsubscribe();};
   },[]);
@@ -112,7 +112,7 @@ export default function App() {
   if(sessionBootstrap==='checking')return <SessionBootstrapScreen status="checking"/>;
   if(sessionBootstrap==='error')return <SessionBootstrapScreen status="error" message={restoreError} onRetry={()=>{
     setSessionBootstrap('checking');setRestoreError('');
-    void apiClient.restore().then(()=>setSessionBootstrap('ready')).catch(cause=>{setRestoreError(cause instanceof Error?cause.message:'The server session could not be verified.');setSessionBootstrap('error');});
+    void apiClient.restore().then(()=>setSessionBootstrap('ready')).catch(cause=>{setRestoreError(cause instanceof Error?cause.message:'We could not check your sign-in. Try again.');setSessionBootstrap('error');});
   }}/>;
   if(!session)return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100"><SignInForm/></main>;
   return <div className="h-dvh w-screen overflow-hidden bg-[#090b10] text-zinc-100 flex flex-col font-sans antialiased">
@@ -128,7 +128,7 @@ export default function App() {
       {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')}/>}
       {visibleTab==='customers'&&<BackendCustomerWorkspace onNavigate={navigate}/>}
       {visibleTab==='shifts'&&<ShiftManagerView/>}
-      {visibleTab==='money'&&<BackendFinancialReportsWorkspace initialView="trial-balance"/>}
+      {visibleTab==='money'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading financial workspace…</div>}><MoneyWorkspace/></Suspense>}
       {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
       {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
@@ -138,5 +138,5 @@ export default function App() {
 }
 
 function SessionBootstrapScreen({status,message,onRetry}:{status:'checking'|'error';message?:string;onRetry?:()=>void}) {
-  return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100"><section className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl" aria-labelledby="session-bootstrap-title"><p className="text-xs uppercase tracking-[.18em] text-blue-300">Mazao workspace</p><h1 id="session-bootstrap-title" className="mt-2 text-2xl font-bold">{status==='checking'?'Checking saved server session':'Server session could not be verified'}</h1><p role={status==='error'?'alert':'status'} className="mt-3 text-sm leading-6 text-zinc-300">{status==='checking'?'Wait while Mazao checks this browser’s authenticated operator session.':(message??'The server is unavailable.')+' No business workspace has been opened.'}</p>{status==='error'&&<button type="button" onClick={onRetry} className="mt-5 min-h-11 rounded-lg bg-blue-600 px-4 font-semibold">Retry server check</button>}</section></main>;
+  return <main className="flex min-h-dvh items-center justify-center bg-[#090b10] p-5 text-zinc-100"><section className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl" aria-labelledby="session-bootstrap-title"><p className="text-xs uppercase tracking-[.18em] text-blue-300">Mazao workspace</p><h1 id="session-bootstrap-title" className="mt-2 text-2xl font-bold">{status==='checking'?'Checking your sign-in':'We could not check your sign-in'}</h1><p role={status==='error'?'alert':'status'} className="mt-3 text-sm leading-6 text-zinc-300">{status==='checking'?'Wait while Mazao checks this browser’s authenticated operator session.':(message??'We could not connect. Try again.')+''}</p>{status==='error'&&<button type="button" onClick={onRetry} className="mt-5 min-h-11 rounded-lg bg-blue-600 px-4 font-semibold">Try again</button>}</section></main>;
 }
