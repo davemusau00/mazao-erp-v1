@@ -5,7 +5,7 @@
 **Source branch:** `feat/product-finishing`  
 **Plan:** [`MAZAO_Loading_Performance_Manage_Staff_Completion_Plan_v2.md`](../MAZAO_Loading_Performance_Manage_Staff_Completion_Plan_v2.md)
 
-This record tracks source work completed for the plan and separates it from production-runtime and release evidence that has not been collected. No production host, database, account, reverse proxy or service was accessed or changed.
+This record tracks source work completed for the plan and separates it from production-runtime and release evidence. A read-only production preflight is recorded in the linked 18 October performance report; no production files, containers or database rows were changed.
 
 The system-wide performance run and current acceptance decision are in [`44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`](44-PERFORMANCE-ACCEPTANCE-2026-10-18.md). That record supersedes the earlier “not measured” route timing notes below for the measured disposable workload. It records passing latency thresholds and a failing overall release decision because capped history endpoints have no complete continuation flow, plus additional open release gates. Its browser measurements cover warm workspace navigation; they do not establish cold-start p95. The verification table and gate summary below are refreshed to that run.
 
@@ -65,4 +65,4 @@ The inventory is a source-level route map, not an assertion that all route-level
 
 ## Open acceptance and release gates
 
-See [`44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`](44-PERFORMANCE-ACCEPTANCE-2026-10-18.md) for the current pass/fail matrix. Overall acceptance is **FAIL**: fixed list caps need a complete continuation path; full cold-start and per-screen error coverage, distinct-operator workload, exact-main CI, and off-host restore verification remain open (`restoreVerified=false`). No live host or production data was changed. Custom RBAC grant editing and physical-device enrollment remain separate product decisions outside this loading work.
+See [`44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`](44-PERFORMANCE-ACCEPTANCE-2026-10-18.md) for the current pass/fail matrix and owner disposition. Technical performance acceptance is **FAIL** due to fixed list caps; the product owner accepted those performance exceptions for release preparation. Exact-main artifacts and a verified restore covering the current live totals remain required before activation. Custom RBAC grant editing and physical-device enrollment remain separate product decisions outside this loading work.

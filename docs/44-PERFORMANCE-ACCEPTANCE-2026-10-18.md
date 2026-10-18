@@ -4,9 +4,9 @@
 
 **Branch:** `feat/product-finishing`, based on `134d176`
 
-**Release acceptance: FAIL. Do not deploy.**
+**Technical acceptance: FAIL.** The product owner accepted the listed performance exceptions for release preparation; live activation remains blocked pending the exact-main CI artifact and a restore covering current production data.
 
-The latency targets passed on the local reference workload. Overall acceptance fails because several authoritative list endpoints silently stop at a fixed row limit, broad loading and HTTP failure coverage is incomplete, and exact-main CI, distinct-operator burst, and verified restore gates are open.
+The latency targets passed on the local reference workload. The report records fixed list limits that omit authoritative rows, incomplete broad loading and HTTP failure coverage, and remaining workload and release gates.
 
 ## Reference environment and method
 
@@ -106,7 +106,13 @@ Artifacts: [before evidence](performance/evidence/before-2026-10-18/), [after ev
 | Full state/error injection across every implemented screen, including 401/403/429/500, malformed JSON and interrupted bodies | **NOT COMPLETE**. |
 | Concurrent distinct operators and representative workload bursts | **NOT RUN**; route burst used one synthetic operator. |
 | Exact-main GitHub CI artifact and full CI | **NOT RUN** for this uncommitted feature-branch tree. |
-| Verified off-host backup and isolated restore | **NOT VERIFIED** (`restoreVerified=false`). |
+| Restore coverage for current production records | **OPEN**. The latest local metadata with `restoreVerified: true` is from 16 October and records 17 orders / 52 journals; read-only live totals on 18 October were 29 orders / 89 journals, balanced. That older restore does not cover the current production data. |
 | Live deployment and post-deployment acceptance | **NOT RUN**. |
 
-**Overall: FAIL / not ready for release.** The latency-only result passes on the documented disposable fixture, but pagination/data completeness and the remaining release gates are open. Do not deploy until the performance evidence has been reviewed and every blocking item has a passing result. No live deployment was performed.
+**Technical acceptance: FAIL.** The latency-only result passes on the documented disposable fixture, but pagination/data completeness and other coverage remain open. The product owner accepted these performance gaps for release preparation, as recorded below. Deployment still requires the exact-main CI artifact and a verified restore covering current production data. No live deployment was performed.
+
+## Live release preflight and owner disposition
+
+On 18 October 2026, read-only checks found production running main release `872514217272c154236fcab02bfda11417dd5dff`, with a healthy API and PostgreSQL container, 16 applied migrations, one tenant, 29 orders, 89 journal entries and zero unbalanced journal entries. The current static release points to the same SHA. No production files, containers or database rows were changed.
+
+The product owner reviewed this report and stated that the performance result was “good enough” to proceed. This records an owner acceptance of the known performance gaps for release preparation; it does not change the technical acceptance verdict or waive the exact-main CI artifact and a verified restore covering current production data. The local Docker Desktop service was stopped and could not be started with the current Windows permissions, so a current-data restore checkpoint could not be produced during this deployment attempt.
