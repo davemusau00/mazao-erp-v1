@@ -4,7 +4,7 @@
 
 **Branch:** `feat/product-finishing`, based on `134d176`
 
-**Technical acceptance: FAIL.** The product owner accepted the listed performance exceptions for release preparation; live activation remains blocked pending the exact-main CI artifact and a restore covering current production data.
+**Technical acceptance: FAIL.** The product owner accepted the listed performance exceptions and authorized production activation. The exact-main CI, verified current-data restore, completed deployment, and subsequent production compression measurements are recorded in [the production release report](45-PRODUCTION-RELEASE-2026-10-18.md). The pending release statuses below describe the earlier benchmark checkpoint.
 
 The latency targets passed on the local reference workload. The report records fixed list limits that omit authoritative rows, incomplete broad loading and HTTP failure coverage, and remaining workload and release gates.
 

@@ -1,0 +1,355 @@
+{
+  "origin": "https://mazao.davemusau.co.ke",
+  "release": "a3d5e563c737703a9b1f5df4b50bb33c5457b362",
+  "scope": "Signed-out public browser smoke; one cold sample per configuration, not workspace p95 or authenticated acceptance.",
+  "results": [
+    {
+      "browser": "chromium",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        }
+      ],
+      "startedAt": "2026-10-18T12:43:38.601Z",
+      "signInVisibleMs": 12534,
+      "signInButton": {
+        "x": 441,
+        "y": 566,
+        "width": 398,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "resources": [
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "durationMs": 7552.200000001118,
+          "requestStartMs": 4033,
+          "responseStartMs": 4812.4000000003725,
+          "responseEndMs": 11576,
+          "transferSize": 141768,
+          "encodedBodySize": 141468,
+          "decodedBodySize": 522206
+        },
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "durationMs": 4061.199999999255,
+          "requestStartMs": 4405.5999999996275,
+          "responseStartMs": 6282.799999998882,
+          "responseEndMs": 8085.299999998882,
+          "transferSize": 21423,
+          "encodedBodySize": 21123,
+          "decodedBodySize": 109956
+        },
+        {
+          "path": "/registerSW.js",
+          "durationMs": 1588.2000000011176,
+          "requestStartMs": 5258.5,
+          "responseStartMs": 5611.9000000003725,
+          "responseEndMs": 5612.4000000003725,
+          "transferSize": 434,
+          "encodedBodySize": 134,
+          "decodedBodySize": 134
+        },
+        {
+          "path": "/api/v1/auth/me",
+          "durationMs": 458.90000000037253,
+          "requestStartMs": 11648.400000000373,
+          "responseStartMs": 12106.199999999255,
+          "responseEndMs": 12106.699999999255,
+          "transferSize": 369,
+          "encodedBodySize": 69,
+          "decodedBodySize": 69
+        }
+      ],
+      "screenshot": "chromium-1280x800.png"
+    },
+    {
+      "browser": "chromium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        }
+      ],
+      "startedAt": "2026-10-18T12:43:38.593Z",
+      "signInVisibleMs": 24315,
+      "signInButton": {
+        "x": 45,
+        "y": 600,
+        "width": 300,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "resources": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "durationMs": 1854.5,
+          "requestStartMs": 6258.5,
+          "responseStartMs": 7352.300000000745,
+          "responseEndMs": 7412,
+          "transferSize": 21423,
+          "encodedBodySize": 21123,
+          "decodedBodySize": 109956
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "durationMs": 18259.700000001118,
+          "requestStartMs": 5565,
+          "responseStartMs": 7016.200000001118,
+          "responseEndMs": 23817.200000001118,
+          "transferSize": 141768,
+          "encodedBodySize": 141468,
+          "decodedBodySize": 522206
+        },
+        {
+          "path": "/registerSW.js",
+          "durationMs": 1260.199999999255,
+          "requestStartMs": 6435.9000000003725,
+          "responseStartMs": 6817.200000001118,
+          "responseEndMs": 6817.800000000745,
+          "transferSize": 434,
+          "encodedBodySize": 134,
+          "decodedBodySize": 134
+        },
+        {
+          "path": "/api/v1/auth/me",
+          "durationMs": 390.69999999925494,
+          "requestStartMs": 23888.5,
+          "responseStartMs": 24277.900000000373,
+          "responseEndMs": 24278.5,
+          "transferSize": 369,
+          "encodedBodySize": 69,
+          "decodedBodySize": 69
+        }
+      ],
+      "screenshot": "chromium-390x844.png"
+    },
+    {
+      "browser": "firefox",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        },
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        }
+      ],
+      "startedAt": "2026-10-18T12:43:41.277Z",
+      "signInVisibleMs": 12185,
+      "signInButton": {
+        "x": 441,
+        "y": 566,
+        "width": 398,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "resources": [
+        {
+          "path": "/registerSW.js",
+          "durationMs": 1969,
+          "requestStartMs": 2714,
+          "responseStartMs": 3078,
+          "responseEndMs": 3079,
+          "transferSize": 434,
+          "encodedBodySize": 134,
+          "decodedBodySize": 134
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "durationMs": 6153,
+          "requestStartMs": 1567,
+          "responseStartMs": 2277,
+          "responseEndMs": 7263,
+          "transferSize": 141768,
+          "encodedBodySize": 141468,
+          "decodedBodySize": 522206
+        },
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "durationMs": 9492,
+          "requestStartMs": 3847,
+          "responseStartMs": 4206,
+          "responseEndMs": 10602,
+          "transferSize": 21423,
+          "encodedBodySize": 21123,
+          "decodedBodySize": 109956
+        },
+        {
+          "path": "/icon.svg",
+          "durationMs": 9742,
+          "requestStartMs": 10603,
+          "responseStartMs": 10962,
+          "responseEndMs": 10962,
+          "transferSize": 824,
+          "encodedBodySize": 524,
+          "decodedBodySize": 524
+        },
+        {
+          "path": "/api/v1/auth/me",
+          "durationMs": 1175,
+          "requestStartMs": 10641,
+          "responseStartMs": 11808,
+          "responseEndMs": 11808,
+          "transferSize": 369,
+          "encodedBodySize": 69,
+          "decodedBodySize": 69
+        }
+      ],
+      "screenshot": "firefox-1280x800.png"
+    },
+    {
+      "browser": "firefox",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "status": "PASS",
+      "pageErrors": [],
+      "serverErrors": [],
+      "assets": [
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "status": 200,
+          "bytes": 109956,
+          "sha256": "e251b55c06acb2d081673b785853db8cc337ce12f9183fa9f7a8a133c0568c3f",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "status": 200,
+          "bytes": 522206,
+          "sha256": "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+          "matchesCIArtifact": true,
+          "contentEncoding": "gzip",
+          "vary": "Accept-Encoding"
+        }
+      ],
+      "startedAt": "2026-10-18T12:43:40.547Z",
+      "signInVisibleMs": 9559,
+      "signInButton": {
+        "x": 45,
+        "y": 600,
+        "width": 300,
+        "height": 48
+      },
+      "horizontalOverflow": false,
+      "resources": [
+        {
+          "path": "/registerSW.js",
+          "durationMs": 1948,
+          "requestStartMs": 2716,
+          "responseStartMs": 3064,
+          "responseEndMs": 3080,
+          "transferSize": 434,
+          "encodedBodySize": 134,
+          "decodedBodySize": 134
+        },
+        {
+          "path": "/assets/index-D7k4kibo.css",
+          "durationMs": 2001,
+          "requestStartMs": 2016,
+          "responseStartMs": 2384,
+          "responseEndMs": 3133,
+          "transferSize": 21423,
+          "encodedBodySize": 21123,
+          "decodedBodySize": 109956
+        },
+        {
+          "path": "/assets/index-D7nEOm3w.js",
+          "durationMs": 7545,
+          "requestStartMs": 2016,
+          "responseStartMs": 2369,
+          "responseEndMs": 8677,
+          "transferSize": 141768,
+          "encodedBodySize": 141468,
+          "decodedBodySize": 522206
+        },
+        {
+          "path": "/icon.svg",
+          "durationMs": 4001,
+          "requestStartMs": 4896,
+          "responseStartMs": 5250,
+          "responseEndMs": 5250,
+          "transferSize": 824,
+          "encodedBodySize": 524,
+          "decodedBodySize": 524
+        },
+        {
+          "path": "/api/v1/auth/me",
+          "durationMs": 438,
+          "requestStartMs": 8756,
+          "responseStartMs": 9189,
+          "responseEndMs": 9189,
+          "transferSize": 369,
+          "encodedBodySize": 69,
+          "decodedBodySize": 69
+        }
+      ],
+      "screenshot": "firefox-390x844.png"
+    }
+  ]
+}

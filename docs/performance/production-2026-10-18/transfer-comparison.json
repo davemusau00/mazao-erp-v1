@@ -1,0 +1,26 @@
+{
+    "measuredAt":  "2026-10-18T12:43:32.1636786Z",
+    "appRelease":  "a3d5e563c737703a9b1f5df4b50bb33c5457b362",
+    "configurationRevision":  "d9e71bc403d1b9c054e752769c18793227f822d7",
+    "path":  "/assets/index-D7nEOm3w.js",
+    "decodedSha256":  "032b3d61a699a44c826e50988f2415e071a28ec08c2c1086643c97223e8e7253",
+    "before":  {
+                   "status":  200,
+                   "requestStartToHeadersSeconds":  1.538846,
+                   "totalSeconds":  23.410607,
+                   "wireBytes":  522206,
+                   "decodedBytes":  522206,
+                   "contentEncoding":  "identity",
+                   "loopbackTotalSeconds":  0.04939
+               },
+    "after":  {
+                  "status":  200,
+                  "requestStartToHeadersSeconds":  8.342276,
+                  "totalSeconds":  21.290392,
+                  "wireBytes":  141468,
+                  "decodedBytes":  522206,
+                  "contentEncoding":  "gzip",
+                  "loopbackTotalSeconds":  0.104956
+              },
+    "scope":  "One focused sample before and after on this workstation; not p95 or authenticated workspace acceptance."
+}
