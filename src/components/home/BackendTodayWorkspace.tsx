@@ -44,16 +44,16 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
   }, [canShift]);
 
   const shortcuts: Shortcut[] = [
-    ...(canSell ? [{ id: 'sell' as const, title: 'Start a sale', detail: 'Open the server catalog and current till.', icon: <ShoppingCart size={18} /> }] : []),
+    ...(canSell ? [{ id: 'sell' as const, title: 'Start a sale', detail: 'Choose items and take payment.', icon: <ShoppingCart size={18} /> }] : []),
     ...(hasStock ? [{ id: 'stock' as const, title: 'Review stock', detail: 'Check the item catalogue and movement history.', icon: <Package size={18} /> }] : []),
     ...(canReceive ? [{ id: 'purchasing' as const, title: 'Receive delivery', detail: 'Review a delivery before posting stock.', icon: <Truck size={18} /> }] : []),
     ...(hasHotel ? [{ id: 'hotel' as const, title: 'Open hotel tasks', detail: 'Rooms, guest stays and housekeeping.', icon: <Hotel size={18} /> }] : []),
-    ...(canShift ? [{ id: 'shifts' as const, title: 'Cash-up and shifts', detail: 'Open or close your server till.', icon: <Clock3 size={18} /> }] : []),
+    ...(canShift ? [{ id: 'shifts' as const, title: 'Cash-up and shifts', detail: 'Open your till or complete cash-up.', icon: <Clock3 size={18} /> }] : []),
   ];
 
   return <main className="min-h-full space-y-6 overflow-y-auto p-4 pb-24 text-zinc-100 sm:p-6">
     <header>
-      <p className="text-xs tracking-[.18em] text-blue-300">SERVER TODAY · {session.outlet.name.toUpperCase()}</p>
+      <p className="text-xs tracking-[.18em] text-blue-300">TODAY · {session.outlet.name.toUpperCase()}</p>
       <h1 className="mt-2 text-3xl font-bold">Good day, {session.user.name.split(' ')[0]}</h1>
       <p className="mt-2 text-sm text-zinc-400">{session.tenant.name} · {session.tenant.currency} · {(session.outlet.timeZone ?? session.tenant.timeZone)}</p>
     </header>
@@ -66,7 +66,7 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
 
     <section aria-labelledby="today-actions-title"><div className="mb-3"><p className="text-xs uppercase tracking-widest text-zinc-500">Your work</p><h2 id="today-actions-title" className="mt-1 text-xl font-semibold">Common tasks</h2></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{shortcuts.map(item => <button key={item.id} onClick={() => onNavigate(item.id)} className="flex min-h-28 items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-left transition hover:border-blue-700 hover:bg-zinc-900"><span className="rounded-xl bg-zinc-900 p-3 text-blue-300">{item.icon}</span><span className="flex-1"><strong className="block">{item.title}</strong><small className="mt-1 block text-sm text-zinc-400">{item.detail}</small></span><ArrowRight size={16} className="mt-1 shrink-0 text-zinc-500" /></button>)}</div></section>
 
-    <p className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-3 text-sm text-emerald-200">This workspace is using the authenticated server outlet. Only confirmed API results are shown here; local demo records are not included.</p>
+    <p className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-3 text-sm text-emerald-200">Check the outlet shown above before starting work.</p>
   </main>;
 }
 

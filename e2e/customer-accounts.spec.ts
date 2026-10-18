@@ -26,7 +26,7 @@ test('manager sees exact server receivables, status filters, compact rows and ac
   await testInfo.attach('customer-accounts-1280x720.png',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});
   await page.getByRole('button',{name:'New Customer'}).click();
   await expect(page.getByRole('dialog',{name:'New customer account'})).toBeVisible();
-  await expect(page.getByText('The approved credit limit is enforced by the server at checkout.')).toBeVisible();
+  await expect(page.getByText('Sales on account cannot exceed the approved credit limit.')).toBeVisible();
 });
 
 test('cashier can read accounts but cannot create, edit, or settle without an open shift',async({page})=>{

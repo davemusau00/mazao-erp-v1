@@ -67,7 +67,7 @@ for (const scenario of [
     await second.getByLabel('Counted quantity', { exact: true }).fill('9');
     await second.getByLabel('Reason for difference').fill('Reviewed damaged stock');
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Count draft is saved on the server' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Count draft saved' })).toBeVisible();
     await page.reload();
     await expect(page.getByLabel('Signed in as Count Browser Admin')).toBeVisible();
     await openCountWorkspace(page);
@@ -87,14 +87,14 @@ for (const scenario of [
     }
     await confirm.click();
     if (scenario.lostResponse) {
-      await expect(page.getByRole('dialog').getByRole('button', { name: 'Check command status', exact: true })).toBeVisible();
+      await expect(page.getByRole('dialog').getByRole('button', { name: 'Check status', exact: true })).toBeVisible();
       await page.unroute('**/api/v1/commands');
       await page.reload();
       await expect(page.getByLabel('Signed in as Count Browser Admin')).toBeVisible();
       await openCountWorkspace(page);
       const restoredCommand = page.getByRole('main').getByRole('status').filter({ hasText: 'An unresolved count command was restored.' });
-      await restoredCommand.getByRole('button', { name: 'Check command status', exact: true }).click();
-      await expect(page.getByRole('status').filter({ hasText: 'Server confirmed the count command' })).toBeVisible();
+      await restoredCommand.getByRole('button', { name: 'Check status', exact: true }).click();
+      await expect(page.getByRole('status').filter({ hasText: 'Count action completed' })).toBeVisible();
     } else {
       await expect(page.getByRole('status').filter({ hasText: 'Count posted: 2 stock adjustments' })).toBeVisible();
     }

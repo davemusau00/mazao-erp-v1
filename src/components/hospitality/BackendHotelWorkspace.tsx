@@ -7,7 +7,7 @@ import {
   type BackendRoom,
   type BackendStay,
 } from '../../services/apiClient';
-import { formatMinorMoney, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
+import { formatBasisPoints, formatMinorMoney, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
 import { useCommandRecoveryReadiness } from '../../hooks/useCommandRecoveryReadiness';
 import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
 
@@ -63,7 +63,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const pending = useRef<BackendCommand | null>(null);
   const recovery = useCommandRecoveryReadiness('hotel.', command => {
     pending.current = command; setUnknownId(command.commandId);
-    setNotice('An unresolved hotel command was restored. Check its server status before starting another action.');
+    setNotice('A guest or room action needs review. Check its status before starting another action.');
   });
   const locked = loading || !!error || !recovery.ready || busy || !!unknownId;
 
@@ -107,12 +107,12 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     if (type === 'hotel.checkout') {
       return `Guest checkout confirmed. Cash received ${formatMinorMoney(Number(value.tenderedMinor ?? 0), session.tenant.currency)}; room is dirty and queued for cleaning.`;
     }
-    if (type === 'hotel.checkin') return `Guest checked in. Stay ${String(value.stayId ?? '').slice(0, 8)} is server-confirmed.`;
-    if (type === 'hotel.reservation.create') return 'Reservation confirmed and held by the server.';
-    if (type === 'hotel.reservation.cancel') return 'Reservation cancelled on the server.';
+    if (type === 'hotel.checkin') return `Guest checked in. Stay ${String(value.stayId ?? '').slice(0, 8)} is confirmed.`;
+    if (type === 'hotel.reservation.create') return 'Reservation confirmed.';
+    if (type === 'hotel.reservation.cancel') return 'Reservation cancelled.';
     if (type === 'hotel.room.mark_ready') return 'Room marked ready for the next guest.';
-    if (type === 'hotel.room.create') return 'Room created on the server.';
-    return 'Hotel action confirmed on the server.';
+    if (type === 'hotel.room.create') return 'Room created.';
+    return 'Hotel action completed.';
   };
 
   const acknowledge = async (command: BackendCommand, outcome: { status?: string; value?: Record<string, unknown>; message?: string }) => {
@@ -125,7 +125,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       setNotice(outcome.message ?? `Hotel action ${outcome.status.toLowerCase()}.`);
     } else {
       setUnknownId(command.commandId);
-      setNotice('The hotel action is awaiting confirmation. Check its original command status.');
+      setNotice('We could not confirm this guest or room action. Check its status before trying again.');
     }
     if (['CONFIRMED', 'REJECTED', 'CONFLICT'].includes(outcome.status ?? '')) await recovery.inspect();
   };
@@ -139,7 +139,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       await acknowledge(command, await apiClient.submitCommand(command));
     } catch (cause) {
       setUnknownId(command.commandId);
-      setNotice(cause instanceof Error ? cause.message : 'Hotel command outcome is unknown. Check status before retrying.');
+      setNotice(cause instanceof Error ? cause.message : 'We could not confirm this guest or room action. Check status before trying again.');
     } finally {
       if (!alreadyLocked) { recovery.finish(); setBusy(false); }
     }
@@ -170,7 +170,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       try {
         if ((cause as { status?: number }).status !== 404) throw cause;
         await acknowledge(original, await apiClient.submitCommand(original));
-      } catch (failure) { setNotice(failure instanceof Error ? failure.message : 'Unable to check hotel command status.'); }
+      } catch (failure) { setNotice(failure instanceof Error ? failure.message : 'We could not check this guest or room action. Try again.'); }
     } finally { recovery.finish(); setBusy(false); }
   };
 
@@ -230,7 +230,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     try {
       const amount = moneyInputToMinor(tendered, session.tenant.currency);
       const shift = (await apiClient.getCurrentShift()).shift;
-      if (!shift) throw new Error('Open a server shift before taking hotel checkout payment.');
+      if (!shift) throw new Error('Open a till before taking checkout payment.');
       await run('hotel.checkout', {
         stayId: stay.id, shiftId: shift.id, tenderedMinor: amount, currency: session.tenant.currency,
       }, {
@@ -251,7 +251,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     'hotel.room.mark_ready', { roomId: room.id }, { [`room:${room.id}`]: room.version },
   );
 
-  const recoveryMessage = unknownId && <div role="alert" className="mb-4 rounded-lg border border-amber-800 p-3 text-sm text-amber-100">{notice}<button type="button" disabled={busy || !recovery.ready} onClick={() => void checkStatus()} className="mt-2 min-h-11 rounded-lg border border-amber-700 px-4 underline">Check command status</button></div>;
+  const recoveryMessage = unknownId && <div role="alert" className="mb-4 rounded-lg border border-amber-800 p-3 text-sm text-amber-100">{notice}<button type="button" disabled={busy || !recovery.ready} onClick={() => void checkStatus()} className="mt-2 min-h-11 rounded-lg border border-amber-700 px-4 underline">Check status</button></div>;
 
   const tabs: Array<[HotelView, string]> = [
     ['rooms', 'Rooms'],
@@ -263,9 +263,9 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p className="text-xs tracking-[.18em] text-blue-300">SERVER HOTEL · {session.outlet.name.toUpperCase()}</p>
+        <p className="text-xs tracking-[.18em] text-blue-300">HOTEL · {session.outlet.name.toUpperCase()}</p>
         <h1 className="mt-2 text-3xl font-bold">Rooms and guest stays</h1>
-        <p className="mt-2 text-sm text-zinc-400">Room availability, check-in, cash checkout and cleaning status are server controlled.</p>
+        <p className="mt-2 text-sm text-zinc-400">Manage room availability, guest arrivals, cash checkout and cleaning.</p>
       </div>
       <div className="flex gap-2">
         <button onClick={() => void refresh()} disabled={loading} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4">
@@ -276,7 +276,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     </header>
 
     {error && <p role="alert" className="rounded-xl border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
-    {notice && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-800 bg-blue-950/40 p-3 text-sm text-blue-200"><span>{notice}</span>{unknownId && <button onClick={() => void checkStatus()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check command status</button>}</div>}
+    {notice && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-800 bg-blue-950/40 p-3 text-sm text-blue-200"><span>{notice}</span>{unknownId && <button onClick={() => void checkStatus()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check status</button>}</div>}
 
     <nav className="flex gap-2 overflow-x-auto border-b border-zinc-800 pb-2" aria-label="Hotel tasks">
       {tabs.map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`min-h-11 whitespace-nowrap rounded-lg px-3 text-sm ${view === id ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-900'}`} aria-current={view === id ? 'page' : undefined}>{label}</button>)}
@@ -286,7 +286,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {rooms.length === 0 ? <Empty title="No rooms configured" detail={canManage ? 'Add rooms before taking reservations or walk-ins.' : 'Ask a manager to configure this outlet.'} /> : rooms.map(room => <article key={room.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
           <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-zinc-500">{room.roomType}</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2></div><span className={`rounded-full px-2.5 py-1 text-xs ${room.status === 'READY' ? 'bg-emerald-950 text-emerald-300' : room.status === 'OCCUPIED' ? 'bg-blue-950 text-blue-300' : room.status === 'DIRTY' ? 'bg-amber-950 text-amber-300' : 'bg-rose-950 text-rose-300'}`}>{room.status.toLowerCase()}</span></div>
-          <p className="mt-4 text-sm text-zinc-300">{formatMinorMoney(room.nightlyRateMinor, room.currency)} / night <span className="ml-2 text-xs text-zinc-500">Tax {(room.taxRateBps / 100).toFixed(2)}%</span></p>
+          <p className="mt-4 text-sm text-zinc-300">{formatMinorMoney(room.nightlyRateMinor, room.currency)} / night <span className="ml-2 text-xs text-zinc-500">Tax {formatBasisPoints(room.taxRateBps)}%</span></p>
           {room.activeStay && <p className="mt-2 flex items-center gap-2 text-sm text-blue-200"><UserRound size={15} />{room.activeStay.guestName}</p>}
           <div className="mt-4 flex flex-wrap justify-end gap-2">{canFrontdesk && room.status === 'READY' && <button onClick={() => openWalkin(room)} disabled={locked} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs font-semibold">Walk-in check-in</button>}{canHousekeep && room.status === 'DIRTY' && <button onClick={() => void markReady(room)} disabled={locked} className="min-h-11 rounded-lg border border-emerald-800 px-3 text-xs text-emerald-200">Mark room ready</button>}</div>
         </article>)}</section> : view === 'reservations' ?
@@ -298,13 +298,13 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
           return <article key={reservation.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><h2 className="font-semibold">{reservation.guestName} · Room {reservation.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{reservation.checkInDate} → {reservation.checkOutDate} · {formatMinorMoney(reservation.nightlyRateMinor, reservation.currency)} / night</p></div><div className="flex gap-2"><button onClick={() => { if (room) void checkIn(room, reservation); }} disabled={!room || !arrivalReady || room?.status !== 'READY' || locked} title={!arrivalReady ? 'Check-in is available on the arrival date.' : undefined} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs disabled:opacity-40">Check in</button><button onClick={() => void cancelReservation(reservation)} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-xs">Cancel</button></div></article>;
         })}</div>}
       </section> : view === 'stays' ?
-      <section className="space-y-3">{stays.length === 0 ? <Empty title="No current guest stays" detail="Walk-ins and reservation arrivals appear here after server confirmation." /> : stays.map(stay => <article key={stay.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div><h2 className="font-semibold">{stay.guestName} · Room {stay.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{stay.checkInDate} → {stay.checkOutDate} · {stay.nights} booked nights · estimated bill {formatMinorMoney(stay.estimatedTotalMinor, stay.currency)}</p></div><button onClick={() => openCheckout(stay)} disabled={locked || stay.checkOutDate > today} title={stay.checkOutDate > today ? 'Checkout is available from the booked departure date in this release.' : undefined} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40">Review bill and check out</button></article>)}</section> :
+      <section className="space-y-3">{stays.length === 0 ? <Empty title="No current guest stays" detail="Guests appear here after check-in is confirmed." /> : stays.map(stay => <article key={stay.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div><h2 className="font-semibold">{stay.guestName} · Room {stay.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{stay.checkInDate} → {stay.checkOutDate} · {stay.nights} booked nights · estimated bill {formatMinorMoney(stay.estimatedTotalMinor, stay.currency)}</p></div><button onClick={() => openCheckout(stay)} disabled={locked || stay.checkOutDate > today} title={stay.checkOutDate > today ? 'Checkout is available from the booked departure date.' : undefined} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40">Review bill and check out</button></article>)}</section> :
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rooms.filter(room => room.status === 'DIRTY').length === 0 ? <Empty title="No rooms waiting for cleaning" detail="Checked-out rooms will appear here until housekeeping marks them ready." /> : rooms.filter(room => room.status === 'DIRTY').map(room => <article key={room.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><p className="text-xs uppercase tracking-widest text-amber-300">Cleaning required</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{room.roomType}</p><button onClick={() => void markReady(room)} disabled={locked} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-700 font-semibold">Mark clean and ready</button></article>)}</section>}
 
     {dialog?.type === 'room' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title="Add room"><form onSubmit={createRoom} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Room number"><input required maxLength={24} value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className={controlClass} /></Field><Field label="Room type"><input required maxLength={80} value={roomType} onChange={event => setRoomType(event.target.value)} className={controlClass} /></Field><Field label={`Nightly rate (${session.tenant.currency})`}><input required inputMode="decimal" value={nightlyRate} onChange={event => setNightlyRate(event.target.value)} className={controlClass} /></Field><Field label="Tax rate (%) ? optional override"><input placeholder="Use configured business default" inputMode="decimal" value={roomTax} onChange={event => setRoomTax(event.target.value)} className={controlClass} /></Field><Actions busy={busy} close={() => setDialog(null)} action="Create room" /></fieldset></form></Modal>}
     {dialog?.type === 'reservation' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title="New room reservation"><form onSubmit={createReservation} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Room"><select required value={roomId} onChange={event => setRoomId(event.target.value)} className={controlClass}>{rooms.filter(room => room.status !== 'MAINTENANCE').map(room => <option key={room.id} value={room.id}>Room {room.roomNumber} · {room.roomType} · {room.status.toLowerCase()}</option>)}</select></Field><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Check in"><input required type="date" min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Check out"><input required type="date" min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy} close={() => setDialog(null)} action="Confirm reservation" /></fieldset></form></Modal>}
     {dialog?.type === 'walkin' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title={`Walk-in · Room ${dialog.room.roomNumber}`}><form onSubmit={event => { event.preventDefault(); void checkIn(dialog.room); }} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Arrival"><input type="date" required min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Expected departure"><input type="date" required min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy} close={() => setDialog(null)} action="Check in guest" /></fieldset></form></Modal>}
-    {dialog?.type === 'checkout' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title={`Checkout · Room ${dialog.stay.roomNumber}`}><form onSubmit={event => void checkout(event, dialog.stay)} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3"><p className="font-semibold">{dialog.stay.guestName}</p><p className="mt-1 text-sm text-zinc-400">{dialog.stay.nights} booked nights · room revenue {formatMinorMoney(dialog.stay.estimatedSubtotalMinor, dialog.stay.currency)} · tax {formatMinorMoney(dialog.stay.estimatedTaxMinor, dialog.stay.currency)}</p><p className="mt-2 text-lg font-bold">Amount due {formatMinorMoney(dialog.stay.estimatedTotalMinor, dialog.stay.currency)}</p></div><Field label={`Cash received (${session.tenant.currency})`}><input required inputMode="decimal" value={tendered} onChange={event => setTendered(event.target.value)} className={controlClass} /></Field><p className="text-xs text-amber-200">This release settles the booked room nights in full by cash. A cashier shift must be open. Deposits, extras, partial balances and early departure recalculation are not enabled.</p><Actions busy={busy} close={() => setDialog(null)} action="Take cash and checkout" /></fieldset></form></Modal>}
+    {dialog?.type === 'checkout' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title={`Checkout · Room ${dialog.stay.roomNumber}`}><form onSubmit={event => void checkout(event, dialog.stay)} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3"><p className="font-semibold">{dialog.stay.guestName}</p><p className="mt-1 text-sm text-zinc-400">{dialog.stay.nights} booked nights · room revenue {formatMinorMoney(dialog.stay.estimatedSubtotalMinor, dialog.stay.currency)} · tax {formatMinorMoney(dialog.stay.estimatedTaxMinor, dialog.stay.currency)}</p><p className="mt-2 text-lg font-bold">Amount due {formatMinorMoney(dialog.stay.estimatedTotalMinor, dialog.stay.currency)}</p></div><Field label={`Cash received (${session.tenant.currency})`}><input required inputMode="decimal" value={tendered} onChange={event => setTendered(event.target.value)} className={controlClass} /></Field><p className="text-xs text-amber-200">Checkout takes full cash payment for booked nights. Open a till first. Deposits, extras, partial payments and early departure adjustments are unavailable here.</p><Actions busy={busy} close={() => setDialog(null)} action="Take cash and checkout" /></fieldset></form></Modal>}
   </main>;
 }
 

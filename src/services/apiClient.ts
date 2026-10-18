@@ -1,6 +1,14 @@
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
+import { apiErrorMessage, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
+import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
+export type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
+import type { SaleHistory, SaleHistoryQuery } from '../types/sales';
+import type { AccountingControls, AccountingRecordKind, AccountingRecordPage } from '../types/accounting';
+import type { CustomerBalanceReport, CustomerBalanceQuery, InventoryValueReport, InventoryValueQuery } from '../types/controlReports';
+export type { CustomerBalanceReport, CustomerBalanceQuery, InventoryValueReport, InventoryValueQuery } from '../types/controlReports';
+import type { AccountCatalog } from '../types/accountCatalog';
 
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[];credentialVersion?:number};
@@ -58,8 +66,8 @@ export interface ProductImportBatch extends ProductImportBatchSummary {
   source:{csv:string;mapping:ProductImportMapping};errors:ProductImportIssue[];warnings:ProductImportIssue[];rows:ProductImportRow[];
 }
 export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
-export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
-export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string}
+export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;mpesaSalesMinor?:string|number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
+export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;mpesaSalesMinor?:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string}
 export interface BackendCustomerAccount {id:string;name:string;phone:string;email:string|null;creditLimitMinor:string;balanceMinor:string;status:'ACTIVE'|'SUSPENDED';version:number;createdAt:string;updatedAt:string}
 export interface BackendCustomerStatement {customer:BackendCustomerAccount;entries:Array<{id:string;type:'CHARGE'|'REPAYMENT';amountMinor:string;balanceAfterMinor:string;createdAt:string;reference:string|null;orderId:string|null;receiptNumber:string|null;allocations:Array<{amountMinor:string;receiptNumber:string;orderId:string}>}>;generatedAt:string;currency:string}
 export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null }
@@ -69,7 +77,7 @@ export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightl
 export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
 export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number}
 export interface BackendCommand { protocolVersion:1;commandId:string;tenantId?:string;deviceId:string;type:string;occurredAt:string;expectedVersions:Record<string,number>;payload:Record<string,unknown> }
-export interface BackendReportAccount { accountCode:string;debitMinor:string;creditMinor:string;netDebitMinor:string;netCreditMinor:string }
+export interface BackendReportAccount { accountCode:string;accountName?:string;classification?:string;debitMinor:string;creditMinor:string;netDebitMinor:string;netCreditMinor:string }
 export interface BackendTrialBalance {
   reportType:'TRIAL_BALANCE';scope:'TENANT';tenantId:string;tenantName:string;currency:string;timeZone:string;asOf:string;generatedAt:string;latestJournalAt:string|null;
   coverage:{status:'POSTED_JOURNAL_ONLY';journalEntryCount:string;emptyJournalEntryCount:string;unbalancedJournalEntryCount:string;sourceTypes:Array<{sourceType:string;entryCount:string}>;explanation:string};
@@ -79,27 +87,19 @@ export interface BackendPartialOperatingSummary {
   reportType:'PARTIAL_OPERATING_SUMMARY';scope:'TENANT';tenantId:string;tenantName:string;currency:string;timeZone:string;from:string;to:string;generatedAt:string;latestJournalAt:string|null;
   coverage:{status:'PARTIAL';journalEntryCount:string;emptyJournalEntryCount:string;unbalancedJournalEntryCount:string;sourceTypes:Array<{sourceType:string;entryCount:string}>;unknownAccountCodes:string[];omittedSources:string[];explanation:string};
   totals:{revenueMinor:string;costOfGoodsSoldMinor:string;grossProfitMinor:string;otherIncomeMinor:string;otherOperatingCostsMinor:string;partialOperatingResultMinor:string};
-  lines:Array<{accountCode:string;section:string;amountMinor:string}>;
-}
-export interface BackendOperationalAnalytics {
-  reportType:'OUTLET_OPERATIONAL_ANALYTICS'; scope:'OUTLET'; tenantId:string; outletId:string; currency:string; timeZone:string;
-  from:string; to:string; generatedAt:string;
-  totals:{grossSalesMinor:string;subtotalMinor:string;taxMinor:string;refundsMinor:string;cashCollectedMinor:string;accountCreditMinor:string};
-  daily:Array<{date:string;grossMinor:string;orderCount:string;refundMinor:string;refundCount:string}>;
-  topProducts:Array<{productId:string;sku:string;name:string;quantity:string;revenueMinor:string;orderCount:string}>;
-  coverage:{status:'CONFIRMED_CASH_AND_ACCOUNT_CREDIT';orderCount:string;refundCount:string;cashPaymentCount:string;accountChargeCount:string;scope:string;excludedMethods:string[];excludedSources:string[]};
+  lines:Array<{accountCode:string;accountName?:string;classification?:string;section:string;amountMinor:string}>;
 }
 export interface BackendJournalLines {
-  scope:'TENANT';accountCode:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:string;nextOffset:number|null;
-  entries:Array<{journalEntryId:string;sourceType:string;sourceId:string|null;currency:string;postedAt:string;createdBy:string|null;accountCode:string;debitMinor:string;creditMinor:string}>;
+  scope:'TENANT';accountCode:string;timeZone?:string;from?:string;to?:string;asOf?:string;limit:number;offset:number;total:string;nextOffset:number|null;
+  entries:Array<{journalLineId?:string;journalEntryId:string;sourceType:string;sourceName?:string;sourceId:string|null;currency:string;postedAt:string;createdBy:string|null;accountCode:string;accountName?:string;debitMinor:string;creditMinor:string}>;
 }
 export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
   receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptQrImage:string;showQrOnReceipt:boolean;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
-  lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
-  payments:Array<{method:string;amountMinor:string;currency:string;status:string}>;
-  subtotalMinor:string;taxMinor:string;totalMinor:string;amountPaidMinor:string;customerAccountCharge:{customerId:string;customerName:string;amountDueMinor:string}|null;cashTenderedMinor:string|null;changeMinor:string|null;
+  lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;originalSubtotalMinor?:string;discountMinor?:string;discountReason?:string|null;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
+  payments:Array<{method:string;amountMinor:string;currency:string;status:string;reference?:string|null;confirmation?:string;confirmedBy?:string|null;confirmedAt?:string|null}>;
+  originalSubtotalMinor?:string;discountMinor?:string;subtotalMinor:string;taxMinor:string;totalMinor:string;amountPaidMinor:string;customerAccountCharge:{customerId:string;customerName:string;amountDueMinor:string}|null;cashTenderedMinor:string|null;changeMinor:string|null;
 }
 
 export class ApiClientError extends Error {
@@ -130,7 +130,7 @@ function assertBackendSession(value: unknown): asserts value is BackendSession {
     ||typeof value.user.id!=='string'||typeof value.user.name!=='string'||typeof value.user.role!=='string'||!Array.isArray(value.user.permissions)
     ||typeof value.tenant.id!=='string'||typeof value.tenant.name!=='string'||typeof value.tenant.currency!=='string'||typeof value.tenant.timeZone!=='string'||!Array.isArray(value.tenant.capabilities)
     ||typeof value.outlet.id!=='string'||typeof value.outlet.name!=='string'||typeof value.deviceId!=='string'||typeof value.csrfToken!=='string')
-    throw new ApiClientError('The server session response is incomplete. Retry sign-in or session restore.','INVALID_SERVER_RESPONSE',200);
+    throw new ApiClientError('We couldn’t check your sign-in. Try signing in again.','INVALID_SERVER_RESPONSE',200);
 }
 
 class ApiClient {
@@ -202,22 +202,22 @@ class ApiClient {
     } catch {
       if(controller?.signal.aborted){
         cleanup();
-        if(controller.signal.reason==='timeout')throw new ApiClientError(isRead?`This request took longer than ${READ_TIMEOUT_MS/1000} seconds. Retry the read when the server is available.`:'The server did not confirm this change before the request timed out. Keep its original command ID and check status before retrying.',isRead?'REQUEST_TIMED_OUT':'OUTCOME_UNKNOWN',undefined,requestId);
+        if(controller.signal.reason==='timeout')throw new ApiClientError(isRead?apiErrorMessage('REQUEST_TIMED_OUT'):unconfirmedActionMessage(path),isRead?'REQUEST_TIMED_OUT':'OUTCOME_UNKNOWN',undefined,requestId);
         if(controller.signal.reason==='caller')throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',undefined,requestId);
         throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',undefined,requestId);
       }
       cleanup();
       if(isRead){const offline=typeof navigator!=='undefined'&&!navigator.onLine;throw new ApiClientError(offline?'You are offline. Reconnect and retry this read.':'The connection could not be completed. Retry this read.','CONNECTION_FAILED',undefined,requestId);}
-      throw new ApiClientError('Connection outcome is unknown. Keep the command ID and check its status before retrying.','OUTCOME_UNKNOWN',undefined,requestId);
+      throw new ApiClientError(unconfirmedActionMessage(path),'OUTCOME_UNKNOWN',undefined,requestId);
     }
     try {
       let bodyText:string;
       try { bodyText=await response.text(); }
       catch {
         this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,0,null,'incomplete_body');
-        if(controller?.signal.aborted&&controller.signal.reason==='timeout')throw new ApiClientError(isRead?`The response body did not finish within ${READ_TIMEOUT_MS/1000} seconds. Retry this read.`:'The server did not confirm this change before the response timed out. Keep its original command ID and check status before retrying.',isRead?'REQUEST_TIMED_OUT':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
+        if(controller?.signal.aborted&&controller.signal.reason==='timeout')throw new ApiClientError(isRead?apiErrorMessage('REQUEST_TIMED_OUT'):unconfirmedActionMessage(path),isRead?'REQUEST_TIMED_OUT':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
         if(controller?.signal.aborted)throw new ApiClientError('This read was cancelled because its view is no longer active.','REQUEST_CANCELLED',response.status,response.headers.get('x-request-id')??requestId);
-        throw new ApiClientError(response.ok?'The server response ended before its body was complete. Retry this read.':`Request failed (${response.status}) and its error response was incomplete.`,'INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+        throw new ApiClientError(isRead?apiErrorMessage('INVALID_SERVER_RESPONSE',response.status):unconfirmedActionMessage(path),isRead?'INVALID_SERVER_RESPONSE':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
       }
       let body:unknown;let parseMs=0;let invalidJson=false;
       const parseStartedAt=performance.now();
@@ -229,26 +229,29 @@ class ApiClient {
       parseMs=performance.now()-parseStartedAt;
       const receivedBytes=new TextEncoder().encode(bodyText).length;
       this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,parseMs,receivedBytes,invalidJson?(response.ok?'invalid_json':'invalid_error_json'):(response.ok?'success':'http_error'));
-      if(invalidJson&&response.ok)throw new ApiClientError('The server returned an unreadable response. Retry this read; no data was accepted.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+      if(invalidJson&&response.ok)throw new ApiClientError(isRead?apiErrorMessage('INVALID_SERVER_RESPONSE'):unconfirmedActionMessage(path),isRead?'INVALID_SERVER_RESPONSE':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
       if(!response.ok){
         if(response.status===401&&path!=='/auth/login'){this.csrf='';this.publish(null)}
         const error=isRecord(body)&&isRecord(body.error)?body.error:{};
-        throw Object.assign(new ApiClientError(typeof error.message==='string'?error.message:`Request failed (${response.status}).`,typeof error.code==='string'?error.code:`HTTP_${response.status}`,response.status,response.headers.get('x-request-id')??requestId),{details:error.details});
+        const code=typeof error.code==='string'?error.code:`HTTP_${response.status}`;
+        throw Object.assign(new ApiClientError(apiErrorMessage(code,response.status),code,response.status,response.headers.get('x-request-id')??requestId),{details:error.details});
       }
-      if(!isRecord(body))throw new ApiClientError('The server returned an unexpected response shape. Retry this read.','INVALID_SERVER_RESPONSE',response.status,response.headers.get('x-request-id')??requestId);
+      if(!isRecord(body))throw new ApiClientError(isRead?apiErrorMessage('INVALID_SERVER_RESPONSE'):unconfirmedActionMessage(path),isRead?'INVALID_SERVER_RESPONSE':'OUTCOME_UNKNOWN',response.status,response.headers.get('x-request-id')??requestId);
       return body as T;
     } finally {cleanup();}
   }
-  private async requestText(path:string):Promise<string>{
+  private async requestText(path:string,signal?:AbortSignal):Promise<string>{
     const started=performance.now();
-    try{return await this.performRequestText(path)}
+    try{return await this.performRequestText(path,signal)}
     catch(cause){this.reportRequestFailure(path,cause,performance.now()-started);throw cause;}
   }
-  private async performRequestText(path:string):Promise<string>{
+  private async performRequestText(path:string,signal?:AbortSignal):Promise<string>{
     const requestId=requestIdentifier();const controller=new AbortController();this.pendingReadControllers.add(controller);
     let slowWarningSent=false;let cleaned=false;let timedOut=false;
     let hardTimer:ReturnType<typeof setTimeout>|undefined;let slowTimer:ReturnType<typeof setTimeout>|undefined;
-    const cleanup=()=>{if(cleaned)return;cleaned=true;if(hardTimer!==undefined)clearTimeout(hardTimer);if(slowTimer!==undefined)clearTimeout(slowTimer);this.pendingReadControllers.delete(controller);if(slowWarningSent&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent('mazao:api-request-finished',{detail:{requestId}}));};
+    const abortFromCaller=()=>controller.abort('caller');
+    if(signal?.aborted)controller.abort('caller');else signal?.addEventListener('abort',abortFromCaller,{once:true});
+    const cleanup=()=>{if(cleaned)return;cleaned=true;if(hardTimer!==undefined)clearTimeout(hardTimer);if(slowTimer!==undefined)clearTimeout(slowTimer);signal?.removeEventListener('abort',abortFromCaller);this.pendingReadControllers.delete(controller);if(slowWarningSent&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent('mazao:api-request-finished',{detail:{requestId}}));};
     const headers=new Headers({'x-request-id':requestId});
     slowTimer=setTimeout(()=>{slowWarningSent=true;if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('mazao:api-request-slow',{detail:{requestId,route:requestRoute(path)}}));},READ_SLOW_WARNING_MS);
     hardTimer=setTimeout(()=>{timedOut=true;controller.abort('timeout');},READ_TIMEOUT_MS);
@@ -264,25 +267,26 @@ class ApiClient {
         let message=`Request failed (${response.status}).`;let code=`HTTP_${response.status}`;
         try{const body=JSON.parse(text);if(isRecord(body)&&isRecord(body.error)){if(typeof body.error.message==='string')message=body.error.message;if(typeof body.error.code==='string')code=body.error.code;}}catch{}
         if(response.status===401){this.csrf='';this.publish(null);}
-        throw new ApiClientError(message,code,response.status,response.headers.get('x-request-id')??requestId);
+        throw new ApiClientError(apiErrorMessage(code,response.status),code,response.status,response.headers.get('x-request-id')??requestId);
       }
       this.reportRequestCompletion(path,response,responseHeadersAt-requestStartedAt,performance.now()-responseHeadersAt,0,new TextEncoder().encode(text).length,'success');
       return text;
     }catch(cause){
       if(cause instanceof ApiClientError)throw cause;
-      if(timedOut)throw new ApiClientError(`This download took longer than ${READ_TIMEOUT_MS/1000} seconds. Retry it when the server is available.`,'REQUEST_TIMED_OUT',undefined,requestId);
+      if(timedOut)throw new ApiClientError('This download took longer than expected. Try again.','REQUEST_TIMED_OUT',undefined,requestId);
+      if(controller.signal.aborted)throw new ApiClientError('Download cancelled.','REQUEST_CANCELLED',undefined,requestId);
       const offline=typeof navigator!=='undefined'&&!navigator.onLine;
       throw new ApiClientError(offline?'You are offline. Reconnect and retry this download.':'The download could not be completed. Retry it.','CONNECTION_FAILED',undefined,requestId);
     }finally{cleanup();}
   }
   private async requestArray<T extends object>(path:string,field:keyof T & string,signal?:AbortSignal):Promise<T>{
     const result=await this.request<unknown>(path,{signal});
-    if(!isRecord(result)||!Array.isArray(result[field as string]))throw new ApiClientError(`The server response is missing the required ${field} list. Retry this read.`,'INVALID_SERVER_RESPONSE',200);
+    if(!isRecord(result)||!Array.isArray(result[field as string]))throw new ApiClientError(apiErrorMessage('INVALID_SERVER_RESPONSE'),'INVALID_SERVER_RESPONSE',200);
     return result as T;
   }
   private async requestRecord<T extends object>(path:string,field:keyof T & string,signal?:AbortSignal):Promise<T>{
     const result=await this.request<unknown>(path,{signal});
-    if(!isRecord(result)||!isRecord(result[field as string]))throw new ApiClientError(`The server response is missing the required ${field} record. Retry this read.`,'INVALID_SERVER_RESPONSE',200);
+    if(!isRecord(result)||!isRecord(result[field as string]))throw new ApiClientError(apiErrorMessage('INVALID_SERVER_RESPONSE'),'INVALID_SERVER_RESPONSE',200);
     return result as T;
   }
   async login(email:string,password:string,deviceId?:string):Promise<BackendSession|BackendAssignmentSelection>{
@@ -345,12 +349,22 @@ class ApiClient {
   getInventoryCount(countId:string,signal?:AbortSignal){return this.requestRecord<{count:BackendInventoryCount}>('/inventory/counts/'+encodeURIComponent(countId),'count',signal)}
   async getCurrentShift(signal?:AbortSignal){const result=await this.request<unknown>('/shifts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'shift')||(result.shift!==null&&!isRecord(result.shift)))throw new ApiClientError('The current shift response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {shift:BackendShift|null};}
   listShiftCloseReports(signal?:AbortSignal){return this.requestArray<{reports:BackendShiftCloseReport[]}>('/shifts/close-reports','reports',signal)}
-  listSalesOrders(signal?:AbortSignal){return this.requestArray<{orders:Array<{id:string;orderNumber:string;timestamp:string;cashierName:string;currency:string;subtotalMinor:number;taxMinor:number;totalMinor:number;paidMinor:number;amountDueMinor:number;customerName:string|null;refundedMinor:number;status:'completed'|'partially_refunded'|'refunded';paymentMethod:'cash'|'customer_credit';lines:Array<{lineId:string;productId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;costPriceMinor?:string;cogsMinor?:string;taxRateBps:number;subtotalMinor:string;taxMinor:string;refundedQuantity:string}>}>}>('/sales/orders','orders',signal)}
+  listSalesOrders(signal?:AbortSignal,query:SaleHistoryQuery={}){const search=this.reportQuery(query).toString();return this.requestArray<SaleHistory>('/sales/orders'+(search?'?'+search:''),'orders',signal);}
   async getSaleReceipt(orderId:string,signal?:AbortSignal){const result=await this.request<BackendSaleReceipt>('/sales/orders/'+encodeURIComponent(orderId)+'/receipt',{signal});if(result.status!=='CONFIRMED'||!Array.isArray(result.lines)||!Array.isArray(result.payments)||typeof result.receiptNumber!=='string')throw new ApiClientError('The sale receipt response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getTrialBalance(asOf:string,signal?:AbortSignal){const result=await this.request<BackendTrialBalance>('/reports/trial-balance?'+new URLSearchParams({asOf}),{signal});if(!isRecord(result.totals)||!Array.isArray(result.accounts)||!isRecord(result.coverage))throw new ApiClientError('The trial balance response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getProfitLoss(from:string,to:string,signal?:AbortSignal){const result=await this.request<BackendPartialOperatingSummary>('/reports/profit-loss?'+new URLSearchParams({from,to}),{signal});if(!isRecord(result.totals)||!Array.isArray(result.lines)||!isRecord(result.coverage))throw new ApiClientError('The operating summary response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getOperationalAnalytics(from:string,to:string,signal?:AbortSignal){const result=await this.request<BackendOperationalAnalytics>('/reports/operational-analytics?'+new URLSearchParams({from,to}),{signal});if(!isRecord(result.totals)||!Array.isArray(result.daily)||!Array.isArray(result.topProducts)||!isRecord(result.coverage))throw new ApiClientError('The operating analytics response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getJournalLines(query:{accountCode:string;from?:string;to?:string;asOf?:string;limit?:number;offset?:number},signal?:AbortSignal){const result=await this.request<BackendJournalLines>('/reports/journal-lines?'+new URLSearchParams(Object.fromEntries(Object.entries(query).filter((entry):entry is [string,string|number]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])) ),{signal});if(!Array.isArray(result.entries)||typeof result.total!=='string'||typeof result.limit!=='number')throw new ApiClientError('The journal lines response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
+  getItemReport(query:ItemReportQuery,signal?:AbortSignal){return this.request<BackendItemReport>('/reports/items?'+this.reportQuery(query),{signal});}
+  getItemEvents(query:ItemEventsQuery,signal?:AbortSignal){return this.request<BackendItemEvents>('/reports/item-events?'+this.reportQuery(query),{signal});}
+  getItemReportCsv(query:ItemReportQuery,signal?:AbortSignal){return this.requestText('/reports/items.csv?'+this.reportQuery(query),signal);}
+  getJournalSource(journalEntryId:string,signal?:AbortSignal){return this.request<BackendJournalSource>('/reports/journal-source/'+encodeURIComponent(journalEntryId),{signal});}
+  getAccountingControls(signal?:AbortSignal){return this.request<AccountingControls>('/finance/controls',{signal});}
+  getAccountCatalog(signal?:AbortSignal){return this.request<AccountCatalog>('/reports/account-catalog',{signal});}
+  getCustomerBalanceReport(query:CustomerBalanceQuery,signal?:AbortSignal){return this.request<CustomerBalanceReport>('/reports/customer-balances?'+this.reportQuery(query),{signal});}
+  getInventoryValueReport(query:InventoryValueQuery={},signal?:AbortSignal){return this.request<InventoryValueReport>('/reports/inventory-value?'+this.reportQuery(query),{signal});}
+  listAccountingRecords<K extends AccountingRecordKind>(kind:K,query:{after?:string;limit?:number;reference?:string}={},signal?:AbortSignal){return this.request<AccountingRecordPage<K>>('/finance/records/'+encodeURIComponent(kind)+'?'+this.reportQuery(query),{signal});}
+  private reportQuery(query:object){return new URLSearchParams(Object.entries(query).filter(([,value])=>value!==undefined).map(([key,value]):[string,string]=>[key,String(value)]));}
   listHotelRooms(signal?:AbortSignal){return this.requestArray<{rooms:BackendRoom[]}>('/hospitality/rooms','rooms',signal)}
   listHotelReservations(signal?:AbortSignal){return this.requestArray<{reservations:BackendReservation[]}>('/hospitality/reservations','reservations',signal)}
   listHotelStays(signal?:AbortSignal){return this.requestArray<{stays:BackendStay[]}>('/hospitality/stays','stays',signal)}
@@ -360,9 +374,9 @@ class ApiClient {
     if(command.type==='catalog.import.validate'||command.type==='catalog.import.revalidate')throw new Error('Use import validation transport; CSV source must not enter the command journal.');
     const actorId=this.session?.user.id;
     try{await commandJournal.save(command,'sending',actorId);}
-    catch{throw Object.assign(new Error('The command was not sent because recovery data could not be saved. Restore browser storage before retrying.'),{code:'COMMAND_NOT_SENT'});}
+    catch{throw Object.assign(new Error('This action was not sent because recovery details could not be saved on this device. Enable browser storage and try again.'),{code:'COMMAND_NOT_SENT'});}
     await this.emitRecovery();
-    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await commandJournal.remove(command.commandId);else await commandJournal.save(command,'outcome_unknown');await this.emitRecovery();return result}
+    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(!isTerminalOutcome(result,command.commandId,command.type))throw new ApiClientError(unconfirmedActionMessage('/commands'),'OUTCOME_UNKNOWN');await commandJournal.remove(command.commandId);await this.emitRecovery();return presentOutcome(result)}
     catch(error){await commandJournal.save(command,'outcome_unknown',actorId);await this.emitRecovery();throw error}
   }
   async submitPasswordOperation(operation:SecretOperationRecovery,newPassword:string,currentPassword?:string):Promise<BackendCommandResult>{
@@ -375,14 +389,14 @@ class ApiClient {
       const path=operation.kind==='auth.password.change'?'/auth/password':'/staff/'+encodeURIComponent(operation.targetUserId)+'/password';
       const result=await this.request<BackendCommandResult>(path,{method:'POST',body:JSON.stringify({protocolVersion:1,commandId:operation.commandId,expectedVersions:{['credential:'+operation.targetUserId]:operation.expectedCredentialVersion},newPassword,...(operation.kind==='auth.password.change'?{currentPassword}: {})})});
       if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await secretOperationJournal.remove(operation.commandId);else await secretOperationJournal.save({...operation,state:'outcome_unknown'});
-      await this.emitSecretRecovery();return result;
+      await this.emitSecretRecovery();return presentOutcome(result);
     }catch(cause){
       const status=(cause as {status?:number}).status;
       if(status&&status>=400&&status<500){await secretOperationJournal.remove(operation.commandId);await this.emitSecretRecovery();throw Object.assign(new Error(cause instanceof Error?cause.message:'The server rejected the password request.'),{code:'COMMAND_NOT_SENT',status});}
       await secretOperationJournal.save({...operation,state:'outcome_unknown'});await this.emitSecretRecovery();throw cause;
     }finally{newPassword='';currentPassword='';}
   }
-  listSecretOperationRecovery():Promise<SecretOperationRecovery[]>{const session=this.session;return session?secretOperationJournal.list(session.tenant.id,session.user.id):Promise.resolve([]);}
+  async listSecretOperationRecovery():Promise<SecretOperationRecovery[]>{const session=this.session;try{return session?await secretOperationJournal.list(session.tenant.id,session.user.id):[];}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
   async checkSecretOperationStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await secretOperationJournal.remove(commandId);await this.emitSecretRecovery();}return result;}
   private async emitSecretRecovery(){const records=await this.listSecretOperationRecovery();this.secretRecoveryListeners.forEach(listener=>listener(records));}
   async submitImportValidation(command:BackendCommand,fileName:string,sourceHash:string){
@@ -411,11 +425,11 @@ class ApiClient {
     if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
     return result;
   }
-  listImportValidationRecovery():Promise<ImportValidationRecovery[]>{const session=this.session;return session?importValidationJournal.list(session.tenant.id,session.deviceId,session.user.id):Promise.resolve([]);}
+  async listImportValidationRecovery():Promise<ImportValidationRecovery[]>{const session=this.session;try{return session?await importValidationJournal.list(session.tenant.id,session.deviceId,session.user.id):[];}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
   async discardUnconfirmedValidation(commandId:string){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
   private async emitImportRecovery(){const records=await this.listImportValidationRecovery();this.importRecoveryListeners.forEach(listener=>listener(records));}
-  async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await commandJournal.remove(commandId);await this.emitRecovery()}return result}
-  async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}
+  async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));const stored=(await this.listRecoverableCommands(this.session?.tenant.id)).find(record=>record.command.commandId===commandId);if(result.commandId!==commandId||!isRecord(result.response)||result.response.status!==result.status||!isTerminalOutcome(result.response,commandId,stored?.command.type))throw new ApiClientError(unconfirmedActionMessage('/commands'),'INVALID_SERVER_RESPONSE');await commandJournal.remove(commandId);await this.emitRecovery();return {...result,response:presentOutcome(result.response)}}
+  async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{try{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
   private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}
 }
 export const apiClient=new ApiClient();

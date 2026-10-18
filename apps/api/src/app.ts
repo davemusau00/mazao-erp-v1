@@ -10,6 +10,11 @@ import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js
 import { ROLE_PERMISSIONS } from './contracts.js';
 import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReports.js';
 import { getOperationalAnalytics } from './operationalAnalytics.js';
+import { getItemReport, getItemReportCsv, getItemEvents } from './itemReports.js';
+import { getJournalSource } from './journalSources.js';
+import { getAccountingControls, listAccountingRecords } from './accounting.js';
+import { getCustomerBalanceReport, getInventoryValueReport } from './controlReports.js';
+import { getAccountCatalog } from './accountCatalog.js';
 import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
@@ -292,7 +297,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const s=request.operator!;
     requireEnabledCapability(s, 'commerce');
     if (!ROLE_PERMISSIONS[s.role].some(permission=>permission==='shift.open'||permission==='shift.close'||permission==='shift.payout')) throw new DomainError('FORBIDDEN','Your role cannot view till shifts.',403);
-    const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,customer_collections_minor,cash_refunds_minor,expected_cash_minor,version,opened_at,
+    const result=await pool.query(`SELECT id,status,opening_float_minor,cash_sales_minor,customer_collections_minor,cash_refunds_minor,mpesa_sales_minor,expected_cash_minor,version,opened_at,
         COALESCE((SELECT sum(amount_minor) FROM commerce.shift_cash_movements m WHERE m.tenant_id=shifts.tenant_id AND m.outlet_id=shifts.outlet_id AND m.shift_id=shifts.id AND m.movement_type='PAID_IN'),0)::text cash_paid_in_minor,
         COALESCE((SELECT sum(amount_minor) FROM commerce.shift_cash_movements m WHERE m.tenant_id=shifts.tenant_id AND m.outlet_id=shifts.outlet_id AND m.shift_id=shifts.id AND m.movement_type='PAYOUT'),0)::text cash_payout_minor
       FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
@@ -301,22 +306,36 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const movements=await pool.query(`SELECT m.id,m.movement_type,m.amount_minor,m.reason,m.reference,m.created_at,u.full_name actor_name
       FROM commerce.shift_cash_movements m JOIN identity.users u ON u.id=m.actor_id
       WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.shift_id=$3 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`,[s.tenantId,s.outletId,r.id]);
-    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
+    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),mpesaSalesMinor:Number(r.mpesa_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
   });
   app.get('/api/v1/shifts/close-reports', async request => listShiftCloseReports(request.operator!));
-  app.get('/api/v1/sales/orders', async request => {
+  app.get<{Querystring:{after?:string;asOf?:string;limit?:string;q?:string}}>('/api/v1/sales/orders', async request => {
     const operator=request.operator!;
     const permissions=ROLE_PERMISSIONS[operator.role];
     if(!permissions.some(permission=>permission==='commerce.sell'||permission==='commerce.refund'||permission==='finance.view')) throw new DomainError('FORBIDDEN','Your role cannot review sales.',403);
     const canReadCost=permissions.includes('finance.view');
-    const result=await pool.query(`SELECT o.id,o.created_at,o.operator_id,o.operator_name_snapshot cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
+    const limit=request.query.limit===undefined?250:Number(request.query.limit);
+    if(!Number.isSafeInteger(limit)||limit<1||limit>250)throw new DomainError('VALIDATION_FAILED','Choose a page size between 1 and 250.');
+    let afterTime:string|null=null,afterId:string|null=null;
+    if(request.query.after){try{const value=JSON.parse(Buffer.from(request.query.after,'base64url').toString('utf8'));if(!Array.isArray(value)||value.length!==2||typeof value[0]!=='string'||!Number.isFinite(Date.parse(value[0]))||!/^\d{4}-\d\d-\d\dT/.test(value[0])||typeof value[1]!=='string'||!/^[0-9a-f-]{36}$/i.test(value[1]))throw new Error();[afterTime,afterId]=value;}catch{throw new DomainError('VALIDATION_FAILED','The next-page reference is invalid. Refresh the history.');}}
+    const asOf=request.query.asOf??new Date().toISOString();
+    if(!Number.isFinite(Date.parse(asOf))||Date.parse(asOf)>Date.now()+5_000)throw new DomainError('VALIDATION_FAILED','The history date is invalid.');
+    const search=request.query.q?.trim()??'';if(search.length>128)throw new DomainError('VALIDATION_FAILED','Search text is too long.');
+    const pattern=search?`%${search.replace(/[\\%_]/g,'\\$&')}%`:null;
+    const result=await pool.query(`SELECT o.id,o.created_at,to_char(o.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') cursor_time,o.operator_id,o.operator_name_snapshot cashier_name,o.currency,o.subtotal_minor,o.tax_minor,o.total_minor,o.status,o.customer_account_id,o.customer_name_snapshot,o.customer_amount_due_minor,
         COALESCE((SELECT SUM(p.amount_minor) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),0)::text paid_minor,
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
-        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
+        COALESCE((SELECT SUM(ol.discount_minor) FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),0)::text discount_minor,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('method',p.method,'amountMinor',p.amount_minor::text,'currency',p.currency,'status',p.status,'reference',p.reference,'confirmation',CASE WHEN p.method='MANUAL_MPESA' THEN 'CASHIER_CONFIRMED' ELSE 'CASH' END,'confirmedBy',p.confirmed_operator_name_snapshot,'confirmedAt',p.manually_confirmed_at) ORDER BY p.created_at,p.id) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),'[]'::jsonb) payments,
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'originalSubtotalMinor',(ol.line_subtotal_minor+ol.discount_minor)::text,'discountMinor',ol.discount_minor::text,'discountReason',ol.discount_reason,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
       FROM commerce.orders o
-      WHERE o.tenant_id=$1 AND o.outlet_id=$2 ORDER BY o.created_at DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
-    return {orders:result.rows.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),amountDueMinor:Number(r.customer_amount_due_minor),customerName:r.customer_name_snapshot,refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:r.customer_account_id?'customer_credit':'cash',lines:r.lines}))};
+      WHERE o.tenant_id=$1 AND o.outlet_id=$2 AND o.created_at<=$6::timestamptz
+        AND ($4::timestamptz IS NULL OR (o.created_at,o.id)<($4::timestamptz,$5::uuid))
+        AND ($7::text IS NULL OR o.id::text ILIKE $7 OR o.receipt_number ILIKE $7 OR o.operator_name_snapshot ILIKE $7 OR o.customer_name_snapshot ILIKE $7)
+      ORDER BY o.created_at DESC,o.id DESC LIMIT $8`,[operator.tenantId,operator.outletId,canReadCost,afterTime,afterId,asOf,pattern,limit+1]);
+    const page=result.rows.slice(0,limit),last=page.at(-1);
+    return {asOf,nextAfter:result.rows.length>limit&&last?Buffer.from(JSON.stringify([last.cursor_time,last.id])).toString('base64url'):null,orders:page.map(r=>({id:r.id,orderNumber:String(r.id).slice(0,8).toUpperCase(),timestamp:r.created_at,cashierName:r.cashier_name,currency:r.currency,originalSubtotalMinor:(BigInt(r.subtotal_minor)+BigInt(r.discount_minor)).toString(),discountMinor:r.discount_minor,subtotalMinor:Number(r.subtotal_minor),taxMinor:Number(r.tax_minor),totalMinor:Number(r.total_minor),paidMinor:Number(r.paid_minor),amountDueMinor:Number(r.customer_amount_due_minor),customerName:r.customer_name_snapshot,refundedMinor:Number(r.refunded_minor),status:r.status==='REFUNDED'?'refunded':r.status==='PARTIALLY_REFUNDED'?'partially_refunded':'completed',paymentMethod:r.customer_account_id?'customer_credit':r.payments.some((payment:{method:string})=>payment.method==='MANUAL_MPESA')?'manual_mpesa':'cash',payments:r.payments,lines:r.lines}))};
   });
   app.get<{ Params: { orderId: string } }>('/api/v1/sales/orders/:orderId/receipt', async request =>
     getSaleReceipt(request.operator!, request.params.orderId));
@@ -334,6 +353,15 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     getProfitLoss(request.operator!, request.query.from, request.query.to));
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/operational-analytics', async request =>
     getOperationalAnalytics(request.operator!, request.query.from, request.query.to));
+  app.get<{Querystring:{from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/items',async request=>getItemReport(request.operator!,request.query));
+  app.get<{Querystring:{productId?:string;from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/item-events',async request=>getItemEvents(request.operator!,request.query));
+  app.get<{Querystring:{from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/items.csv',async(request,reply)=>reply.type('text/csv; charset=utf-8').header('content-disposition','attachment; filename="item-performance.csv"').send(await getItemReportCsv(request.operator!,request.query)));
+  app.get<{Params:{journalEntryId:string}}>('/api/v1/reports/journal-source/:journalEntryId',async request=>getJournalSource(request.operator!,request.params.journalEntryId));
+  app.get('/api/v1/finance/controls',async request=>getAccountingControls(request.operator!));
+  app.get('/api/v1/reports/account-catalog',async request=>getAccountCatalog(request.operator!));
+  app.get<{Querystring:{asOf?:string;limit?:string;after?:string}}>('/api/v1/reports/customer-balances',async request=>getCustomerBalanceReport(request.operator!,request.query));
+  app.get<{Querystring:{limit?:string;after?:string;revision?:string}}>('/api/v1/reports/inventory-value',async request=>getInventoryValueReport(request.operator!,request.query));
+  app.get<{Params:{kind:string};Querystring:{limit?:string;after?:string;reference?:string}}>('/api/v1/finance/records/:kind',async request=>listAccountingRecords(request.operator!,request.params.kind,request.query));
   app.get<{ Querystring: { accountCode?: string; from?: string; to?: string; asOf?: string; limit?: string; offset?: string } }>('/api/v1/reports/journal-lines', async request =>
     getJournalLines(request.operator!, {
       accountCode: request.query.accountCode,

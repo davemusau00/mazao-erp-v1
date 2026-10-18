@@ -1,3 +1,4 @@
+import { actionStatusLabel } from '../../utils/presentation';
 import React, { useEffect, useRef, useState } from 'react';
 import { apiClient, type BackendCommand, type BackendShift, type BackendShiftCloseReport } from '../../services/apiClient';
 import { formatMinorMoney, formatMinorMoneyText, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
@@ -46,7 +47,7 @@ export const ShiftManagerView: React.FC = () => {
       setShift(current.shift);
       setCloseReports(reports.reports);
     }
-    catch (error) { setLoadError(error instanceof Error ? error.message : 'Unable to load server shift.'); }
+    catch (error) { setLoadError(error instanceof Error ? error.message : 'We could not load your till. Try again.'); }
     finally { setLoading(false); }
   };
 
@@ -57,12 +58,12 @@ export const ShiftManagerView: React.FC = () => {
     if (terminal) { pending.current = null; setUnknownCommandId(null); }
     if (outcome.status === 'CONFIRMED') {
       setMovementType(null); setMovementAmount(''); setMovementReason(''); setMovementReference(''); setMovementMessage('');
-      setMessage(command.type === 'shift.open' ? 'Server shift opened.' : command.type === 'shift.close'
-        ? `Server shift closed. Close report ${String(outcome.value?.closeReportId ?? '')} is saved below.`
+      setMessage(command.type === 'shift.open' ? 'Till opened.' : command.type === 'shift.close'
+        ? 'Till closed. Your close report is shown below.'
         : command.payload.movementType === 'PAID_IN' ? 'Cash paid-in recorded.' : 'Cash payout recorded.');
       await refresh();
     } else {
-      const message = outcome.message ?? (terminal ? `Shift action ${outcome.status?.toLowerCase()}.` : 'The shift action is awaiting confirmation. Check its original command status.');
+      const message = outcome.message ?? (terminal ? `Till action: ${actionStatusLabel(outcome.status ?? "")}.` : 'We could not confirm this till action. Check its status before trying again.');
       setMessage(message); setMovementMessage(message);
       if (!terminal) setUnknownCommandId(command.commandId);
     }
@@ -87,7 +88,7 @@ export const ShiftManagerView: React.FC = () => {
       await acknowledge(command, await apiClient.submitCommand(command));
     } catch (error) {
       setUnknownCommandId(commandId);
-      setMessage(error instanceof Error ? error.message : 'Shift command outcome is unknown. Check its status before retrying.');
+      setMessage(error instanceof Error ? error.message : 'We could not confirm this till action. Check its status before trying again.');
     } finally { recovery.finish(); setBusy(false); }
   };
 
@@ -130,7 +131,7 @@ export const ShiftManagerView: React.FC = () => {
       try {
         if ((error as {status?:number}).status !== 404) throw error;
         await acknowledge(original, await apiClient.submitCommand(original));
-      } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'Unable to check shift command status.'); }
+      } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'We could not check this till action. Try again.'); }
     } finally { recovery.finish(); setBusy(false); }
   };
 
@@ -139,7 +140,7 @@ export const ShiftManagerView: React.FC = () => {
       <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
       {loadError && <div role="alert" className="rounded-xl border border-rose-800 p-3 text-sm text-rose-200">{loadError}<button type="button" onClick={() => void refresh()} className="ml-3 min-h-11 underline">Retry shift loading</button></div>}
       <header>
-        <p className="text-xs uppercase tracking-widest text-blue-300">Server-backed shift</p>
+        <p className="text-xs uppercase tracking-widest text-blue-300">YOUR TILL</p>
         <h1 className="mt-2 text-3xl font-bold">Cash control</h1>
         <p className="mt-2 text-zinc-400">{session.outlet.name} · {session.user.name} · {currency}</p>
       </header>
@@ -151,7 +152,8 @@ export const ShiftManagerView: React.FC = () => {
               <p className="text-sm text-emerald-300">Shift open</p>
               <h2 id="server-shift-heading" className="mt-1 text-2xl font-semibold">Expected cash {formatMinorMoney(shift.expectedCashMinor, currency)}</h2>
               <p className="mt-1 text-sm text-zinc-400">Opening float {formatMinorMoney(shift.openingFloatMinor, currency)} · Cash sales {formatMinorMoney(shift.cashSalesMinor, currency)} · Customer repayments {formatMinorMoney(shift.customerCollectionsMinor, currency)}</p>
-              <p className="mt-1 text-xs text-zinc-500">Version {shift.version} · opened {new Date(shift.openedAt).toLocaleString(undefined,{timeZone:(session.outlet.timeZone ?? session.tenant.timeZone)})}</p>
+              <p className="mt-1 text-xs text-zinc-500">Opened {new Date(shift.openedAt).toLocaleString(undefined,{timeZone:(session.outlet.timeZone ?? session.tenant.timeZone)})}</p>
+              <p className="mt-2 text-sm text-blue-200">M-Pesa sales {formatMinorMoneyText(String(shift.mpesaSalesMinor ?? '0'), currency)} · separate from drawer cash</p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
               {canMoveCash && <>
@@ -167,7 +169,7 @@ export const ShiftManagerView: React.FC = () => {
             <div className="border-b border-zinc-800 px-4 py-3"><h3 className="font-semibold">Till cash movements</h3><p className="mt-1 text-xs text-zinc-500">Paid-ins and payouts update expected cash and keep a reason and reference.</p></div>
             {shift.cashMovements.length === 0 ? <p className="p-4 text-sm text-zinc-500">No paid-ins or payouts recorded for this shift.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="text-xs text-zinc-500"><tr><th className="p-3">When</th><th className="p-3">Movement</th><th className="p-3">Reason / reference</th><th className="p-3">Recorded by</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-zinc-800">{shift.cashMovements.map(movement=><tr key={movement.id}><td className="p-3 text-zinc-400">{new Date(movement.createdAt).toLocaleString(undefined,{dateStyle:'short',timeStyle:'short',timeZone:(session.outlet.timeZone ?? session.tenant.timeZone)})}</td><td className={movement.movementType==='PAID_IN'?'p-3 font-medium text-emerald-300':'p-3 font-medium text-amber-300'}>{movement.movementType==='PAID_IN'?'Cash paid-in':'Cash payout'}</td><td className="p-3"><span>{movement.reason}</span>{movement.reference&&<small className="ml-2 text-zinc-500">{movement.reference}</small>}</td><td className="p-3 text-zinc-400">{movement.actorName}</td><td className="p-3 text-right font-mono">{movement.movementType==='PAID_IN'?'+':'−'}{formatMinorMoney(movement.amountMinor,currency)}</td></tr>)}</tbody></table></div>}
           </div>
-          <p className="mt-3 text-xs text-zinc-500">Till movements keep a clearing journal and do not create a supplier payment or classify a business expense.</p>
+          <p className="mt-3 text-xs text-zinc-500">Use these actions to record cash entering or leaving the till. Record supplier payments and business expenses separately.</p>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {([
               ['Cash paid-in', shift.cashPaidInMinor],
@@ -177,16 +179,16 @@ export const ShiftManagerView: React.FC = () => {
             ] as const).map(([label, amount]) => <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3"><p className="text-xs text-zinc-400">{label}</p><p className="mt-1 text-base font-semibold">{formatMinorMoney(amount,currency)}</p></div>)}
           </div>
         </> : <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-52 flex-1"><h2 id="server-shift-heading" className="text-lg font-semibold">No server shift is open</h2><p className="mt-1 text-sm text-zinc-400">Open a till before server-backed checkout.</p></div>
+          <div className="min-w-52 flex-1"><h2 id="server-shift-heading" className="text-lg font-semibold">No till is open</h2><p className="mt-1 text-sm text-zinc-400">Open a till before taking payment.</p></div>
           <label className="text-xs text-zinc-400">Opening float ({currency})<input disabled={locked} inputMode="decimal" value={float} onChange={event=>setFloat(event.target.value)} className="mt-1 block min-h-11 w-36 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-white"/></label>
           <button type="button" disabled={locked} onClick={()=>void submitShift('shift.open')} className="min-h-11 rounded-lg bg-emerald-600 px-4 font-semibold disabled:opacity-50">{busy?'Working…':'Open shift'}</button>
         </div>}
-        {message && <div role={unknownCommandId?'alert':'status'} className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-200"><span>{message}</span>{unknownCommandId&&<button type="button" onClick={()=>void checkUnknown()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check command status</button>}</div>}
+        {message && <div role={unknownCommandId?'alert':'status'} className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-200"><span>{message}</span>{unknownCommandId&&<button type="button" onClick={()=>void checkUnknown()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check status</button>}</div>}
       </section>
 
       {closeReports[0] && <section className="rounded-2xl border border-emerald-900/70 bg-zinc-950 p-5 sm:p-6" aria-labelledby="z-report-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><p className="text-xs uppercase tracking-widest text-emerald-300">Server close report · {closeReports[0].businessDate}</p><h2 id="z-report-title" className="mt-1 text-xl font-semibold">Z report</h2><p className="mt-1 text-sm text-zinc-400">{closeReports[0].outletName} · {closeReports[0].operatorName} · shift {closeReports[0].shiftId.slice(0,8)}</p></div>
+          <div><p className="text-xs uppercase tracking-widest text-emerald-300">Till close report · {closeReports[0].businessDate}</p><h2 id="z-report-title" className="mt-1 text-xl font-semibold">Z report</h2><p className="mt-1 text-sm text-zinc-400">{closeReports[0].outletName} · {closeReports[0].operatorName} · shift {closeReports[0].shiftId.slice(0,8)}</p></div>
           <p className="text-xs text-zinc-500">Closed {new Date(closeReports[0].closedAt).toLocaleString(undefined,{timeZone:closeReports[0].timeZone})}</p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -202,9 +204,10 @@ export const ShiftManagerView: React.FC = () => {
           ] as const).map(([label, amount]) => <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3"><p className="text-xs text-zinc-400">{label}</p><p className="mt-1 text-base font-semibold">{formatMinorMoneyText(amount,currency)}</p></div>)}
         </div>
         <p className={`mt-4 rounded-lg border p-3 text-sm ${BigInt(closeReports[0].varianceMinor)===0n?'border-emerald-900 bg-emerald-950/30 text-emerald-200':'border-amber-900 bg-amber-950/30 text-amber-200'}`}>
-          Cash variance: <strong className="font-mono">{formatMinorMoneyText(closeReports[0].varianceMinor,currency)}</strong>. This server report records the counted till and its cash source totals.
+          Cash variance: <strong className="font-mono">{formatMinorMoneyText(closeReports[0].varianceMinor,currency)}</strong>. This report records counted cash and all supported cash movements.
         </p>
-        <p className="mt-2 text-xs text-zinc-500">Report ID {closeReports[0].id} · close command {closeReports[0].commandId}</p>
+        <p className="mt-3 rounded-lg border border-blue-900 p-3 text-sm text-blue-200">M-Pesa sales {closeReports[0].mpesaSalesMinor === undefined ? 'not included in this older report' : formatMinorMoneyText(closeReports[0].mpesaSalesMinor,currency)} · separate from counted cash</p>
+        <details className="mt-3 text-xs text-zinc-500"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all">{closeReports[0].id}</p><p className="break-all">{closeReports[0].commandId}</p></details>
       </section>}
 
       {movementType && shift && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy&&!unknownCommandId)setMovementType(null)}}>

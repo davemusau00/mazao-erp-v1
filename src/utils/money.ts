@@ -57,5 +57,23 @@ export function formatMinorMoneyText(amountMinor: string | bigint, currency: str
   const symbol = new Intl.NumberFormat(locale, { style: 'currency', currency }).formatToParts(0).find(part => part.type === 'currency')?.value ?? currency;
   const sign = amount < 0n ? '-' : '';
   const decimal = new Intl.NumberFormat(locale).formatToParts(1.1).find(part => part.type === 'decimal')?.value ?? '.';
-  return digits ? `${sign}${symbol}\u00a0${grouped}${decimal}${fraction}` : `${sign}${symbol}\u00a0${grouped}`;
+  return digits && absolute % scale !== 0n ? `${sign}${symbol}\u00a0${grouped}${decimal}${fraction}` : `${sign}${symbol}\u00a0${grouped}`;
+}
+
+/** Display a recorded decimal quantity without rounding or converting it to a float. */
+export function formatDecimalQuantity(value: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match) return value;
+  const whole = match[2].replace(/^0+(?=\d)/, '');
+  const fraction = (match[3] ?? '').replace(/0+$/, '');
+  const sign = match[1] && (whole !== '0' || fraction) ? '-' : '';
+  return `${sign}${whole}${fraction ? `.${fraction}` : ''}`;
+}
+
+/** Display a percentage stored as integer hundredths without insignificant zeros. */
+export function formatBasisPoints(value: number | string | bigint): string {
+  const amount = BigInt(value);
+  const sign = amount < 0n ? '-' : '';
+  const absolute = amount < 0n ? -amount : amount;
+  return formatDecimalQuantity(`${sign}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, '0')}`);
 }

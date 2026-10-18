@@ -13,7 +13,7 @@ export async function listShiftCloseReports(session: ApiSession) {
       currency,shift_version,opened_at,closed_at,opening_float_minor::text,
       cash_sales_minor::text,customer_collections_minor::text,cash_refunds_minor::text,
       cash_paid_in_minor::text,cash_payout_minor::text,expected_cash_minor::text,
-      counted_cash_minor::text,variance_minor::text
+      counted_cash_minor::text,variance_minor::text,mpesa_sales_minor::text
     FROM commerce.shift_close_reports
     WHERE tenant_id=$1 AND outlet_id=$2 AND ($3::boolean OR operator_id=$4)
     ORDER BY closed_at DESC,id DESC LIMIT 50`,
@@ -36,6 +36,7 @@ export async function listShiftCloseReports(session: ApiSession) {
       closedAt: row.closed_at,
       openingFloatMinor: row.opening_float_minor,
       cashSalesMinor: row.cash_sales_minor,
+      mpesaSalesMinor: row.mpesa_sales_minor,
       customerCollectionsMinor: row.customer_collections_minor,
       cashRefundsMinor: row.cash_refunds_minor,
       cashPaidInMinor: row.cash_paid_in_minor,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { currencyMinorDigits, formatMinorMoneyText, minorToMoneyInput, moneyInputToMinor, parseMoneyToMinor } from '../../../src/utils/money.js';
+import { currencyMinorDigits, formatBasisPoints, formatDecimalQuantity, formatMinorMoneyText, minorToMoneyInput, moneyInputToMinor, parseMoneyToMinor } from '../../../src/utils/money.js';
 
 test('UI amount inputs use ISO currency precision for KES, JPY and BHD', () => {
   assert.equal(currencyMinorDigits('KES'), 2);
@@ -64,4 +64,30 @@ test('display formatter preserves string minor-unit evidence beyond JavaScript s
   assert.equal(formatMinorMoneyText('-1', 'BHD', 'en-US'), '-BHD\u00a00.001');
   assert.equal(formatMinorMoneyText('12345', 'KES', 'en-US'), 'KES\u00a0123.45');
   assert.match(formatMinorMoneyText('12345', 'JPY', 'en-US'), /12,345$/);
+});
+
+test('money display omits only an entirely zero fraction and retains exact nonzero currency precision', () => {
+  assert.equal(formatMinorMoneyText('120000', 'KES', 'en-US'), 'KES\u00a01,200');
+  assert.equal(formatMinorMoneyText('120050', 'KES', 'en-US'), 'KES\u00a01,200.50');
+  assert.equal(formatMinorMoneyText('120005', 'KES', 'en-US'), 'KES\u00a01,200.05');
+  assert.equal(formatMinorMoneyText('-120000', 'KES', 'en-US'), '-KES\u00a01,200');
+  assert.equal(formatMinorMoneyText('-120050', 'KES', 'en-US'), '-KES\u00a01,200.50');
+  assert.equal(formatMinorMoneyText('0', 'KES', 'en-US'), 'KES\u00a00');
+  assert.equal(formatMinorMoneyText('1000', 'BHD', 'en-US'), 'BHD\u00a01');
+  assert.equal(formatMinorMoneyText('1500', 'BHD', 'en-US'), 'BHD\u00a01.500');
+  assert.match(formatMinorMoneyText('1200', 'JPY', 'en-US'), /1,200$/);
+  assert.equal(formatMinorMoneyText('120050', 'KES', 'de-DE'), 'KES\u00a01.200,50');
+  assert.equal(formatMinorMoneyText('9007199254740991000', 'BHD', 'en-US'), 'BHD\u00a09,007,199,254,740,991');
+});
+
+test('quantities and tax percentages trim insignificant zeros without floating point conversion', () => {
+  const values = { '12.000000': '12', '1.250000': '1.25', '0.000001': '0.000001',
+    '-1.250000': '-1.25', '-0.000000': '0', '00012.010000': '12.01',
+    '9007199254740991234.000001': '9007199254740991234.000001' };
+  for (const [value, expected] of Object.entries(values)) assert.equal(formatDecimalQuantity(value), expected);
+  assert.equal(formatDecimalQuantity('not a quantity'), 'not a quantity');
+  assert.equal(formatBasisPoints(1600), '16');
+  assert.equal(formatBasisPoints(1625), '16.25');
+  assert.equal(formatBasisPoints(1650), '16.5');
+  assert.equal(formatBasisPoints(0), '0');
 });

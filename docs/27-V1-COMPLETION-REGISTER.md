@@ -2,6 +2,8 @@
 
 This preserves the full scope of `01-PRODUCT-PRD.md`, the domain specifications and `15-TESTING-ACCEPTANCE.md`. A deployed slice does not complete v1. No unreachable prototype screen counts as a connected feature.
 
+The next-priority investigation and proposed delivery sequence for customer wording, cashier-confirmed manual M-Pesa, currency amount discounts on individual sale lines, and accounting/reporting improvements is recorded in [the 18 October remediation plan](46-POS-PAYMENTS-REPORTING-REMEDIATION-2026-10-18.md). It records source findings and required acceptance; these additions are not yet implemented or accepted.
+
 | Order | Area | Connected foundation | Required remaining work |
 | --- | --- | --- | --- |
 | 1 | Business and setup | Server identity, business/outlet profile, receipt metadata, tax defaults, supported capability administration and computed checklist | Additional outlets/switching, locations, persistent reviewed go-live, complete operational settings |

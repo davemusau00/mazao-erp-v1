@@ -123,7 +123,7 @@ if (!databaseUrl) {
       assert.deepEqual(finalReports, reports);
       assert.deepEqual(finalReports.reports.find((row: { id: string }) => row.id === firstReport.id), firstReport);
       assert.deepEqual(await read(app, southCashier, `/sales/orders/${southSale.saleId}/receipt`), southReceipt);
-      assert.deepEqual(await read(app, southCashier, '/sales/orders'), southHistory);
+      assert.deepEqual(await read(app, southCashier, `/sales/orders?asOf=${encodeURIComponent(southHistory.asOf)}`), southHistory);
       assert.deepEqual(await read(app, southCashier, '/shifts/close-reports'), southReports);
     } finally { await app.close(); }
   });

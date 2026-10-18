@@ -76,12 +76,12 @@ test('settings stay locked until recovery evidence is checked and a configured 1
   await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByLabel('Default tax rate (%)')).toHaveValue('100.00');
   await expect(page.getByLabel('Business name',{exact:true})).toBeDisabled();
-  await expect(page.getByText('Checking retained command evidence before allowing settings changes.')).toBeVisible();
+  await expect(page.getByText('Checking for unfinished settings changes...')).toBeVisible();
   await page.evaluate(()=>(window as any).releaseJournalForTest());
   await expect(page.getByLabel('Business name',{exact:true})).toBeEnabled();
   await page.getByLabel('Legal business name').fill('Maximum rate policy');
   await page.getByRole('button',{name:'Save business settings'}).click();
-  await expect(page.getByText('Settings saved and confirmed by the server.')).toBeVisible();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
   expect(submitted?.payload.taxPolicy.defaultRateBps).toBe(10000);
 });
 
@@ -96,7 +96,7 @@ test('cash checkout waits for retained command evidence even when the catalog an
   await page.getByRole('button',{name:'Sell',exact:true}).first().click();
   await page.getByRole('button',{name:/Recovery item RECOVERY-SKU/}).click();
   await expect(page.getByRole('button',{name:'Take payment',exact:true})).toBeDisabled();
-  await expect(page.getByText('Checking retained command evidence before accepting payment.')).toBeVisible();
+  await expect(page.getByText('Checking for payments that need review…')).toBeVisible();
   await page.evaluate(()=>(window as any).releaseJournalForTest());
   await expect(page.getByRole('button',{name:'Take payment',exact:true})).toBeEnabled();
 });
@@ -119,7 +119,7 @@ test('administrator settings submit exact versioned commands and persist across 
   await page.getByLabel('Default tax rate (%)').fill('16.25');
   await page.getByLabel('I have reviewed this business tax policy').check();
   await page.getByRole('button',{name:'Save business settings'}).click();
-  await expect(page.getByRole('status')).toContainText('Settings saved and confirmed by the server.');
+  await expect(page.getByRole('status')).toContainText('Settings saved.');
   expect(captured).toMatchObject({protocolVersion:1,type:'configuration.business.update',tenantId:configuration.business.id,deviceId:'device-config-test',expectedVersions:{['business:'+configuration.business.id]:1},payload:{legalName:'Countryside Resort Limited',phone:'+254700123456',receiptFooter:'Thank you for visiting Countryside.',taxPolicy:{defaultRateBps:1625,calculation:'exclusive',reviewed:true}}});
   await page.reload();
   await page.getByRole('button',{name:'Manage',exact:true}).click();
@@ -146,8 +146,9 @@ test('unknown settings outcome survives reload and retries the original command 
   await page.reload();await page.getByRole('button',{name:'Manage',exact:true}).click();
   await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByRole('heading',{name:'Check settings save status'})).toBeVisible();
-  await expect(page.getByText('Command '+attempts[0].commandId,{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Retry original command'}).click();
+  await page.getByText('Support reference', { exact:true }).last().click();
+  await expect(page.getByText('Reference '+attempts[0].commandId,{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Retry original action'}).click();
   await expect(page.getByRole('heading',{name:'Check settings save status'})).toHaveCount(0);
   await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('Countryside Updated');
   expect(attempts).toHaveLength(2);expect(attempts[1]).toEqual(attempts[0]);
@@ -158,13 +159,13 @@ test('status lookup confirms a retained command without submitting another comma
   let original:Record<string,any>|undefined;
   let postCount=0;
   await page.route('**/api/v1/commands',route=>{original=route.request().postDataJSON();postCount++;configuration.outlet={...configuration.outlet,...original!.payload,version:2};return route.abort('failed');});
-  await page.route('**/api/v1/commands/*',route=>route.fulfill({json:{commandId:original!.commandId,status:'CONFIRMED',response:{status:'CONFIRMED',value:{version:2}}}}));
+  await page.route('**/api/v1/commands/*',route=>route.fulfill({json:{commandId:original!.commandId,status:'CONFIRMED',response:{commandId:original!.commandId,status:'CONFIRMED',value:{version:2}}}}));
   await openManage(page);await page.getByRole('button',{name:'Outlet and receipts',exact:true}).click();
   await page.getByLabel('Outlet address').fill('Machakos, Kenya');
   await page.getByRole('button',{name:'Save outlet settings'}).click();
   await expect(page.getByRole('heading',{name:'Check settings save status'})).toBeVisible();
   await page.getByRole('button',{name:'Check status',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Settings saved and confirmed by the server.');
+  await expect(page.getByRole('status')).toContainText('Settings saved.');
   await expect(page.getByLabel('Outlet address')).toHaveValue('Machakos, Kenya');expect(postCount).toBe(1);
 });
 
@@ -175,9 +176,9 @@ test('version conflict preserves edited fields until operator reloads server set
   await page.getByRole('button',{name:'Save business settings'}).click();
   await expect(page.getByLabel('Legal business name')).toHaveValue('My unsaved revision');
   await expect(page.getByRole('button',{name:'Save business settings'})).toBeDisabled();
-  page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Reload server settings'}).click();
+  page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'Reload settings'}).click();
   await expect(page.getByLabel('Legal business name')).toHaveValue('Changed on another device');
-  await expect(page.getByText('Server version 2',{exact:true})).toBeVisible();
+  await expect(page.getByText('Changes saved',{exact:true})).toBeVisible();
 });
 
 test('configuration readers cannot change settings and unauthorized operators cannot navigate to Manage',async({page})=>{
@@ -197,10 +198,10 @@ test('malformed successful configuration JSON is reported and Retry reloads the 
   let reads=0;
   await page.route('**/api/v1/configuration',route=>{reads++;return reads===1?route.fulfill({status:200,contentType:'application/json',headers:{'x-request-id':'req-fixture-config-1'},body:'{"configuration":'}):route.fulfill({json:{configuration},headers:{'x-request-id':'req-fixture-config-2','server-timing':'app;dur=1.4, nginx;dur=2.1'}});});
   await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();await page.getByRole('button',{name:/Business and outlets/}).click();
-  await expect(page.getByRole('alert')).toContainText('unreadable response');
-  await page.getByText('Recent request diagnostics (1)').click();
+  await expect(page.getByRole('alert')).toContainText('load this information correctly');
+  await page.getByText('Support references (1)').click();
   await expect(page.getByText('req-fixture-config-1',{exact:true})).toBeVisible();
-  await expect(page.getByText('/configuration',{exact:true})).toBeVisible();
+  await expect(page.getByText('/configuration',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Retry loading settings'})).toBeVisible();
   await page.getByRole('button',{name:'Retry loading settings'}).click();
   await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('COUNTRYSIDE RESORT');
@@ -233,7 +234,7 @@ test('staff stays usable when the independent business configuration read fails'
   await page.route('**/api/v1/staff',route=>route.fulfill({json:{staff:[],roles:[{role:'admin',label:'Administrator',permissions:['staff.manage','devices.manage'],assignable:false}],outlets:[{id:configuration.outlet.id,name:configuration.outlet.name,timeZone:configuration.outlet.timeZone,active:true}],authorizationModel:'COARSE_ROLE_MAP'}}));
   await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();
   await page.getByRole('heading',{name:'Manage your business'}).waitFor();
-  await page.locator('.manage-grid').getByRole('button',{name:/Staff/}).click();
+  await page.locator('.manage-grid').getByRole('button',{name:/^Staff/}).click();
   await expect(page.getByRole('heading',{name:'Staff access'})).toBeVisible();
   await expect(page.getByText('No staff memberships are recorded for this business.')).toBeVisible();
   await expect(page.getByRole('alert').filter({hasText:'Retry loading settings'})).toBeVisible();
@@ -248,7 +249,7 @@ test('business logo uploads separately and the versioned command stores only its
   await openManage(page);
   await page.getByLabel('Upload business logo PNG').setInputFiles({name:'logo.png',mimeType:'image/png',buffer:onePixelPng});
   await page.getByRole('button',{name:'Save business settings'}).click();
-  await expect(page.getByText('Settings saved and confirmed by the server.')).toBeVisible();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
   expect(uploaded).toMatchObject({kind:'logo',dataUrl:`data:image/png;base64,${onePixelPng.toString('base64')}`});
   expect(command?.payload.imageActions).toEqual({logo:{mode:'replace',assetId:'asset-logo-test'},receiptQr:{mode:'keep'}});
   expect(JSON.stringify(command?.payload)).not.toContain('data:image/png;base64,');
@@ -262,20 +263,20 @@ test('management overview exposes connected setup and disabled admin modules wit
   await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
-  for(const label of ['Roles and permissions','Assets and maintenance','Supplier accounts and payables','Offline sales and sync','Advanced payment providers']){
-    const card=page.getByRole('button',{name:new RegExp(label)});
+  for(const label of ['Roles and permissions','Assets and maintenance','Supplier accounts and payables','Connection and recovery','Payment reconciliation']){
+    const card=page.getByRole('button',{name:new RegExp("^"+label)});
     await expect(card).toBeDisabled();
-    await expect(card).toContainText('Not connected');
+    await expect(card).toContainText('Unavailable');
   }
   for(const label of ['Staff','Workspace assignments']){
-    const card=page.getByRole('button',{name:new RegExp(label)});
+    const card=page.getByRole('button',{name:new RegExp("^"+label)});
     await expect(card).toBeEnabled();
-    await expect(card).toContainText('Connected');
+    await expect(card).toContainText('Available');
   }
   const grid=page.locator('.manage-grid');
   for(const label of ['Business and outlets','Data import','Business capabilities','Setup checklist','Outlet and receipts'])
-    await expect(grid.getByRole('button',{name:new RegExp(label)})).toBeEnabled();
-  await page.getByRole('button',{name:'Setup checklist, Partial',exact:true}).click();
+    await expect(grid.getByRole('button',{name:new RegExp("^"+label)})).toBeEnabled();
+  await page.getByRole('button',{name:'Setup checklist, Limited',exact:true}).click();
   await expect(page.getByRole('heading',{name:'First sale checklist'})).toBeVisible();
   await expect(page.getByText('Complete the remaining setup checks before selling.')).toBeVisible();
   await page.getByRole('button',{name:'Manage',exact:true}).click();
@@ -291,9 +292,9 @@ test('opening Setup checklist from the workspace navigation loads its checklist 
   await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
-  await page.getByRole('button',{name:'Setup checklist, Partial',exact:true}).click();
+  await page.getByRole('button',{name:'Setup checklist, Limited',exact:true}).click();
   await expect(page.getByText('Complete the remaining setup checks before selling.')).toBeVisible();
-  await expect(page.getByRole('button',{name:'Setup checklist, Partial',exact:true})).toHaveAttribute('aria-current','page');
+  await expect(page.getByRole('button',{name:'Setup checklist, Limited',exact:true})).toHaveAttribute('aria-current','page');
   expect(configurationReads).toBeGreaterThanOrEqual(2);
 });
 

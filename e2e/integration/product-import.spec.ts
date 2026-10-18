@@ -68,7 +68,7 @@ test('CSV errors block all writes; reviewed opening stock and metadata updates p
   await upload(page,'unsafe.csv',csv([['IMPORT-UNSAFE','Invalid\u0000name','piece','10.00','4.00','0','KES','001230','General','0','0','']]));
   await page.getByRole('button',{name:'Validate all rows',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText(/control characters|UTF-8/i);
-  await expect(page.getByRole('button',{name:'Check command status',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Validate all rows',exact:true})).toBeEnabled();
   await upload(page,'invalid.csv',csv([
     ['IMPORT-MILK','Milk','litre','1e2','4.00','16','KES','001234','Drinks','2','2.5','4.00'],
@@ -164,7 +164,7 @@ test('lost import response survives restart and checks original command without 
     validationId=body.commandId; await route.fetch(); await route.abort('failed');
   });
   await page.getByRole('button',{name:'Validate all rows',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Check command status',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeVisible();
   const retained=await page.evaluate(async()=>{
     const open=indexedDB.open('mazao-v1-import-validations');
     const db=await new Promise<IDBDatabase>((resolve,reject)=>{open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
@@ -175,7 +175,7 @@ test('lost import response survives restart and checks original command without 
   expect(JSON.stringify(retained)).not.toContain('openingUnitCost');
   await page.unroute('**/api/v1/commands');
   await page.reload(); await importWorkspace(page);
-  await page.getByRole('button',{name:'Check command status',exact:true}).click();
+  await page.getByRole('button',{name:'Check status',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Proposed changes',exact:true})).toBeVisible();
   expect((await pool.query('SELECT count(*)::int n FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[tenantId,validationId])).rows[0].n).toBe(1);
   expect((await pool.query("SELECT count(*)::int n FROM catalog.products WHERE tenant_id=$1 AND sku='IMPORT-RECOVER'",[tenantId])).rows[0].n).toBe(0);
@@ -187,10 +187,10 @@ test('lost import response survives restart and checks original command without 
     commandId=body.commandId; await route.fetch(); await route.abort('failed');
   });
   await page.getByRole('button',{name:'Apply reviewed import',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Check command status',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeVisible();
   await page.unroute('**/api/v1/commands');
   await page.reload(); await importWorkspace(page);
-  await page.getByRole('button',{name:'Check command status',exact:true}).click();
+  await page.getByRole('button',{name:'Check status',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Import applied',exact:true})).toBeVisible();
   const productId=await assertStock('IMPORT-RECOVER','3.000000','600');
   expect((await pool.query('SELECT count(*)::int n FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[tenantId,commandId])).rows[0].n).toBe(1);
@@ -223,7 +223,7 @@ test('CSV mapping and primary review actions fit all required desktop, tablet an
     const action=page.getByRole('button',{name:'Validate all rows',exact:true}); await action.scrollIntoViewIfNeeded();
     await expect(action).toBeInViewport(); const rect=await action.boundingBox();
     expect(rect!.height).toBeGreaterThanOrEqual(44); expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
-    const signOut=await page.getByRole('button',{name:'Sign out of server',exact:true}).boundingBox();
+    const signOut=await page.getByRole('button',{name:'Sign out',exact:true}).boundingBox();
     expect(signOut!.height).toBeGreaterThanOrEqual(44); expect(signOut!.width).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
