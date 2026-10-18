@@ -14,7 +14,7 @@ $scratch = Join-Path $env:TEMP ('mazao-backup-' + $id)
 $raw = Join-Path $scratch 'database.dump'
 $remote = '/srv/mazao/backups/backup-' + $id + '.dump'
 $container = 'mazao-restore-' + $id
-$sshArgs = @('-i', $KeyPath, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10')
+$sshArgs = @('-i', $KeyPath, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3')
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 function Check-NativeExit([string]$Operation) {
@@ -64,8 +64,12 @@ try {
     Check-NativeExit 'Database dump'
     $afterDumpMigrationState = Get-RemoteMigrationState
     if ($sourceMigrationState.count -ne $afterDumpMigrationState.count -or $sourceMigrationState.head -ne $afterDumpMigrationState.head) { throw 'The production schema changed while its backup was being created.' }
-    & scp @sshArgs "${SshUser}@${Server}:$remote" $raw
+    $downloadCommand = 'base64 -w0 -- ' + $remote
+    $encodedDump = & ssh @sshArgs "$SshUser@$Server" $downloadCommand
     Check-NativeExit 'Backup download'
+    try { $bytes = [System.Convert]::FromBase64String((@($encodedDump) -join '').Trim()) }
+    catch { throw 'The downloaded backup could not be decoded safely.' }
+    [System.IO.File]::WriteAllBytes($raw, $bytes)
 
     $bytes = [System.IO.File]::ReadAllBytes($raw)
     $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)

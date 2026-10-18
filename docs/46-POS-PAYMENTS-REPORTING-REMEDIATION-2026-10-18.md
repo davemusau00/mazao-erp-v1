@@ -31,7 +31,7 @@ The live API was checked read-only during release preparation: HTTPS liveness/re
 - npm run typecheck: passed.
 - Production build: passed; the main JavaScript bundle is 487.32 KB (132.12 KB gzip), with accounting/reporting workspaces split into lazy chunks.
 - npm run test:integration against the disposable PostgreSQL 16 database with migrations 001–020: **17/17 passed**, including lost-response settings, stock-count and import recovery; fixed-amount financial flows; staff setup; login throttling; and the supported real-DB journeys.
-- Earlier branch validation also passed 120 API/PostgreSQL tests, 59 Chromium journeys, and 36 Firefox/Chromium desktop/mobile checks. Exact-commit CI will rerun the release workflow before merge.
+- Earlier branch validation passed 120 API/PostgreSQL tests and 59 Chromium journeys. The merged release candidate passes the Firefox/Chromium desktop/mobile matrix **36/36** after its operational-analytics fixture was made to wait for the signed-in state and mock the trial-balance read. The first PR CI attempt caught that fixture race; CI must pass again on the corrected commit.
 - Live read-only preflight: HTTPS live and ready; Mazao API and PostgreSQL healthy; nginx -t passed with administrator privileges; current production schema head is 017_configuration_assets. Disk availability was 104 GB and memory availability 5.7 GiB at the preflight snapshot. Protected ServOS and SMS containers were recorded for post-activation comparison.
 
 **Still pending:** feature-branch CI on the final merge candidate, exact-main CI and artifacts, a fresh off-host backup restored offline with the current live migration head and balanced journals, then activation and post-activation protected-service/HTTPS/database checks.
