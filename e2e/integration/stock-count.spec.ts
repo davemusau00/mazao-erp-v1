@@ -92,7 +92,7 @@ for (const scenario of [
       await page.reload();
       await expect(page.getByLabel('Signed in as Count Browser Admin')).toBeVisible();
       await openCountWorkspace(page);
-      const restoredCommand = page.getByRole('main').getByRole('status').filter({ hasText: 'An unresolved count command was restored.' });
+      const restoredCommand = page.getByRole('main').getByRole('status').filter({ hasText: 'A stock count action needs review.' });
       await restoredCommand.getByRole('button', { name: 'Check status', exact: true }).click();
       await expect(page.getByRole('status').filter({ hasText: 'Count action completed' })).toBeVisible();
     } else {

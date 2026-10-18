@@ -67,7 +67,7 @@ test('CSV errors block all writes; reviewed opening stock and metadata updates p
   await signIn(page);
   await upload(page,'unsafe.csv',csv([['IMPORT-UNSAFE','Invalid\u0000name','piece','10.00','4.00','0','KES','001230','General','0','0','']]));
   await page.getByRole('button',{name:'Validate all rows',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText(/control characters|UTF-8/i);
+  await expect(page.getByRole('alert')).toContainText('Check the amounts and required details');
   await expect(page.getByRole('button',{name:'Check status',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Validate all rows',exact:true})).toBeEnabled();
   await upload(page,'invalid.csv',csv([

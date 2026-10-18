@@ -14,7 +14,7 @@ test('real sign-in reports the ninth rejected attempt as rate limited while anot
     if (attempt < 9) await expect(page.getByRole('alert')).toContainText('The email or password was not accepted');
     else {
       expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0);
-      await expect(page.getByRole('alert')).toContainText('Too many sign-in attempts');
+      await expect(page.getByRole('alert')).toContainText('Too many requests were made');
       await expect(page.getByRole('heading', { name: 'Sign in to Mazao' })).toBeVisible();
     }
   }

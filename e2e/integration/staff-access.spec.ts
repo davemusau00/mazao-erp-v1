@@ -36,15 +36,15 @@ test('guided staff setup confirms membership, protected password, workspace assi
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Manage your business' })).toBeVisible();
   const grid = page.locator('.manage-grid');
-  await expect(grid.getByRole('button', { name: /Staff/ })).toBeEnabled();
+  await expect(grid.getByRole('button', { name: /^Staff Staff accounts and/ })).toBeEnabled();
   await expect(grid.getByRole('button', { name: /Workspace assignments/ })).toBeEnabled();
-  await grid.getByRole('button', { name: /^Staff/ }).click();
+  await grid.getByRole('button', { name: /^Staff Staff accounts and/ }).click();
   await expect(page.getByRole('heading', { name: 'Staff access' })).toBeVisible();
   await page.getByRole('button', { name: 'Add operator' }).click();
   const operatorEmail = `new-operator-${randomUUID()}@example.invalid`;
   await page.getByLabel('Display name', { exact: true }).fill('Browser Provisioned Operator');
   await page.getByLabel('Email', { exact: true }).fill(operatorEmail);
-  await page.getByRole('button', { name: 'Create staff membership' }).click();
+  await page.getByRole('button', { name: 'Create staff account' }).click();
   await expect(page.getByText('Access change completed.', { exact: true })).toBeVisible();
   await expect(page.getByText(/Step 2 of 4/)).toBeVisible();
   const created = await pool.query(`SELECT u.id,m.role,m.active,m.version,u.password_hash

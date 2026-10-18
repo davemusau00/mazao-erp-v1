@@ -51,7 +51,7 @@ test('real count retains the unsent save envelope, reloads its saved draft and r
     };
   });
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'not sent because recovery data could not be saved' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'not sent because recovery details could not be saved' })).toBeVisible();
   const original = await page.evaluate(() => (window as any).unsentCount);
   expect((await pool.query('SELECT count(*)::int n FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [tenantId, original.commandId])).rows[0].n).toBe(0);
   await expect(page.getByLabel('Counted quantity', { exact: true })).toBeDisabled();
