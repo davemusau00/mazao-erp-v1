@@ -29,6 +29,10 @@ function decimalText(value: bigint) {
   const fraction = (value % scale).toString().padStart(6, '0').replace(/0+$/, '');
   return fraction ? `${value / scale}.${fraction}` : (value / scale).toString();
 }
+function decimalMicros(value: string) {
+  const [whole, fraction = ''] = value.split('.');
+  return BigInt(whole) * scale + BigInt(fraction.padEnd(6, '0'));
+}
 function moneyText(value: bigint, label: string) {
   if (value < 0n || value > 9_223_372_036_854_775_807n) throw new DomainError('VALIDATION_FAILED', `${label} exceeds the supported money range.`);
   return value.toString();
@@ -70,7 +74,7 @@ function cursor(value: unknown): { at: string; id: string } | null {
   } catch { throw new DomainError('VALIDATION_FAILED', 'The stock exception page reference is invalid. Refresh the list.'); }
 }
 function status(quantity: string, resolved: string) {
-  const original = BigInt(quantity), current = BigInt(resolved);
+  const original = decimalMicros(quantity), current = decimalMicros(resolved);
   return current === original ? 'RESOLVED' : current === 0n ? 'OPEN' : 'PARTIALLY_RESOLVED';
 }
 async function audit(client: PoolClient, session: ApiSession, envelope: CommandEnvelope, value: unknown) {
@@ -157,7 +161,7 @@ async function resolveShortfall(client: PoolClient, session: ApiSession, envelop
   if (!shortfallResult.rowCount) throw new DomainError('NOT_FOUND', 'Stock exception was not found at this outlet.', 404);
   const shortfall = shortfallResult.rows[0];
   if (Number(shortfall.version) !== expectedShortfall) throw new DomainError('VERSION_CONFLICT', 'This stock exception changed. Refresh its history before resolving it.', 409, { currentVersion: Number(shortfall.version) });
-  const originalQuantity = BigInt(shortfall.quantity), alreadyResolved = BigInt(shortfall.resolved_quantity), unresolved = originalQuantity - alreadyResolved;
+  const originalQuantity = decimalMicros(shortfall.quantity), alreadyResolved = decimalMicros(shortfall.resolved_quantity), unresolved = originalQuantity - alreadyResolved;
   if (quantity > unresolved) throw new DomainError('SHORTFALL_QUANTITY_EXCEEDED', 'The resolution quantity exceeds the outstanding stock discrepancy.', 409, { remainingQuantity: decimalText(unresolved) });
 
   const sourceResult = await client.query<{ product_id: string; movement_type: string; quantity_delta: string; document_reference: string | null }>(
@@ -166,11 +170,11 @@ async function resolveShortfall(client: PoolClient, session: ApiSession, envelop
   if (!sourceResult.rowCount || sourceResult.rows[0].product_id !== shortfall.product_id) throw new DomainError('INVALID_STOCK_EVIDENCE', 'The supporting inventory record does not match this item and outlet.', 409);
   const source = sourceResult.rows[0];
   const expectedMovement = input.resolutionType === 'OMITTED_RECEIPT' ? 'RECEIPT' : 'COUNT_ADJUSTMENT';
-  const sourceQuantity = BigInt(source.quantity_delta.split('.')[0]) * scale + BigInt(((source.quantity_delta.split('.')[1] ?? '') + '000000').slice(0, 6));
+  const sourceQuantity = decimalMicros(source.quantity_delta);
   if (source.movement_type !== expectedMovement || sourceQuantity <= 0n) throw new DomainError('INVALID_STOCK_EVIDENCE', 'Choose a positive receipt or verified stock count adjustment that supports this resolution.', 409);
   const priorSourceUse = await client.query<{ quantity: string }>(`SELECT COALESCE(sum(quantity),0)::text quantity FROM inventory.sale_shortfall_resolutions
     WHERE tenant_id=$1 AND outlet_id=$2 AND supporting_movement_id=$3`, [session.tenantId, session.outletId, input.supportingMovementId]);
-  const remainingEvidence = sourceQuantity - BigInt(priorSourceUse.rows[0].quantity.split('.')[0]) * scale - BigInt(((priorSourceUse.rows[0].quantity.split('.')[1] ?? '') + '000000').slice(0, 6));
+  const remainingEvidence = sourceQuantity - decimalMicros(priorSourceUse.rows[0].quantity);
   if (quantity > remainingEvidence) throw new DomainError('INVALID_STOCK_EVIDENCE', 'This inventory record does not have enough unallocated quantity to support the resolution.', 409, { availableQuantity: decimalText(remainingEvidence) });
 
   const product = await client.query('SELECT id FROM catalog.products WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 FOR UPDATE', [shortfall.product_id, session.tenantId, session.outletId]);
@@ -179,7 +183,7 @@ async function resolveShortfall(client: PoolClient, session: ApiSession, envelop
     'SELECT quantity::text quantity,inventory_value_minor::text inventory_value_minor,version::text version FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 FOR UPDATE',
     [session.tenantId, session.outletId, shortfall.product_id]);
   if (!balanceResult.rowCount) throw new DomainError('NOT_FOUND', 'Current stock was not found for this item.', 404);
-  const balance = balanceResult.rows[0], currentQuantity = BigInt(balance.quantity.split('.')[0]) * scale + BigInt(((balance.quantity.split('.')[1] ?? '') + '000000').slice(0, 6));
+  const balance = balanceResult.rows[0], currentQuantity = decimalMicros(balance.quantity);
   const currentValue = BigInt(balance.inventory_value_minor), expectedBalance = expected(envelope, `balance:${shortfall.product_id}`);
   if (Number(balance.version) !== expectedBalance) throw new DomainError('VERSION_CONFLICT', 'Current stock changed. Refresh the stock exception and supporting record before resolving it.', 409, { currentVersion: Number(balance.version) });
   if (quantity > currentQuantity) throw new DomainError('INSUFFICIENT_STOCK', 'There is not enough recorded stock available to reconcile this discrepancy.', 409, { availableQuantity: decimalText(currentQuantity) });
@@ -282,7 +286,7 @@ async function listRows(session: ApiSession, query: Record<string, unknown>, exp
       items: page.map(row => ({ id: row.id, createdAt: row.created_at, orderId: row.order_id, receiptNumber: row.receipt_number,
         orderLineId: row.order_line_id, productId: row.product_id, sku: row.sku_snapshot, productName: row.name_snapshot,
         operatorId: row.operator_id, operatorName: row.operator_name_snapshot, quantity: row.quantity, resolvedQuantity: row.resolved_quantity,
-        remainingQuantity: decimalText(BigInt(row.quantity.split('.')[0]) * scale + BigInt(((row.quantity.split('.')[1] ?? '') + '000000').slice(0, 6)) - (BigInt(row.resolved_quantity.split('.')[0]) * scale + BigInt(((row.resolved_quantity.split('.')[1] ?? '') + '000000').slice(0, 6)))),
+        remainingQuantity: decimalText(decimalMicros(row.quantity) - decimalMicros(row.resolved_quantity)),
         requestedQuantity: row.requested_quantity, recordedQuantityBefore: row.recorded_quantity_before, reasonCode: row.reason_code, reasonNote: row.reason_note,
         status: status(row.quantity, row.resolved_quantity), version: Number(row.version), ...(parsed.canReadCosts ? { recordedCogsMinor: row.recorded_cogs_minor,
           provisionalCogsMinor: row.provisional_cogs_minor, unresolvedCogsMinor: row.unresolved_cogs_minor, actualCogsMinor: row.actual_cogs_minor, cogsAdjustmentMinor: row.cogs_adjustment_minor } : {}) })) };
@@ -317,8 +321,8 @@ export async function getStockShortfallDetail(session: ApiSession, shortfallId: 
     const row = result.rows[0];
     return { ...row, resolutions: history.rows };
   });
-  const q = BigInt(found.quantity.split('.')[0]) * scale + BigInt(((found.quantity.split('.')[1] ?? '') + '000000').slice(0, 6));
-  const resolved = BigInt(found.resolved_quantity.split('.')[0]) * scale + BigInt(((found.resolved_quantity.split('.')[1] ?? '') + '000000').slice(0, 6));
+  const q = decimalMicros(found.quantity);
+  const resolved = decimalMicros(found.resolved_quantity);
   const costsAllowed = canReadCosts;
   return { exception: { id: found.id, createdAt: found.created_at, sale: { orderId: found.order_id, receiptNumber: found.receipt_number, soldAt: found.sale_at },
     product: { id: found.product_id, sku: found.sku_snapshot, name: found.name_snapshot }, operator: { id: found.operator_id, name: found.operator_name_snapshot },
