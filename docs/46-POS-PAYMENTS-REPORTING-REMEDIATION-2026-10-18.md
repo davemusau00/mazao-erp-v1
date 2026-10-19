@@ -4,7 +4,7 @@ Date: 18 October 2026. Branch: `feat/product-finishing`.
 
 ## Status and agreed requirements
 
-**Implementation is complete on feat/product-finishing; production release is pending.** This replaces the investigation-only status below. The branch contains the agreed cashier-confirmed M-Pesa flow, fixed-amount item discounts, customer-facing wording and number formatting, and expanded accounting/reporting workflows. A real command-recovery defect found during release validation has also been fixed. Technical performance acceptance remains **FAIL** with the product owner's previously recorded exception acceptance in docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md; that does not replace the exact-main CI and current-production backup/restore gates.
+**Implementation is complete on feat/product-finishing; production release is complete; see [release evidence](47-PRODUCTION-RELEASE-2026-10-19.md).** This replaces the investigation-only status below. The branch contains the agreed cashier-confirmed M-Pesa flow, fixed-amount item discounts, customer-facing wording and number formatting, and expanded accounting/reporting workflows. A real command-recovery defect found during release validation has also been fixed. Technical performance acceptance remains **FAIL** with the product owner's previously recorded exception acceptance in docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md; that does not replace the exact-main CI and current-production backup/restore gates.
 
 The user confirmed:
 
@@ -12,9 +12,9 @@ The user confirmed:
 - Discounts apply to individual sale items.
 - Discounts use a currency **amount**, never a percentage. There must be no percentage-discount input or whole-basket discount in this slice.
 
-The recommended quantity rule is an amount applied **once to the entire selected item line**, with the quantity visible. For example, two items at KES 100 have an original line value of KES 200. A KES 30 discount makes the taxable line value KES 170 under the existing tax-exclusive price policy. The discount is not repeated for each unit. Label the field **Discount for these items (KES)**, substituting the actual currency.
+The implemented quantity rule is an amount applied **once to the entire selected item line**, with the quantity visible. For example, two items at KES 100 have an original line value of KES 200. A KES 30 discount makes the taxable line value KES 170 under the existing tax-exclusive price policy. The discount is not repeated for each unit. Label the field **Discount for these items (KES)**, substituting the actual currency.
 
-Proposed initial discount authorization: introduce `commerce.discount` in the active API permission map for owner, admin, manager and cashier, require a reason for a nonzero discount, and record the operator. This is a proposed permission policy, not an existing grant or a user decision about discount limits. Do not reuse archived prototype permissions as authorization. Keep any later amount limits or supervisor-approval rules explicit and enforce them in the API.
+Implemented initial discount authorization: introduce `commerce.discount` in the active API permission map for owner, admin, manager and cashier, require a reason for a nonzero discount, and record the operator. This is a proposed permission policy, not an existing grant or a user decision about discount limits. Do not reuse archived prototype permissions as authorization. Keep any later amount limits or supervisor-approval rules explicit and enforce them in the API.
 
 ## Implementation and release progress
 
@@ -24,17 +24,17 @@ Proposed initial discount authorization: introduce `commerce.discount` in the ac
 - Accounting now includes an editable account display catalogue, controls and expanded supported reports. Reports state their source coverage and keep financial records server-authoritative.
 - Lost-response recovery validates the command ID returned by the status endpoint's outer envelope before it removes the original recovery record. It keeps the original command ID and does not create a new payment retry.
 
-The live API was checked read-only during release preparation: HTTPS liveness/readiness returned live/ready, the current API container was healthy, and production is at migration head 017_configuration_assets. Candidate migrations 018–020 are applied only after the required fresh backup and isolated restore. No production business rows or services have been changed by this preparation.
+The live API was checked read-only during release preparation: HTTPS liveness/readiness returned live/ready, the current API container was healthy, and production is at migration head 017_configuration_assets. Candidate migrations 018–020 are applied only after the required fresh backup and isolated restore. That statement describes the pre-activation snapshot; see docs/47-PRODUCTION-RELEASE-2026-10-19.md for activation and post-activation integrity evidence.
 
 ### Validation recorded for this release candidate
 
 - npm run typecheck: passed.
 - Production build: passed; the main JavaScript bundle is 487.32 KB (132.12 KB gzip), with accounting/reporting workspaces split into lazy chunks.
 - npm run test:integration against the disposable PostgreSQL 16 database with migrations 001–020: **17/17 passed**, including lost-response settings, stock-count and import recovery; fixed-amount financial flows; staff setup; login throttling; and the supported real-DB journeys.
-- Earlier branch validation passed 120 API/PostgreSQL tests and 59 Chromium journeys. The merged release candidate passes the Firefox/Chromium desktop/mobile matrix **36/36** after its operational-analytics fixture was made to wait for the signed-in state and mock the trial-balance read. The first PR CI attempt caught that fixture race; CI must pass again on the corrected commit.
+- Earlier branch validation passed 120 API/PostgreSQL tests and 59 Chromium journeys. The merged release candidate passes the Firefox/Chromium desktop/mobile matrix **36/36** after its operational-analytics fixture was made to wait for the signed-in state and mock the trial-balance read. The first PR CI attempt caught that fixture race. The corrected candidate passed exact-main run 39154620144 on ce5b8aba597ca5077aa1b4eb45e2aabc12a4a847.
 - Live read-only preflight: HTTPS live and ready; Mazao API and PostgreSQL healthy; nginx -t passed with administrator privileges; current production schema head is 017_configuration_assets. Disk availability was 104 GB and memory availability 5.7 GiB at the preflight snapshot. Protected ServOS and SMS containers were recorded for post-activation comparison.
 
-**Still pending:** feature-branch CI on the final merge candidate, exact-main CI and artifacts, a fresh off-host backup restored offline with the current live migration head and balanced journals, then activation and post-activation protected-service/HTTPS/database checks.
+**Release gate result (19 October): PASS.** Exact-main CI, verified artifacts, the current-data isolated restore, activation, and post-activation integrity checks passed. See docs/47-PRODUCTION-RELEASE-2026-10-19.md. Technical performance acceptance remains **FAIL** with product-owner-approved exceptions.
 
 ## Investigation baseline and original findings
 
@@ -252,7 +252,7 @@ Implementation verification must include disposable production-shaped PostgreSQL
 
 Browser evidence must cover Firefox and Chromium, the viewport matrix in `docs/15-TESTING-ACCEPTANCE.md`, touch/keyboard access, meaningful loading/empty/error/retry states, navigation cancellation and cold/warm/offline/reconnection behavior. Keep IndexedDB recovery data and original command IDs across upgrades. No financial operation becomes offline-authorized through these changes.
 
-Record actual commands/results and distinguish planned checks from executed evidence. Financial acceptance remains tied to the real PostgreSQL and browser journeys, including unchanged authoritative stock, order, payment, receipt, journal and historical records. Production release remains a separate gate requiring exact-main CI, verified artifacts, compatible additive migrations and a fresh isolated restore of the current production database. Owner acceptance of performance exceptions does not establish financial-workflow acceptance.
+Record actual commands/results and distinguish planned checks from executed evidence. Financial acceptance remains tied to the real PostgreSQL and browser journeys, including unchanged authoritative stock, order, payment, receipt, journal and historical records. The production release gate was completed on 19 October 2026, as recorded in docs/47-PRODUCTION-RELEASE-2026-10-19.md. Future releases still require exact-main CI, verified artifacts, compatible additive migrations and a fresh isolated restore of current production data. Owner acceptance of performance exceptions does not establish financial-workflow acceptance.
 
 ## References
 
@@ -260,4 +260,4 @@ Record actual commands/results and distinguish planned checks from executed evid
 - `docs/06-API-CONTRACTS.md`; `docs/09-FINANCE-ACCOUNTING.md`; `docs/10-POS-INVENTORY.md`; `docs/18-REPORTS-INTELLIGENCE.md`.
 - `docs/24-BACKEND-INTEGRATION.md`; `docs/27-V1-COMPLETION-REGISTER.md`; `docs/28-BUSINESS-CONFIGURATION-INTEGRATION.md`.
 - ADRs 0003, 0005 and 0006 for offline authorization, money/history and weighted-average cost.
-- Current release/performance evidence: `docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md` and `docs/45-PRODUCTION-RELEASE-2026-10-18.md`. Those historical results are not new-feature acceptance.
+- Current release/performance evidence: `docs/44-PERFORMANCE-ACCEPTANCE-2026-10-18.md`, previous release `docs/45-PRODUCTION-RELEASE-2026-10-18.md`, and current release `docs/47-PRODUCTION-RELEASE-2026-10-19.md`. The performance report remains a separate acceptance result.
