@@ -15,9 +15,10 @@ const permissions=['config.view','config.manage'];
 function session(configuration:Configuration,access=permissions) {
   return {user:{id:'user-config-test',name:'KITULI KASINA',email:'kasina@example.invalid',role:access.includes('config.manage')?'admin':'manager',permissions:access},tenant:{id:configuration.business.id,name:configuration.business.name,currency:configuration.business.currency,timeZone:configuration.business.timeZone,capabilities:configuration.capabilities},outlet:{id:configuration.outlet.id,name:configuration.outlet.name,timeZone:configuration.outlet.timeZone},deviceId:'device-config-test',csrfToken:'csrf-config-test'};
 }
-async function routeReads(page:Page,configuration:Configuration,access=permissions) {
+async function routeReads(page:Page,configuration:Configuration,access=permissions,stockPolicy:{enabled:boolean;requirePhysicalConfirmation:boolean;requireReason:boolean;allowZeroReferenceCost:boolean;version:number;updatedBy:string|null;updatedByName:string|null;updatedAt:string|null}={enabled:false,requirePhysicalConfirmation:true,requireReason:true,allowZeroReferenceCost:true,version:1,updatedBy:null,updatedByName:null,updatedAt:null}) {
   await page.route('**/api/v1/auth/me',route=>route.fulfill({json:session(configuration,access)}));
   await page.route('**/api/v1/configuration',route=>route.fulfill({json:{configuration}}));
+  await page.route('**/api/v1/configuration/stock-sale-policy',route=>route.fulfill({json:{policy:stockPolicy}}));
 }
 async function openManage(page:Page) {
   await page.goto('/');
@@ -99,6 +100,23 @@ test('cash checkout waits for retained command evidence even when the catalog an
   await expect(page.getByText('Checking for payments that need review…')).toBeVisible();
   await page.evaluate(()=>(window as any).releaseJournalForTest());
   await expect(page.getByRole('button',{name:'Take payment',exact:true})).toBeEnabled();
+});
+
+test('administrator can configure the outlet stock exception policy with versioned authority',async({page})=>{
+  const configuration=fixture(),policy={enabled:false,requirePhysicalConfirmation:true as const,requireReason:true as const,allowZeroReferenceCost:true,version:1,updatedBy:null as string|null,updatedByName:null as string|null,updatedAt:null as string|null};
+  await routeReads(page,configuration,[...permissions,'inventory.shortfall.configure'],policy);
+  let submitted:Record<string,any>|undefined;
+  await page.route('**/api/v1/commands',async route=>{submitted=route.request().postDataJSON();Object.assign(policy,{...submitted!.payload,version:2,updatedBy:'user-config-test',updatedByName:'KITULI KASINA'});await route.fulfill({json:{commandId:submitted!.commandId,status:'CONFIRMED',value:{version:2}}});});
+  await openManage(page);await page.getByRole('button',{name:'Stock exceptions',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Stock exception sales'})).toBeVisible();
+  const allowSales=page.getByLabel(/Allow confirmed sales with a stock shortfall/);await expect(allowSales).not.toBeChecked();
+  await expect(page.getByLabel(/Allow a zero reference cost/)).toBeChecked();
+  await allowSales.check();await page.getByRole('button',{name:'Save stock policy'}).click();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
+  expect(submitted?.type).toBe('configuration.stock_exception_policy.update');
+  expect(submitted?.expectedVersions).toEqual({'stock-sale-policy:outlet-config-test':1});
+  expect(submitted?.payload).toEqual({enabled:true,allowZeroReferenceCost:true});
+  await expect(page.getByLabel(/Allow confirmed sales with a stock shortfall/)).toBeChecked();
 });
 
 test('administrator settings submit exact versioned commands and persist across reload',async({page})=>{
@@ -197,6 +215,7 @@ test('malformed successful configuration JSON is reported and Retry reloads the 
   await page.addInitScript(()=>{(window as any).__apiTimings=[];window.addEventListener('mazao:api-request-completed',(event:Event)=>(window as any).__apiTimings.push((event as CustomEvent).detail));});
   let reads=0;
   await page.route('**/api/v1/configuration',route=>{reads++;return reads===1?route.fulfill({status:200,contentType:'application/json',headers:{'x-request-id':'req-fixture-config-1'},body:'{"configuration":'}):route.fulfill({json:{configuration},headers:{'x-request-id':'req-fixture-config-2','server-timing':'app;dur=1.4, nginx;dur=2.1'}});});
+  await page.route('**/api/v1/configuration/stock-sale-policy',route=>route.fulfill({json:{policy:{enabled:false,requirePhysicalConfirmation:true,requireReason:true,allowZeroReferenceCost:true,version:1,updatedBy:null,updatedByName:null,updatedAt:null}}}));
   await page.goto('/');await page.getByRole('button',{name:'Manage',exact:true}).click();await page.getByRole('button',{name:/Business and outlets/}).click();
   await expect(page.getByRole('alert')).toContainText('load this information correctly');
   await page.getByText('Support references (1)').click();

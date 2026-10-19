@@ -58,9 +58,9 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
     const lineResult = await client.query<{
       id: string; sku_snapshot: string; name_snapshot: string; quantity: string;
       unit_price_minor: string; tax_rate_bps: number; line_subtotal_minor: string; line_tax_minor: string;
-      discount_minor: string; discount_reason: string | null;
+      discount_minor: string; discount_reason: string | null; unrecorded_quantity:string; provisional_cogs_minor:string;
     }>(`SELECT id,sku_snapshot,name_snapshot,quantity::text,unit_price_minor::text,tax_rate_bps,
-        line_subtotal_minor::text,line_tax_minor::text,discount_minor::text,discount_reason
+        line_subtotal_minor::text,line_tax_minor::text,discount_minor::text,discount_reason,unrecorded_quantity::text,provisional_cogs_minor::text
       FROM commerce.order_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 ORDER BY id`,
     [session.tenantId, session.outletId, orderIdValue]);
     const paymentResult = await client.query<{ method: string; amount_minor: string; currency: string; status: string; reference: string | null; confirmed_operator_name_snapshot: string | null; manually_confirmed_at: Date | null }>(`SELECT method,amount_minor::text,currency,status,reference,confirmed_operator_name_snapshot,manually_confirmed_at
@@ -108,6 +108,8 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
         sku: line.sku_snapshot,
         name: line.name_snapshot,
         quantity: line.quantity,
+        ...(BigInt(line.unrecorded_quantity) > 0n ? { unrecordedQuantity: line.unrecorded_quantity } : {}),
+        ...(BigInt(line.unrecorded_quantity) > 0n && ROLE_PERMISSIONS[session.role].includes('finance.view') ? { provisionalCogsMinor: line.provisional_cogs_minor } : {}),
         unitPriceMinor: line.unit_price_minor,
         taxRateBps: line.tax_rate_bps,
         originalSubtotalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.discount_minor)).toString(),

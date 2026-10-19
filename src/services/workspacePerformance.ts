@@ -12,6 +12,7 @@ export function workspaceInitialReads(tab: ActiveTab, session: BackendSession): 
     case 'reservations': return ['/hospitality/rooms', '/hospitality/reservations', '/hospitality/stays'];
     case 'stock': return ['/catalog/items', '/inventory/movements'];
     case 'stock-count': return ['/catalog/items', '/inventory/counts/current', '/inventory/counts'];
+    case 'stock-exceptions': return ['/inventory/shortfalls', '/reports/stock-exceptions'];
     case 'purchasing': return ['/catalog/items'];
     case 'customers': return permissions.has('customers.settle') ? ['/customers', '/shifts/current'] : ['/customers'];
     case 'shifts': return ['/shifts/current', '/shifts/close-reports'];

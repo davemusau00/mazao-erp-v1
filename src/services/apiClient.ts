@@ -67,7 +67,26 @@ export interface ProductImportBatch extends ProductImportBatchSummary {
 }
 export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
 export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;mpesaSalesMinor?:string|number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
-export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;mpesaSalesMinor?:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string}
+export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;mpesaSalesMinor?:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string;stockExceptionSalesCount?:number}
+export interface BackendStockSalePolicy {enabled:boolean;requirePhysicalConfirmation:true;requireReason:true;allowZeroReferenceCost:boolean;version:number;updatedBy:string|null;updatedByName:string|null;updatedAt:string|null}
+export interface BackendStockShortfall {
+  id:string;createdAt:string;orderId:string;receiptNumber:string;orderLineId:string;productId:string;sku:string;productName:string;
+  operatorId:string;operatorName:string;quantity:string;resolvedQuantity:string;remainingQuantity:string;requestedQuantity:string;
+  recordedQuantityBefore:string;reasonCode:'SUSPECTED_UNRECORDED_DELIVERY'|'SUSPECTED_OUTDATED_COUNT'|'UNKNOWN';reasonNote:string|null;
+  status:'OPEN'|'PARTIALLY_RESOLVED'|'RESOLVED';version:number;recordedCogsMinor?:string;provisionalCogsMinor?:string;
+  unresolvedCogsMinor?:string;actualCogsMinor?:string;cogsAdjustmentMinor?:string;
+}
+export interface BackendStockShortfallPage {scope:'OUTLET';outletId:string;asOf:string;limit:number;nextAfter:string|null;totalOnPage:number;items:BackendStockShortfall[]}
+export interface BackendStockShortfallEvidence {id:string;createdAt:string;type:'RECEIPT'|'COUNT_ADJUSTMENT';quantity:string;availableQuantity:string;documentReference:string|null}
+export interface BackendStockExceptionReport {
+  scope:'OUTLET';outletId:string;outletName:string;currency:string;timeZone:string;from:string;to:string;generatedAt:string;
+  totals:{createdEvents:string;createdQuantity:string;affectedSales:string;affectedProducts:string;unresolvedQuantityNow:string;oldestOpenAt:string|null;
+    resolutionsInPeriod:string;resolvedQuantityInPeriod:string;estimatedUnresolvedCogsMinor?:string;unresolvedCogsMinor?:string;
+    unresolvedCogsFromSelectedCreationPeriodMinor?:string;actualCogsResolvedInPeriodMinor?:string;cogsAdjustmentInPeriodMinor?:string};
+  byOperator:Array<{operatorId:string;operatorName:string;eventCount:string;quantity:string}>;
+  byProduct:Array<{productId:string;sku:string;name:string;eventCount:string;quantity:string}>;
+  coverage:{completeTotals:boolean;costVisible:boolean;policy:string};
+}
 export interface BackendCustomerAccount {id:string;name:string;phone:string;email:string|null;creditLimitMinor:string;balanceMinor:string;status:'ACTIVE'|'SUSPENDED';version:number;createdAt:string;updatedAt:string}
 export interface BackendCustomerStatement {customer:BackendCustomerAccount;entries:Array<{id:string;type:'CHARGE'|'REPAYMENT';amountMinor:string;balanceAfterMinor:string;createdAt:string;reference:string|null;orderId:string|null;receiptNumber:string|null;allocations:Array<{amountMinor:string;receiptNumber:string;orderId:string}>}>;generatedAt:string;currency:string}
 export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null }
@@ -97,7 +116,7 @@ export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
   receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptQrImage:string;showQrOnReceipt:boolean;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
-  lines:Array<{lineId:string;sku:string;name:string;quantity:string;unitPriceMinor:string;originalSubtotalMinor?:string;discountMinor?:string;discountReason?:string|null;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
+  lines:Array<{lineId:string;sku:string;name:string;quantity:string;unrecordedQuantity?:string;provisionalCogsMinor?:string;unitPriceMinor:string;originalSubtotalMinor?:string;discountMinor?:string;discountReason?:string|null;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
   payments:Array<{method:string;amountMinor:string;currency:string;status:string;reference?:string|null;confirmation?:string;confirmedBy?:string|null;confirmedAt?:string|null}>;
   originalSubtotalMinor?:string;discountMinor?:string;subtotalMinor:string;taxMinor:string;totalMinor:string;amountPaidMinor:string;customerAccountCharge:{customerId:string;customerName:string;amountDueMinor:string}|null;cashTenderedMinor:string|null;changeMinor:string|null;
 }
@@ -321,6 +340,16 @@ class ApiClient {
     }
     return result;
   }
+  async getStockSalePolicy(signal?:AbortSignal){
+    const result=await this.request<{policy:BackendStockSalePolicy}>('/configuration/stock-sale-policy',{signal});
+    if(!isRecord(result.policy)||typeof result.policy.enabled!=='boolean'||typeof result.policy.version!=='number'||result.policy.requirePhysicalConfirmation!==true||result.policy.requireReason!==true)
+      throw new ApiClientError('The stock sale policy response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  updateStockSalePolicy(enabled:boolean,allowZeroReferenceCost:boolean,version:number,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before changing outlet policy.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.stock_exception_policy.update',occurredAt:new Date().toISOString(),expectedVersions:{['stock-sale-policy:'+session.outlet.id]:version},payload:{enabled,allowZeroReferenceCost}});
+  }
   async stageConfigurationAsset(kind:'logo'|'receipt_qr',draftId:string,dataUrl:string){
     const result=await this.request<{asset:{id:string;kind:string;sha256:string;byteLength:number}}>('/configuration/assets',{method:'POST',body:JSON.stringify({kind,draftId,dataUrl})});
     if(!isRecord(result.asset)||typeof result.asset.id!=='string'||result.asset.kind!==kind||typeof result.asset.sha256!=='string'||typeof result.asset.byteLength!=='number')
@@ -344,6 +373,23 @@ class ApiClient {
   listCustomerAccounts(signal?:AbortSignal){return this.requestArray<{customers:BackendCustomerAccount[]}>('/customers','customers',signal)}
   async getCustomerStatement(customerId:string,signal?:AbortSignal){const result=await this.request<BackendCustomerStatement>('/customers/'+encodeURIComponent(customerId)+'/statement',{signal});if(!isRecord(result.customer)||!Array.isArray(result.entries))throw new ApiClientError('The customer statement response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   listInventoryMovements(signal?:AbortSignal){return this.requestArray<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string;valueMinor?:string}>}>('/inventory/movements','movements',signal)}
+  async listStockShortfalls(query:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:number;after?:string}={},signal?:AbortSignal){
+    const result=await this.request<BackendStockShortfallPage>('/inventory/shortfalls?'+this.reportQuery(query),{signal});
+    if(!Array.isArray(result.items)||typeof result.limit!=='number'||!Object.hasOwn(result,'nextAfter'))throw new ApiClientError('The stock exception list is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  getStockShortfallDetail(shortfallId:string,signal?:AbortSignal){return this.request<{exception:Record<string,unknown>}>('/inventory/shortfalls/'+encodeURIComponent(shortfallId),{signal});}
+  getStockShortfallEvidence(shortfallId:string,signal?:AbortSignal){return this.request<{evidence:BackendStockShortfallEvidence[]}>('/inventory/shortfalls/'+encodeURIComponent(shortfallId)+'/evidence',{signal});}
+  async getStockExceptionReport(from:string,to:string,signal?:AbortSignal){
+    const result=await this.request<BackendStockExceptionReport>('/reports/stock-exceptions?'+new URLSearchParams({from,to}),{signal});
+    if(!isRecord(result.totals)||!Array.isArray(result.byOperator)||!Array.isArray(result.byProduct)||!isRecord(result.coverage))throw new ApiClientError('The stock exception report is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  getStockShortfallsCsv(query:{from:string;to:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:number}={from:'',to:''},signal?:AbortSignal){return this.requestText('/reports/stock-exceptions.csv?'+this.reportQuery(query),signal);}
+  resolveStockShortfall(input:{shortfallId:string;quantity:string;resolutionType:'OMITTED_RECEIPT'|'VERIFIED_COUNT_ADJUSTMENT';supportingMovementId:string;supportingDocumentReference?:string;reason:string},shortfallVersion:number,balanceVersion:number,productId:string,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before resolving a stock exception.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'inventory.sale_shortfall.resolve',occurredAt:new Date().toISOString(),expectedVersions:{['shortfall:'+input.shortfallId]:shortfallVersion,['balance:'+productId]:balanceVersion},payload:input});
+  }
   listInventoryCounts(signal?:AbortSignal){return this.requestArray<{counts:BackendInventoryCountSummary[]}>('/inventory/counts','counts',signal)}
   async getCurrentInventoryCount(signal?:AbortSignal){const result=await this.request<unknown>('/inventory/counts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'count')||(result.count!==null&&!isRecord(result.count)))throw new ApiClientError('The current stock count response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {count:BackendInventoryCount|null};}
   getInventoryCount(countId:string,signal?:AbortSignal){return this.requestRecord<{count:BackendInventoryCount}>('/inventory/counts/'+encodeURIComponent(countId),'count',signal)}

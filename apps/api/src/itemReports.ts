@@ -6,7 +6,7 @@ import {csvExportCell} from './csvParser.js';
 
 type Query={from?:unknown;to?:unknown;limit?:unknown;after?:unknown;asOf?:unknown};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const fields=['originalSubtotalMinor','discountMinor','revenueMinor','taxMinor','refundSubtotalMinor','refundTaxMinor','refundDiscountMinor','netRevenueMinor','cogsMinor','restockedCogsMinor','netCogsMinor','grossProfitMinor'] as const;
+const fields=['originalSubtotalMinor','discountMinor','revenueMinor','taxMinor','refundSubtotalMinor','refundTaxMinor','refundDiscountMinor','netRevenueMinor','cogsMinor','verifiedCogsMinor','provisionalCogsMinor','cogsAdjustmentMinor','restockedCogsMinor','netCogsMinor','grossProfitMinor'] as const;
 
 /** Return events are selected independently, including returns of older sales. */
 const itemCte=`WITH item_events AS (
@@ -14,18 +14,27 @@ const itemCte=`WITH item_events AS (
     l.quantity quantity,0::numeric returned_quantity,l.line_subtotal_minor+l.discount_minor original_subtotal_minor,
     l.discount_minor,l.line_subtotal_minor revenue_minor,l.line_tax_minor tax_minor,
     0::bigint refund_subtotal_minor,0::bigint refund_tax_minor,0::bigint refund_discount_minor,
-    l.cogs_minor,0::bigint restocked_cogs_minor,o.id order_id
+    l.cogs_minor,0::bigint restocked_cogs_minor,l.provisional_cogs_minor,0::bigint cogs_adjustment_minor,o.id order_id
   FROM commerce.order_lines l JOIN commerce.orders o ON o.tenant_id=l.tenant_id AND o.outlet_id=l.outlet_id AND o.id=l.order_id
   WHERE l.tenant_id=$1 AND l.outlet_id=$2 AND o.created_at>=($3::date::timestamp AT TIME ZONE $5)
     AND o.created_at<(($4::date+1)::timestamp AT TIME ZONE $5) AND o.created_at<=$6::timestamptz
   UNION ALL
   SELECT l.product_id,l.sku_snapshot,l.name_snapshot,r.created_at,rl.id,
     0::numeric,rl.quantity,0,0,0,0,rl.subtotal_minor,rl.tax_minor,rl.discount_minor,0,
-    CASE WHEN rl.restocked THEN rl.cogs_minor ELSE 0 END,NULL::uuid
+    CASE WHEN rl.restocked THEN rl.cogs_minor ELSE 0 END,0::bigint,0::bigint,NULL::uuid
   FROM commerce.refund_lines rl
   JOIN commerce.refunds r ON r.tenant_id=rl.tenant_id AND r.outlet_id=rl.outlet_id AND r.id=rl.refund_id
   JOIN commerce.order_lines l ON l.tenant_id=rl.tenant_id AND l.outlet_id=rl.outlet_id AND l.id=rl.order_line_id
   WHERE rl.tenant_id=$1 AND rl.outlet_id=$2 AND r.created_at>=($3::date::timestamp AT TIME ZONE $5)
+    AND r.created_at<(($4::date+1)::timestamp AT TIME ZONE $5) AND r.created_at<=$6::timestamptz
+  UNION ALL
+  SELECT s.product_id,l.sku_snapshot,l.name_snapshot,r.created_at,r.id,
+    0::numeric,0::numeric,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,
+    0::bigint,0::bigint,0::bigint,r.cogs_adjustment_minor,NULL::uuid
+  FROM inventory.sale_shortfall_resolutions r
+  JOIN inventory.sale_shortfalls s ON s.tenant_id=r.tenant_id AND s.outlet_id=r.outlet_id AND s.id=r.shortfall_id
+  JOIN commerce.order_lines l ON l.tenant_id=s.tenant_id AND l.outlet_id=s.outlet_id AND l.id=s.order_line_id
+  WHERE r.tenant_id=$1 AND r.outlet_id=$2 AND r.created_at>=($3::date::timestamp AT TIME ZONE $5)
     AND r.created_at<(($4::date+1)::timestamp AT TIME ZONE $5) AND r.created_at<=$6::timestamptz
 ), items AS (
   SELECT product_id,(array_agg(sku_snapshot ORDER BY occurred_at DESC,id DESC))[1] sku,
@@ -36,9 +45,11 @@ const itemCte=`WITH item_events AS (
     sum(refund_subtotal_minor)::text refund_subtotal_minor,sum(refund_tax_minor)::text refund_tax_minor,
     sum(refund_discount_minor)::text refund_discount_minor,
     (sum(revenue_minor)-sum(refund_subtotal_minor))::text net_revenue_minor,
-    sum(cogs_minor)::text cogs_minor,sum(restocked_cogs_minor)::text restocked_cogs_minor,
-    (sum(cogs_minor)-sum(restocked_cogs_minor))::text net_cogs_minor,
-    (sum(revenue_minor)-sum(refund_subtotal_minor)-sum(cogs_minor)+sum(restocked_cogs_minor))::text gross_profit_minor,
+    sum(cogs_minor)::text cogs_minor,(sum(cogs_minor)-sum(provisional_cogs_minor))::text verified_cogs_minor,
+    sum(provisional_cogs_minor)::text provisional_cogs_minor,sum(cogs_adjustment_minor)::text cogs_adjustment_minor,
+    sum(restocked_cogs_minor)::text restocked_cogs_minor,
+    (sum(cogs_minor)-sum(restocked_cogs_minor)+sum(cogs_adjustment_minor))::text net_cogs_minor,
+    (sum(revenue_minor)-sum(refund_subtotal_minor)-sum(cogs_minor)+sum(restocked_cogs_minor)-sum(cogs_adjustment_minor))::text gross_profit_minor,
     count(DISTINCT order_id)::text order_count
   FROM item_events GROUP BY product_id
 )`;
@@ -69,6 +80,13 @@ async function readItems(session:ApiSession,query:Query,exportAll=false){
     const summary=await client.query(`${itemCte} SELECT count(*)::text total,${fields.map(field=>`coalesce(sum(${sqlField(field)}::numeric),0)::text ${sqlField(field)}`).join(',')} FROM items`,params);
     const totals=Object.fromEntries(fields.map(field=>[field,summary.rows[0][sqlField(field)]]));
     const total=summary.rows[0].total as string;
+    const exceptionCosts=await client.query(`SELECT COALESCE(sum(s.provisional_cogs_minor),0)::text initial_provisional_minor,
+        COALESCE(sum(s.provisional_cogs_minor-COALESCE(r.released,0)),0)::text unresolved_provisional_minor
+      FROM inventory.sale_shortfalls s JOIN commerce.orders o ON o.tenant_id=s.tenant_id AND o.outlet_id=s.outlet_id AND o.id=s.order_id
+      LEFT JOIN LATERAL (SELECT sum(x.provisional_cogs_released_minor) released FROM inventory.sale_shortfall_resolutions x
+        WHERE x.tenant_id=s.tenant_id AND x.outlet_id=s.outlet_id AND x.shortfall_id=s.id AND x.created_at<=$6::timestamptz) r ON true
+      WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND o.created_at>=($3::date::timestamp AT TIME ZONE $5)
+        AND o.created_at<(($4::date+1)::timestamp AT TIME ZONE $5) AND o.created_at<=$6::timestamptz`,params);
     if(exportAll&&BigInt(total)>10_000n)throw new DomainError('EXPORT_TOO_LARGE','This export contains more than 10,000 items. Choose a shorter period; no partial file was produced.',413);
     const rows=await client.query(`${itemCte} SELECT i.*,p.base_unit FROM items i
       JOIN catalog.products p ON p.tenant_id=$1 AND p.outlet_id=$2 AND p.id=i.product_id
@@ -79,8 +97,12 @@ async function readItems(session:ApiSession,query:Query,exportAll=false){
     return {reportType:'ITEM_PERFORMANCE',scope:'OUTLET',tenantId:session.tenantId,outletId:session.outletId,outletName:session.outletName,
       currency:session.currency,timeZone:session.timeZone,from:parsed.from,to:parsed.to,generatedAt,asOf,total,limit:parsed.limit,
       nextAfter:hasMore?page[page.length-1].product_id:null,items:page.map(rowDto),totals,
+      stockExceptionCostCoverage:{initialProvisionalCogsMinor:exceptionCosts.rows[0].initial_provisional_minor,
+        unresolvedProvisionalCogsMinor:exceptionCosts.rows[0].unresolved_provisional_minor,asOf,
+        marginIncludesUnresolvedEstimate:BigInt(exceptionCosts.rows[0].unresolved_provisional_minor)>0n},
       coverage:{completeTotals:true,namePolicy:'One row per item identity, named from the latest selected sale or returned sale snapshot.',
         returnsPolicy:'Returns use their own dates, including returns of sales from an earlier period. Revenue excludes tax. Only restocked returned cost reverses COGS.',
+        costPolicy:'Sale-date COGS includes its provisional portion. Later resolution adjustments are shown on their recorded dates; unresolved provisional cost remains estimated and is not verified margin.',
         snapshotPolicy:'Each response uses one committed read snapshot and the same transaction timestamp cutoff for continuation. Transactions committed late can change a later page; refresh to reconcile. CSV totals and rows use one read snapshot.'}};
   });
 }

@@ -19,6 +19,7 @@ import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
+import { getStockExceptionReport, getStockSalePolicy, getStockShortfallDetail, getStockShortfallEvidence, getStockShortfalls, getStockShortfallsCsv } from './stockShortfalls.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
 import { changeCredential } from './credentials.js';
 import type { CredentialInput } from './credentials.js';
@@ -203,6 +204,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
   app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
+  app.get('/api/v1/configuration/stock-sale-policy', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockSalePolicy(request.operator!);});
   app.get<{ Params:{ assetId:string } }>('/api/v1/configuration/assets/:assetId', async (request, reply) => {
     const image = await getConfigurationAsset(request.operator!, request.params.assetId);
     if (!image) throw new DomainError('NOT_FOUND', 'Configuration image was not found.', 404);
@@ -248,6 +250,10 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
     return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference,...(canReadCost?{valueMinor:String(r.value_minor)}:{})}))};
   });
+  app.get<{Querystring:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:string;after?:string}}>(
+    '/api/v1/inventory/shortfalls', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfalls(request.operator!, request.query);});
+  app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallDetail(request.operator!, request.params.shortfallId);});
+  app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId);});
   const requireInventoryCountAccess = (operator: ApiSession) => {
     requireEnabledCapability(operator, 'inventory');
     if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
@@ -353,6 +359,10 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     getProfitLoss(request.operator!, request.query.from, request.query.to));
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/reports/operational-analytics', async request =>
     getOperationalAnalytics(request.operator!, request.query.from, request.query.to));
+  app.get<{Querystring:{from?:string;to?:string}}>('/api/v1/reports/stock-exceptions', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockExceptionReport(request.operator!, request.query);});
+  app.get<{Querystring:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:string}}>(
+    '/api/v1/reports/stock-exceptions.csv', async (request, reply) => {requireEnabledCapability(request.operator!,'inventory');return reply.type('text/csv; charset=utf-8')
+      .header('content-disposition','attachment; filename="stock-exceptions.csv"').send(await getStockShortfallsCsv(request.operator!, request.query));});
   app.get<{Querystring:{from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/items',async request=>getItemReport(request.operator!,request.query));
   app.get<{Querystring:{productId?:string;from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/item-events',async request=>getItemEvents(request.operator!,request.query));
   app.get<{Querystring:{from?:string;to?:string;limit?:string;after?:string;asOf?:string}}>('/api/v1/reports/items.csv',async(request,reply)=>reply.type('text/csv; charset=utf-8').header('content-disposition','attachment; filename="item-performance.csv"').send(await getItemReportCsv(request.operator!,request.query)));
