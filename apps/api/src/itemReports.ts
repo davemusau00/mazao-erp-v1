@@ -30,7 +30,7 @@ const itemCte=`WITH item_events AS (
   UNION ALL
   SELECT s.product_id,l.sku_snapshot,l.name_snapshot,r.created_at,r.id,
     0::numeric,0::numeric,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,
-    0::bigint,0::bigint,0::bigint,r.cogs_adjustment_minor,NULL::uuid
+    0::bigint,0::bigint,0::bigint,0::bigint,r.cogs_adjustment_minor,NULL::uuid
   FROM inventory.sale_shortfall_resolutions r
   JOIN inventory.sale_shortfalls s ON s.tenant_id=r.tenant_id AND s.outlet_id=r.outlet_id AND s.id=r.shortfall_id
   JOIN commerce.order_lines l ON l.tenant_id=s.tenant_id AND l.outlet_id=s.outlet_id AND l.id=s.order_line_id

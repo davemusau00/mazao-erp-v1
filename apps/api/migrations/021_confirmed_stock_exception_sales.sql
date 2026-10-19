@@ -33,7 +33,7 @@ ALTER TABLE inventory.movements
 ALTER TABLE inventory.movements DROP CONSTRAINT inventory_movements_type_allowed_check;
 ALTER TABLE inventory.movements
   ADD CONSTRAINT inventory_movements_type_allowed_check
-  CHECK (movement_type IN ('OPENING', 'RECEIPT', 'SALE', 'REFUND', 'COUNT_ADJUSTMENT', 'SHORTFALL_RECONCILIATION'));
+  CHECK (movement_type IN ('OPENING', 'OPENING_IMPORT', 'RECEIPT', 'SALE', 'REFUND', 'COUNT_ADJUSTMENT', 'SHORTFALL_RECONCILIATION'));
 
 CREATE TABLE inventory.sale_shortfalls (
   id uuid PRIMARY KEY,

@@ -4,6 +4,11 @@ import type { ApiSession } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { decodePngDataUrl } from './configuration.js';
 
+function quantityMicros(value: string) {
+  const [whole, fraction = ''] = value.split('.');
+  return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'));
+}
+
 function requireReceiptAccess(session: ApiSession) {
   if (!ROLE_PERMISSIONS[session.role].some(permission => ['commerce.sell', 'commerce.refund', 'finance.view'].includes(permission))) {
     throw new DomainError('FORBIDDEN', 'Your role cannot view sale receipts.', 403);
@@ -103,22 +108,25 @@ export async function getSaleReceipt(session: ApiSession, orderIdValue: unknown)
       createdAt: order.created_at,
       operatorName: order.operator_name,
       saleStatus: order.status,
-      lines: lineResult.rows.map(line => ({
-        lineId: line.id,
-        sku: line.sku_snapshot,
-        name: line.name_snapshot,
-        quantity: line.quantity,
-        ...(BigInt(line.unrecorded_quantity) > 0n ? { unrecordedQuantity: line.unrecorded_quantity } : {}),
-        ...(BigInt(line.unrecorded_quantity) > 0n && ROLE_PERMISSIONS[session.role].includes('finance.view') ? { provisionalCogsMinor: line.provisional_cogs_minor } : {}),
-        unitPriceMinor: line.unit_price_minor,
-        taxRateBps: line.tax_rate_bps,
-        originalSubtotalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.discount_minor)).toString(),
-        discountMinor: line.discount_minor,
-        discountReason: line.discount_reason,
-        subtotalMinor: line.line_subtotal_minor,
-        taxMinor: line.line_tax_minor,
-        totalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.line_tax_minor)).toString(),
-      })),
+      lines: lineResult.rows.map(line => {
+        const unrecordedQuantity = quantityMicros(line.unrecorded_quantity);
+        return {
+          lineId: line.id,
+          sku: line.sku_snapshot,
+          name: line.name_snapshot,
+          quantity: line.quantity,
+          ...(unrecordedQuantity > 0n ? { unrecordedQuantity: line.unrecorded_quantity } : {}),
+          ...(unrecordedQuantity > 0n && ROLE_PERMISSIONS[session.role].includes('finance.view') ? { provisionalCogsMinor: line.provisional_cogs_minor } : {}),
+          unitPriceMinor: line.unit_price_minor,
+          taxRateBps: line.tax_rate_bps,
+          originalSubtotalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.discount_minor)).toString(),
+          discountMinor: line.discount_minor,
+          discountReason: line.discount_reason,
+          subtotalMinor: line.line_subtotal_minor,
+          taxMinor: line.line_tax_minor,
+          totalMinor: (BigInt(line.line_subtotal_minor) + BigInt(line.line_tax_minor)).toString(),
+        };
+      }),
       payments: paymentResult.rows.map(payment => ({ method: payment.method, amountMinor: payment.amount_minor, currency: payment.currency, status: payment.status, reference: payment.reference, confirmation: payment.method === 'MANUAL_MPESA' ? 'CASHIER_CONFIRMED' : 'CASH', confirmedBy: payment.confirmed_operator_name_snapshot, confirmedAt: payment.manually_confirmed_at })),
       originalSubtotalMinor: (subtotal + discount).toString(),
       discountMinor: discount.toString(),
