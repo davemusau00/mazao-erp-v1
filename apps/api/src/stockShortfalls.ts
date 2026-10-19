@@ -380,10 +380,10 @@ export async function getStockExceptionReport(session: ApiSession, query: Record
     const operators = await client.query(`SELECT operator_id,operator_name_snapshot operator_name,count(*)::text event_count,
         COALESCE(sum(quantity),0)::text quantity FROM inventory.sale_shortfalls WHERE tenant_id=$1 AND outlet_id=$2
         AND (created_at AT TIME ZONE $5)::date BETWEEN $3::date AND $4::date GROUP BY operator_id,operator_name_snapshot ORDER BY count(*) DESC,operator_name_snapshot LIMIT 100`, [session.tenantId, session.outletId, from, to, session.timeZone]);
-    const products = await client.query(`SELECT product_id,l.sku_snapshot sku,l.name_snapshot name,count(*)::text event_count,
+    const products = await client.query(`SELECT s.product_id,l.sku_snapshot sku,l.name_snapshot name,count(*)::text event_count,
         COALESCE(sum(s.quantity),0)::text quantity FROM inventory.sale_shortfalls s JOIN commerce.order_lines l ON l.tenant_id=s.tenant_id AND l.outlet_id=s.outlet_id AND l.id=s.order_line_id
         WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND (s.created_at AT TIME ZONE $5)::date BETWEEN $3::date AND $4::date
-        GROUP BY product_id,l.sku_snapshot,l.name_snapshot ORDER BY count(*) DESC,l.name_snapshot LIMIT 100`, [session.tenantId, session.outletId, from, to, session.timeZone]);
+        GROUP BY s.product_id,l.sku_snapshot,l.name_snapshot ORDER BY count(*) DESC,l.name_snapshot LIMIT 100`, [session.tenantId, session.outletId, from, to, session.timeZone]);
     const summary = totals.rows[0], current = open.rows[0], resolved = resolutions.rows[0];
     return { scope: 'OUTLET', outletId: session.outletId, outletName: session.outletName, currency: session.currency, timeZone: session.timeZone,
       from, to, generatedAt: new Date().toISOString(), totals: { createdEvents: summary.event_count, createdQuantity: summary.quantity,
