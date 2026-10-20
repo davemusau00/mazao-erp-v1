@@ -1,7 +1,7 @@
 import { permissionLabel, roleLabel, setupCheckLabel, setupCheckDetail } from '../../utils/presentation';
 import React, { useEffect, useRef, useState } from 'react';
-import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard } from 'lucide-react';
-import { apiClient, ApiClientError, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput } from '../../services/apiClient';
+import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard, PackageSearch } from 'lucide-react';
+import { apiClient, ApiClientError, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput, type BackendStockSalePolicy } from '../../services/apiClient';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
 import type { WorkspaceId } from '../../types/ui';
@@ -9,10 +9,10 @@ import { StaffAccessWorkspace } from './StaffAccessWorkspace';
 import { safeRasterImageSource } from '../../utils/html';
 import './BackendManageWorkspace.css';
 
-type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices';
+type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices'|'stockExceptions';
 type ImageDraft={mode:'keep'|'remove'|'replace';draftId?:string;dataUrl?:string};
 const capabilityLabels:Record<string,string>={commerce:'Sales and customer accounts',inventory:'Inventory',retail:'Retail workspace',hospitality:'Rooms and guest stays'};
-const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>};
+const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>,stockExceptions:<PackageSearch/>};
 
 function businessInput(configuration:BackendConfiguration):BackendBusinessConfigurationInput {
   const {id:_,version:__,...fields}=configuration.business;
@@ -26,8 +26,12 @@ function outletInput(configuration:BackendConfiguration):BackendOutletConfigurat
 export function BackendManageWorkspace({initialSection='overview',onNavigate,onOpenImport}:{initialSection?:Section;onNavigate:(workspace:WorkspaceId)=>boolean|void;onOpenImport:()=>void}) {
   const session=apiClient.getSession()!;
   const canEdit=session.user.permissions.includes('config.manage');
+  const canConfigureStockExceptions=session.user.permissions.includes('inventory.shortfall.configure');
   const [section,setSection]=useState<Section>(initialSection);
   const [configuration,setConfiguration]=useState<BackendConfiguration|null>(null);
+  const [stockPolicy,setStockPolicy]=useState<BackendStockSalePolicy|null>(null);
+  const [stockPolicyEnabled,setStockPolicyEnabled]=useState(false);
+  const [allowZeroReferenceCost,setAllowZeroReferenceCost]=useState(true);
   const [business,setBusiness]=useState<BackendBusinessConfigurationInput|null>(null);
   const [outlet,setOutlet]=useState<BackendOutletConfigurationInput|null>(null);
   const [capabilities,setCapabilities]=useState<string[]>([]);
@@ -54,9 +58,10 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
     loadController.current?.abort();const controller=new AbortController();loadController.current=controller;const generation=++loadGeneration.current;
     setLoading(true);setError('');setLoadError('');
     try {
-      const result=await apiClient.getConfiguration(controller.signal);
+      const [result,policyResult]=await Promise.all([apiClient.getConfiguration(controller.signal),apiClient.getStockSalePolicy(controller.signal)]);
       if(!mounted.current||generation!==loadGeneration.current)return;
       setConfiguration(result.configuration);
+      setStockPolicy(policyResult.policy);setStockPolicyEnabled(policyResult.policy.enabled);setAllowZeroReferenceCost(policyResult.policy.allowZeroReferenceCost);
       setBusiness(businessInput(result.configuration));setOutlet(outletInput(result.configuration));
       setLogoDraft({mode:'keep'});setReceiptQrDraft({mode:'keep'});
       setCapabilities(result.configuration.capabilities);
@@ -145,6 +150,10 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
     if(!configuration||editingBlocked)return;
     await send(command('configuration.capabilities.update',{capabilities},{['business:'+configuration.business.id]:configuration.business.version}));
   };
+  const saveStockPolicy=async()=>{
+    if(!stockPolicy||!canConfigureStockExceptions||editingBlocked)return;
+    await send(command('configuration.stock_exception_policy.update',{enabled:stockPolicyEnabled,allowZeroReferenceCost},{['stock-sale-policy:'+session.outlet.id]:stockPolicy.version}));
+  };
   const checkStatus=async()=>{
     if(!pending.current)return;
     setBusy(true);setError('');
@@ -157,7 +166,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   const changeSection=(next:Section)=>{
     if(next===section)return;
     if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
-    if(dirty&&configuration){setBusiness(businessInput(configuration));setOutlet(outletInput(configuration));setCapabilities(configuration.capabilities);const bps=configuration.business.taxPolicy.defaultRateBps;setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);setDirty(false);}
+    if(dirty&&configuration){setBusiness(businessInput(configuration));setOutlet(outletInput(configuration));setCapabilities(configuration.capabilities);setStockPolicyEnabled(stockPolicy?.enabled??false);setAllowZeroReferenceCost(stockPolicy?.allowZeroReferenceCost??true);const bps=configuration.business.taxPolicy.defaultRateBps;setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);setDirty(false);}
     setSection(next);setError('');
   };
   const openFeature=(id:ManagementFeatureId)=>{
@@ -209,7 +218,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
       })}</div>
     </>}
     {section!=='overview'&&<nav aria-label="Settings sections" className="flex flex-wrap gap-2">
-      {([['business','Business',Building2],['outlet','Outlet and receipts',ReceiptText],['capabilities','Capabilities',Settings2],['readiness','Setup checklist',ClipboardCheck],['permissions','My access',Shield],['staff','Staff',ContactRound],['devices','Assignments',MonitorCog]] as const).map(([id,label,Icon])=><button key={id} type="button" aria-current={section===id?'page':undefined} onClick={()=>changeSection(id)} className={`min-h-11 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${section===id?'border-blue-500 bg-blue-500/10 text-blue-200':'border-zinc-700 text-zinc-300'}`}><Icon size={16}/>{label}</button>)}
+      {([['business','Business',Building2],['outlet','Outlet and receipts',ReceiptText],['capabilities','Capabilities',Settings2],['readiness','Setup checklist',ClipboardCheck],['permissions','My access',Shield],['staff','Staff',ContactRound],['devices','Assignments',MonitorCog],['stockExceptions','Stock exceptions',PackageSearch]] as const).map(([id,label,Icon])=><button key={id} type="button" aria-current={section===id?'page':undefined} onClick={()=>changeSection(id)} className={`min-h-11 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${section===id?'border-blue-500 bg-blue-500/10 text-blue-200':'border-zinc-700 text-zinc-300'}`}><Icon size={16}/>{label}</button>)}
     </nav>}
     {!canEdit&&!['staff','devices'].includes(section)&&<p className="rounded-lg border border-zinc-700 p-3 text-sm text-zinc-300">Your account can review these settings. An administrator can change them.</p>}
     {!recoveryChecked&&<div role={recoveryError?'alert':'status'} className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">{recoveryError||'Checking for unfinished settings changes...'}{recoveryError&&<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void loadRecovery()}>Retry status check</button>}</div>}
@@ -238,6 +247,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
       </fieldset><div className="mt-5 flex items-center justify-between gap-3 border-t border-zinc-700 pt-4"><span className="text-xs text-zinc-400">{dirty?'Unsaved changes':'Changes saved'}</span><button type="submit" className="primary-action min-h-11" disabled={editingBlocked||!dirty}>{busy?'Saving…':'Save business settings'}</button></div></form>}
       {section==='outlet'&&<form onSubmit={saveOutlet} className="workflow-panel"><div className="panel-heading"><div><h2>Current outlet</h2><p>Settings for {configuration.outlet.name}. Blank receipt and contact fields use business defaults.</p></div><ReceiptText size={18}/></div><fieldset disabled={editingBlocked} className="grid gap-4 md:grid-cols-2">{outletField('Outlet name','name',{required:true})}{outletField('Outlet time zone','timeZone',{required:true})}{outletField('Outlet address','address')}{outletField('Outlet phone','phone',{type:'tel'})}{outletField('Outlet email','email',{type:'email'})}<label className="form-field"><span id="outlet-receipt-header-label">Outlet receipt header</span><textarea aria-labelledby="outlet-receipt-header-label" value={outlet.receiptHeader} maxLength={500} rows={3} onChange={event=>editOutlet('receiptHeader',event.target.value)}/></label><label className="form-field"><span id="outlet-receipt-footer-label">Outlet receipt footer</span><textarea aria-labelledby="outlet-receipt-footer-label" value={outlet.receiptFooter} maxLength={500} rows={3} onChange={event=>editOutlet('receiptFooter',event.target.value)}/></label></fieldset><div className="mt-5 flex items-center justify-between gap-3 border-t border-zinc-700 pt-4"><span className="text-xs text-zinc-400">{dirty?'Unsaved changes':'Changes saved'}</span><button type="submit" className="primary-action min-h-11" disabled={editingBlocked||!dirty}>{busy?'Saving…':'Save outlet settings'}</button></div></form>}
       {section==='capabilities'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>Business capabilities</h2><p>Enable the services this business uses.</p></div><Settings2 size={18}/></div><fieldset disabled={editingBlocked} className="grid gap-3 sm:grid-cols-2">{configuration.supportedCapabilities.map(capability=><label key={capability} className="flex min-h-14 items-center gap-3 rounded-lg border border-zinc-700 px-4 py-3"><input type="checkbox" checked={capabilities.includes(capability)} onChange={event=>{setCapabilities(previous=>event.target.checked?[...previous,capability]:previous.filter(value=>value!==capability));setDirty(true);}}/><span className="text-sm">{capabilityLabels[capability]??'Other business service'}</span></label>)}</fieldset><p className="mt-4 text-sm text-zinc-400">Sales requires inventory. Retail requires sales and inventory. Rooms requires sales. Turning off a capability keeps its business history.</p><div className="mt-5 flex justify-end"><button type="button" className="primary-action min-h-11" disabled={editingBlocked||!dirty} onClick={()=>void saveCapabilities()}>{busy?'Saving…':'Save capabilities'}</button></div></section>}
+      {section==='stockExceptions'&&stockPolicy&&<section className="workflow-panel"><div className="panel-heading"><div><h2>Stock exception sales</h2><p>Choose whether cashiers may confirm a sale when the recorded stock balance is short at {configuration.outlet.name}.</p></div><PackageSearch size={18}/></div><p className="rounded-lg border border-zinc-700 p-3 text-sm text-zinc-300">Every exception sale requires an item by item physical stock confirmation and a reason. The recorded balance is reduced only by the quantity on hand. Remaining quantity and estimated cost stay visible for manager review.</p><fieldset disabled={editingBlocked||!canConfigureStockExceptions} className="mt-4 space-y-3"><label className="flex min-h-14 items-start gap-3 rounded-lg border border-zinc-700 px-4 py-3"><input type="checkbox" checked={stockPolicyEnabled} onChange={event=>{setStockPolicyEnabled(event.target.checked);setDirty(true);}} className="mt-1"/><span><strong className="block text-sm">Allow confirmed sales with a stock shortfall</strong><small className="mt-1 block text-xs text-zinc-400">When off, sales stop if the requested quantity exceeds recorded stock.</small></span></label><label className="flex min-h-14 items-start gap-3 rounded-lg border border-zinc-700 px-4 py-3"><input type="checkbox" checked={allowZeroReferenceCost} onChange={event=>{setAllowZeroReferenceCost(event.target.checked);setDirty(true);}} className="mt-1"/><span><strong className="block text-sm">Allow a zero reference cost</strong><small className="mt-1 block text-xs text-zinc-400">When off, a non-zero item reference cost is required to estimate provisional cost of goods sold.</small></span></label></fieldset>{!canConfigureStockExceptions&&<p className="mt-3 text-xs text-zinc-400">Your account can review this policy. An administrator can change it.</p>}<div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-700 pt-4"><span className="text-xs text-zinc-400">{stockPolicy.updatedByName?`Last changed by ${stockPolicy.updatedByName}`:'Using the safe default: stock exception sales are off.'}</span><button type="button" className="primary-action min-h-11" disabled={editingBlocked||!canConfigureStockExceptions||!dirty} onClick={()=>void saveStockPolicy()}>{busy?'Saving…':'Save stock policy'}</button></div></section>}
       {section==='readiness'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>First sale checklist</h2><p>{configuration.readiness.readyForFirstSale?'This outlet is ready for its first sale.':'Complete the remaining setup checks before selling.'}</p></div><ClipboardCheck size={18}/></div><div className="grid gap-3">{configuration.readiness.checks.map(check=><div key={check.key} className="flex items-start gap-3 rounded-lg border border-zinc-700 p-4">{check.complete?<CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-300"/>:<CircleAlert size={20} className="mt-0.5 shrink-0 text-amber-300"/>}<div><h3 className="text-sm font-semibold">{setupCheckLabel(check.key)}<span className="ml-2 font-normal text-zinc-400">{check.complete?'Complete':'Needs attention'}</span></h3><p className="mt-1 text-sm text-zinc-400">{setupCheckDetail(check.key,check.detail)}</p></div></div>)}</div><p className="mt-4 text-sm text-zinc-400">Complete your wider business checks before starting trade.</p><button type="button" className="secondary-action min-h-11 mt-4" disabled={loading||busy} onClick={()=>void load()}>Refresh setup checks</button></section>}
       {section==='permissions'&&<section className="workflow-panel"><div className="panel-heading"><div><h2>Your access</h2><p>{roleLabel(session.user.role)} · {session.user.name}</p></div><Shield size={18}/></div><p className="text-sm text-zinc-300">These are the tasks your account can perform. Staff access is managed under Staff.</p><ul className="mt-4 grid gap-2 sm:grid-cols-2">{session.user.permissions.map(permission=><li key={permission} className="rounded-lg border border-zinc-700 px-3 py-2 font-mono text-sm">{permissionLabel(permission)}</li>)}</ul>{session.user.permissions.length===0&&<p className="mt-4 text-sm text-zinc-400">No permissions are assigned to this session.</p>}</section>}
     </>}

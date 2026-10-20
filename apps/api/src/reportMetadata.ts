@@ -8,6 +8,7 @@ export const REPORT_ACCOUNTS:Record<string,{name:string;classification:AccountCl
   INVENTORY:{name:'Inventory',classification:'ASSET'},
   VAT_PAYABLE:{name:'Tax payable',classification:'LIABILITY'},
   GOODS_RECEIVED_NOT_INVOICED:{name:'Goods received awaiting invoice',classification:'LIABILITY'},
+  UNRECORDED_STOCK_CLEARING:{name:'Unrecorded stock cost awaiting verification',classification:'LIABILITY'},
   CASH_FLOAT_CLEARING:{name:'Opening float clearing',classification:'LIABILITY'},
   CASH_PAID_IN_CLEARING:{name:'Cash paid-in clearing',classification:'LIABILITY'},
   CASH_PAYOUT_CLEARING:{name:'Cash payout clearing',classification:'ASSET'},
@@ -27,5 +28,6 @@ const sourceNames:Record<string,string>={SALE:'Sale',SALE_COGS:'Sale cost',SALE_
   CUSTOMER_REPAYMENT:'Customer collection',INVENTORY_RECEIPT:'Stock delivery',INVENTORY_COUNT:'Stock count',
   SHIFT_OPEN:'Opening float',SHIFT_CASH_PAID_IN:'Cash paid-in',SHIFT_CASH_PAYOUT:'Cash payout',SHIFT_CASH_VARIANCE:'Cash-up difference',
   ROOM_CHECKOUT:'Guest checkout',OPENING_PRODUCT_IMPORT:'Opening stock import',
+  SALE_SHORTFALL_RESOLUTION:'Stock exception resolution',
   EXPENSE:'Operating expense',EXPENSE_REVERSAL:'Expense reversal',SUPPLIER_INVOICE:'Supplier invoice',SUPPLIER_INVOICE_REVERSAL:'Supplier invoice reversal',SUPPLIER_PAYMENT:'Supplier payment'};
 export function reportSourceName(code:string){return sourceNames[code]??'Recorded adjustment';}

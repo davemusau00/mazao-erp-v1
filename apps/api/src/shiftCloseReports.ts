@@ -13,7 +13,7 @@ export async function listShiftCloseReports(session: ApiSession) {
       currency,shift_version,opened_at,closed_at,opening_float_minor::text,
       cash_sales_minor::text,customer_collections_minor::text,cash_refunds_minor::text,
       cash_paid_in_minor::text,cash_payout_minor::text,expected_cash_minor::text,
-      counted_cash_minor::text,variance_minor::text,mpesa_sales_minor::text
+      counted_cash_minor::text,variance_minor::text,mpesa_sales_minor::text,stock_exception_sales_count
     FROM commerce.shift_close_reports
     WHERE tenant_id=$1 AND outlet_id=$2 AND ($3::boolean OR operator_id=$4)
     ORDER BY closed_at DESC,id DESC LIMIT 50`,
@@ -44,6 +44,7 @@ export async function listShiftCloseReports(session: ApiSession) {
       expectedCashMinor: row.expected_cash_minor,
       countedCashMinor: row.counted_cash_minor,
       varianceMinor: row.variance_minor,
+      stockExceptionSalesCount: Number(row.stock_exception_sales_count),
     })),
   };
 }

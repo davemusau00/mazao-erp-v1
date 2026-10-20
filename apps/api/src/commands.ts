@@ -10,6 +10,7 @@ import { revalidateOperator } from './identityAuthority.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
 import { executeAccountingCommand, guardFinancialCommand } from './accounting.js';
 import { executeAccountCatalogCommand } from './accountCatalog.js';
+import { executeStockExceptionCommand } from './stockShortfalls.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -91,6 +92,29 @@ function roundedUnitCost(valueMinor: bigint, quantityMicros: bigint): number {
 function taxFor(subtotal: number, basisPoints: number): number {
   return Number((BigInt(subtotal) * BigInt(basisPoints) + 5_000n) / 10_000n);
 }
+type StockExceptionReason = 'SUSPECTED_UNRECORDED_DELIVERY' | 'SUSPECTED_OUTDATED_COUNT' | 'UNKNOWN';
+type StockExceptionAcknowledgement = { productId: string; maxConfirmedShortfall: bigint; reasonCode: StockExceptionReason; reasonNote: string | null };
+function stockExceptionAcknowledgement(value: unknown): { physicallyConfirmed: boolean; lines: StockExceptionAcknowledgement[] } | null {
+  if (value === undefined) return null;
+  const record = saleRecord(value, ['physicallyConfirmed', 'lines'], 'Stock exception confirmation');
+  if (typeof record.physicallyConfirmed !== 'boolean' || !Array.isArray(record.lines) || record.lines.length > 100) {
+    throw new DomainError('VALIDATION_FAILED', 'Stock exception confirmation must identify the affected items and physical confirmation.');
+  }
+  const lines = record.lines.map((raw, index) => {
+    const line = saleRecord(raw, ['productId', 'maxConfirmedShortfall', 'reasonCode', 'reasonNote'], `Stock exception item ${index + 1}`);
+    if (typeof line.productId !== 'string' || !/^[0-9a-f-]{36}$/i.test(line.productId)) throw new DomainError('VALIDATION_FAILED', `Stock exception item ${index + 1} needs a valid product ID.`);
+    if (!['SUSPECTED_UNRECORDED_DELIVERY', 'SUSPECTED_OUTDATED_COUNT', 'UNKNOWN'].includes(String(line.reasonCode))) throw new DomainError('VALIDATION_FAILED', `Choose a reason for stock exception item ${index + 1}.`);
+    const reasonCode = line.reasonCode as StockExceptionReason;
+    if (line.reasonNote !== undefined && line.reasonNote !== null && (typeof line.reasonNote !== 'string' || line.reasonNote.trim().length > 500 || /[\u0000-\u001f\u007f]/.test(line.reasonNote))) {
+      throw new DomainError('VALIDATION_FAILED', `The note for stock exception item ${index + 1} is invalid.`);
+    }
+    const reasonNote = typeof line.reasonNote === 'string' && line.reasonNote.trim() ? line.reasonNote.trim() : null;
+    if (reasonCode === 'UNKNOWN' && (!reasonNote || reasonNote.length < 3)) throw new DomainError('VALIDATION_FAILED', `Explain the unknown cause for stock exception item ${index + 1}.`);
+    return { productId: line.productId, maxConfirmedShortfall: quantityMicros(line.maxConfirmedShortfall), reasonCode, reasonNote };
+  });
+  if (new Set(lines.map(line => line.productId)).size !== lines.length) throw new DomainError('VALIDATION_FAILED', 'Each affected item can have only one stock exception confirmation.');
+  return { physicallyConfirmed: record.physicallyConfirmed, lines };
+}
 function requirePermission(session: ApiSession, permission: ApiPermission): void {
   if (!ROLE_PERMISSIONS[session.role].includes(permission)) throw new DomainError('FORBIDDEN', 'Your role cannot perform this operation.', 403);
 }
@@ -169,6 +193,8 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'configuration.business.update':
     case 'configuration.outlet.update':
     case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
+    case 'configuration.stock_exception_policy.update':
+    case 'inventory.sale_shortfall.resolve': return executeStockExceptionCommand(client, session, envelope);
     case 'catalog.product.create': return createProduct(client, session, envelope);
     case 'inventory.receive': return receiveInventory(client, session, envelope);
     case 'inventory.count.open': return openStockCount(client, session, envelope);
@@ -724,6 +750,9 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
     [shiftId, session.tenantId, session.outletId, session.userId, counted, variance, expected],
   );
   if (!closedShift.rowCount) throw new DomainError('VERSION_CONFLICT', 'The shift changed while it was being closed.', 409);
+  const stockExceptionCount = await client.query<{ count: string }>(`SELECT count(DISTINCT s.order_id)::text count
+    FROM inventory.sale_shortfalls s JOIN commerce.orders o ON o.tenant_id=s.tenant_id AND o.outlet_id=s.outlet_id AND o.id=s.order_id
+    WHERE o.tenant_id=$1 AND o.outlet_id=$2 AND o.shift_id=$3`, [session.tenantId, session.outletId, shiftId]);
   const identity = await client.query<{ tenant_name: string; outlet_name: string; time_zone: string; operator_name: string; currency: string; business_date: string }>(`SELECT t.name tenant_name,o.name outlet_name,o.time_zone,m.display_name operator_name,t.currency,
       to_char($3::timestamptz AT TIME ZONE o.time_zone,'YYYY-MM-DD') business_date
     FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id JOIN identity.memberships m ON m.tenant_id=t.id AND m.user_id=$2
@@ -735,13 +764,13 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
       id,tenant_id,outlet_id,shift_id,command_id,operator_id,tenant_name_snapshot,outlet_name_snapshot,
       operator_name_snapshot,time_zone_snapshot,business_date,currency,shift_version,opened_at,closed_at,
       opening_float_minor,cash_sales_minor,customer_collections_minor,cash_refunds_minor,
-      cash_paid_in_minor,cash_payout_minor,expected_cash_minor,counted_cash_minor,variance_minor,mpesa_sales_minor)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+      cash_paid_in_minor,cash_payout_minor,expected_cash_minor,counted_cash_minor,variance_minor,mpesa_sales_minor,stock_exception_sales_count)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
   [reportId, session.tenantId, session.outletId, shiftId, envelope.commandId, session.userId,
     snapshot.tenant_name, snapshot.outlet_name, snapshot.operator_name, snapshot.time_zone, snapshot.business_date,
     snapshot.currency, closedShift.rows[0].version, row.opened_at, closedShift.rows[0].closed_at,
     openingFloat.toString(), cashSales.toString(), customerCollections.toString(), cashRefunds.toString(),
-    cashPaidIn.toString(), cashPayout.toString(), expectedCashBig.toString(), counted, varianceBig.toString(), mpesaSales.toString()]);
+    cashPaidIn.toString(), cashPayout.toString(), expectedCashBig.toString(), counted, varianceBig.toString(), mpesaSales.toString(), Number(stockExceptionCount.rows[0].count)]);
   if (variance) {
     const tenant = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
     await journal(client, session, envelope.commandId, 'SHIFT_CASH_VARIANCE', tenant.rows[0].currency, variance > 0 ? [
@@ -750,14 +779,14 @@ async function closeShift(client: PoolClient, session: ApiSession, envelope: Com
       { account: 'CASH_OVER_SHORT', debit: Math.abs(variance), credit: 0 }, { account: 'CASH_TILL', debit: 0, credit: Math.abs(variance) },
     ]);
   }
-  const result = { shiftId, closeReportId: reportId, businessDate: snapshot.business_date, version: Number(closedShift.rows[0].version), expectedCashMinor: expectedCashBig.toString(), countedCashMinor: String(counted), varianceMinor: varianceBig.toString(), mpesaSalesMinor: mpesaSales.toString() };
+  const result = { shiftId, closeReportId: reportId, businessDate: snapshot.business_date, version: Number(closedShift.rows[0].version), expectedCashMinor: expectedCashBig.toString(), countedCashMinor: String(counted), varianceMinor: varianceBig.toString(), mpesaSalesMinor: mpesaSales.toString(), stockExceptionSalesCount: Number(stockExceptionCount.rows[0].count) };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;
 }
 
 async function settleSale(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  saleRecord(envelope.payload, ['shiftId', 'lines', 'tenders', 'customerId'], 'Sale');
+  saleRecord(envelope.payload, ['shiftId', 'lines', 'tenders', 'customerId', 'stockException'], 'Sale');
   const lines = envelope.payload.lines;
   const tenders = envelope.payload.tenders;
   const customerIdValue = envelope.payload.customerId;
@@ -799,6 +828,15 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   }).sort((a, b) => a.productId.localeCompare(b.productId));
   const uniqueProductIds = new Set(normalized.map(line => line.productId));
   if (uniqueProductIds.size !== normalized.length) throw new DomainError('VALIDATION_FAILED', 'Combine duplicate item lines before submitting the sale.');
+  const stockAcknowledgement = stockExceptionAcknowledgement(envelope.payload.stockException);
+  if (stockAcknowledgement?.lines.some(line => !uniqueProductIds.has(line.productId))) throw new DomainError('VALIDATION_FAILED', 'A stock exception confirmation references an item outside this sale.');
+
+  const outletLock = await client.query('SELECT id FROM core.outlets WHERE tenant_id=$1 AND id=$2 AND active FOR SHARE', [session.tenantId, session.outletId]);
+  if (!outletLock.rowCount) throw new DomainError('NOT_FOUND', 'The current outlet is no longer available.', 404);
+  const policyResult = await client.query<{ enabled: boolean; allow_zero_reference_cost: boolean }>(
+    'SELECT enabled,allow_zero_reference_cost FROM inventory.outlet_stock_sale_policies WHERE tenant_id=$1 AND outlet_id=$2 FOR SHARE',
+    [session.tenantId, session.outletId]);
+  const stockPolicy = policyResult.rowCount ? policyResult.rows[0] : { enabled: false, allow_zero_reference_cost: true };
 
   const shiftId = envelope.payload.shiftId;
   if (typeof shiftId !== 'string') throw new DomainError('VALIDATION_FAILED', 'An open shift is required.');
@@ -834,21 +872,53 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
       throw new DomainError('VERSION_CONFLICT', `${product.name} changed after this basket was reviewed. Refresh the catalog and review the new price and tax before payment.`, 409, { productId: product.id, currentVersion: productVersion });
     }
     if (product.currency !== currency) throw new DomainError('VALIDATION_FAILED', 'Item price currency differs from tenant currency.');
-    if (databaseQuantityMicros(product.quantity) < line.quantity) throw new DomainError('INSUFFICIENT_STOCK', `${product.name} does not have enough available stock.`, 409, { productId: product.id });
     productRows.push(product);
   }
   const computed = normalized.map((line, index) => {
     const product = productRows[index];
+    const availableQuantity = databaseQuantityMicros(product.quantity);
+    const recordedQuantity = availableQuantity < line.quantity ? availableQuantity : line.quantity;
+    const shortfallQuantity = line.quantity - recordedQuantity;
     const quantityTextValue = quantityText(line.quantity);
     const originalSubtotal = amountForQuantity(Number(product.selling_price_minor), line.quantity);
     if (line.discountMinor > originalSubtotal) throw new DomainError('DISCOUNT_EXCEEDS_LINE', `The discount for ${product.name} exceeds its item value.`);
     const subtotal = originalSubtotal - line.discountMinor;
     const tax = taxFor(subtotal, product.tax_rate_bps);
-    const cogsBig = valueForQuantity(BigInt(product.inventory_value_minor), databaseQuantityMicros(product.quantity), line.quantity);
+    const recordedCogsBig = recordedQuantity > 0n ? valueForQuantity(BigInt(product.inventory_value_minor), availableQuantity, recordedQuantity) : 0n;
+    const provisionalCogsBig = shortfallQuantity > 0n
+      ? (BigInt(product.cost_price_minor) * shortfallQuantity + quantityScale / 2n) / quantityScale : 0n;
+    const cogsBig = recordedCogsBig + provisionalCogsBig;
     if (cogsBig > BigInt(Number.MAX_SAFE_INTEGER)) throw new DomainError('VALIDATION_FAILED', 'Sale COGS exceeds the supported safe money range.');
     const cogs = Number(cogsBig);
-    return { ...line, product, quantityText: quantityTextValue, originalSubtotal, subtotal, tax, cogs };
+    return { ...line, product, quantityText: quantityTextValue, originalSubtotal, subtotal, tax, cogs,
+      recordedQuantity, recordedQuantityText: quantityText(recordedQuantity), shortfallQuantity, shortfallQuantityText: quantityText(shortfallQuantity),
+      recordedCogs: Number(recordedCogsBig), provisionalCogs: Number(provisionalCogsBig), orderLineId: randomUUID() };
   });
+  const shortfallLines = computed.filter(line => line.shortfallQuantity > 0n);
+  const acknowledgementByProduct = new Map((stockAcknowledgement?.lines ?? []).map(line => [line.productId, line]));
+  if (shortfallLines.length) {
+    if (!stockPolicy.enabled) {
+      const line = shortfallLines[0];
+      throw new DomainError('INSUFFICIENT_STOCK', `${line.product.name} does not have enough available stock.`, 409, { productId: line.product.id });
+    }
+    if (!stockAcknowledgement || stockAcknowledgement.physicallyConfirmed !== true) {
+      throw new DomainError('PHYSICAL_CONFIRMATION_REQUIRED', 'Confirm that the goods are physically available before completing this sale.', 409,
+        { productIds: shortfallLines.map(line => line.product.id) });
+    }
+    if (acknowledgementByProduct.size !== shortfallLines.length || shortfallLines.some(line => !acknowledgementByProduct.has(line.product.id))) {
+      throw new DomainError('VALIDATION_FAILED', 'Provide one reason and confirmed quantity for every item with insufficient recorded stock.');
+    }
+    for (const line of shortfallLines) {
+      const acknowledgement = acknowledgementByProduct.get(line.product.id)!;
+      if (acknowledgement.maxConfirmedShortfall < line.shortfallQuantity) {
+        throw new DomainError('SHORTFALL_QUANTITY_CHANGED', `${line.product.name} has a larger stock shortfall than you confirmed. Refresh stock and review this item again.`, 409,
+          { productId: line.product.id, currentShortfall: line.shortfallQuantityText, confirmedShortfall: quantityText(acknowledgement.maxConfirmedShortfall) });
+      }
+      if (!stockPolicy.allow_zero_reference_cost && BigInt(line.product.cost_price_minor) === 0n) {
+        throw new DomainError('REFERENCE_COST_REQUIRED', `${line.product.name} needs a reference cost before a stock exception sale can be completed.`, 409, { productId: line.product.id });
+      }
+    }
+  }
   const subtotal = computed.reduce((sum, line) => sum + line.subtotal, 0);
   const tax = computed.reduce((sum, line) => sum + line.tax, 0);
   const cogs = computed.reduce((sum, line) => sum + line.cogs, 0);
@@ -886,17 +956,28 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   );
   for (const line of computed) {
     await client.query(
-      `INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,cogs_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor,discount_minor,discount_reason)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10,$11,$12,$13,$14,$15,$16)`,
-      [randomUUID(), session.tenantId, session.outletId, orderId, line.product.id, line.product.sku, line.product.name, line.quantityText, Number(line.product.selling_price_minor), Number(line.product.cost_price_minor), line.cogs, line.product.tax_rate_bps, line.subtotal, line.tax, line.discountMinor, line.discountReason],
+      `INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,cogs_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor,discount_minor,discount_reason,unrecorded_quantity,provisional_cogs_minor)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10,$11,$12,$13,$14,$15,$16,$17::numeric,$18)`,
+      [line.orderLineId, session.tenantId, session.outletId, orderId, line.product.id, line.product.sku, line.product.name, line.quantityText, Number(line.product.selling_price_minor), Number(line.product.cost_price_minor), line.cogs, line.product.tax_rate_bps, line.subtotal, line.tax, line.discountMinor, line.discountReason, line.shortfallQuantityText, line.provisionalCogs],
     );
-    const nextInventoryValue = BigInt(line.product.inventory_value_minor) - BigInt(line.cogs);
-    await client.query('UPDATE inventory.balances SET quantity=quantity-$4::numeric,inventory_value_minor=$5,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.product.id, line.quantityText, checkedBigintMinor(nextInventoryValue, `Inventory value for ${line.product.sku}`)]);
-    await client.query(
-      `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id)
-       VALUES($1,$2,$3,$4,$5,'SALE',-$6::numeric,$7,$8,$9)`,
-      [randomUUID(), session.tenantId, session.outletId, line.product.id, envelope.commandId, line.quantityText, roundedUnitCost(BigInt(line.cogs), line.quantity), line.cogs, orderId],
-    );
+    const nextInventoryValue = BigInt(line.product.inventory_value_minor) - BigInt(line.recordedCogs);
+    await client.query('UPDATE inventory.balances SET quantity=quantity-$4::numeric,inventory_value_minor=$5,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.product.id, line.recordedQuantityText, checkedBigintMinor(nextInventoryValue, `Inventory value for ${line.product.sku}`)]);
+    if (line.recordedQuantity > 0n) {
+      await client.query(
+        `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id)
+         VALUES($1,$2,$3,$4,$5,'SALE',-$6::numeric,$7,$8,$9)`,
+        [randomUUID(), session.tenantId, session.outletId, line.product.id, envelope.commandId, line.recordedQuantityText, roundedUnitCost(BigInt(line.recordedCogs), line.recordedQuantity), line.recordedCogs, orderId],
+      );
+    }
+    if (line.shortfallQuantity > 0n) {
+      const acknowledgement = acknowledgementByProduct.get(line.product.id);
+      if (!acknowledgement) throw new DomainError('INTERNAL_ERROR', 'The validated stock exception confirmation was not available.', 500);
+      await client.query(`INSERT INTO inventory.sale_shortfalls(id,tenant_id,outlet_id,order_id,order_line_id,product_id,command_id,operator_id,
+          quantity,recorded_quantity_before,requested_quantity,recorded_cogs_minor,provisional_cogs_minor,reason_code,reason_note,operator_name_snapshot)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11::numeric,$12,$13,$14,$15,$16)`,
+      [randomUUID(), session.tenantId, session.outletId, orderId, line.orderLineId, line.product.id, envelope.commandId, session.userId,
+        line.shortfallQuantityText, line.product.quantity, line.quantityText, line.recordedCogs, line.provisionalCogs, acknowledgement.reasonCode, acknowledgement.reasonNote, session.fullName]);
+    }
   }
   let amountRemaining = total;
   for (const payment of payments) {
@@ -937,9 +1018,12 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   await journal(client, session, envelope.commandId, 'SALE', currency, salesLines);
   if (cogs > 0) await journal(client, session, envelope.commandId, 'SALE_COGS', currency, [
     { account: 'COST_OF_GOODS_SOLD', debit: cogs, credit: 0 },
-    { account: 'INVENTORY', debit: 0, credit: cogs },
+    { account: 'INVENTORY', debit: 0, credit: computed.reduce((sum, line) => sum + line.recordedCogs, 0) },
+    { account: 'UNRECORDED_STOCK_CLEARING', debit: 0, credit: computed.reduce((sum, line) => sum + line.provisionalCogs, 0) },
   ]);
-  const result = { saleId: orderId, receiptId: orderId, receiptNumber, currency, originalSubtotalMinor, discountMinor, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, paymentMethod: customerId ? 'customer_credit' : manualMpesa ? 'manual_mpesa' : 'cash', tenderedMinor: tenderTotal, changeMinor: customerId ? 0 : tenderTotal - total, ...(customerId ? { customerId, customerBalanceMinor: customer!.nextBalanceMinor.toString() } : {}), shiftVersion: nextVersion, status: 'CONFIRMED' };
+  const stockExceptions = shortfallLines.map(line => ({ productId: line.product.id, name: line.product.name, quantity: line.shortfallQuantityText,
+    reasonCode: acknowledgementByProduct.get(line.product.id)!.reasonCode }));
+  const result = { saleId: orderId, receiptId: orderId, receiptNumber, currency, originalSubtotalMinor, discountMinor, subtotalMinor: subtotal, taxMinor: tax, totalMinor: total, paymentMethod: customerId ? 'customer_credit' : manualMpesa ? 'manual_mpesa' : 'cash', tenderedMinor: tenderTotal, changeMinor: customerId ? 0 : tenderTotal - total, ...(customerId ? { customerId, customerBalanceMinor: customer!.nextBalanceMinor.toString() } : {}), ...(stockExceptions.length ? { stockExceptions, stockExceptionCount: stockExceptions.length } : {}), shiftVersion: nextVersion, status: 'CONFIRMED' };
   await audit(client, session, envelope.commandId, envelope.type, result);
   await outbox(client, session, envelope.commandId, envelope.type, result);
   return result;
@@ -972,9 +1056,10 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
   if(order.rows[0].currency!==tenantCurrency.rows[0].currency)throw new DomainError('VALIDATION_FAILED','Sale currency differs from the active tenant currency.');
   const refundId=randomUUID();let subtotal=0,tax=0,cogs=0,restockedCogs=0,total=0,discount=0;const normalized=[] as Array<{orderLineId:string;productId:string;quantity:bigint;restock:boolean;subtotal:number;tax:number;cogs:number;unitCost:number;discount:number}>;
    for(const requestedLine of requested){
-    const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;cogs_minor:string;sku_snapshot:string;discount_minor:string}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,cogs_minor,sku_snapshot,discount_minor FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
+    const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;cogs_minor:string;sku_snapshot:string;discount_minor:string;unrecorded_quantity:string}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,cogs_minor,sku_snapshot,discount_minor,unrecorded_quantity::text unrecorded_quantity FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
     if(!lineResult.rowCount)throw new DomainError('NOT_FOUND','A selected item does not belong to this sale.',404);
     const line=lineResult.rows[0];const originalQty=databaseQuantityMicros(line.quantity);
+    if(requestedLine.restock&&databaseQuantityMicros(line.unrecorded_quantity)>0n)throw new DomainError('SHORTFALL_RESTOCK_REQUIRES_REVIEW','This item was sold while its stock records needed review. A manager must verify the returned stock before it can be added back to inventory.',409);
     const prior=await client.query<{quantity:string;subtotal_minor:string;tax_minor:string;cogs_minor:string;discount_minor:string}>('SELECT COALESCE(SUM(quantity),0)::text quantity,COALESCE(SUM(subtotal_minor),0)::text subtotal_minor,COALESCE(SUM(tax_minor),0)::text tax_minor,COALESCE(SUM(cogs_minor),0)::text cogs_minor,COALESCE(SUM(discount_minor),0)::text discount_minor FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_line_id=$3',[session.tenantId,session.outletId,requestedLine.orderLineId]);
     const p=prior.rows[0];const priorQty=databaseQuantityMicros(p.quantity);if(priorQty+requestedLine.quantity>originalQty)throw new DomainError('ALREADY_REFUNDED','Requested quantity exceeds the unrefunded amount.',409,{orderLineId:requestedLine.orderLineId,remainingQuantity:quantityText(originalQty-priorQty)});
     const lineSubtotal=refundPortionMinor(Number(line.line_subtotal_minor),Number(p.subtotal_minor),priorQty,requestedLine.quantity,originalQty);

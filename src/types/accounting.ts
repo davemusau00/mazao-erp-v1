@@ -5,7 +5,7 @@ export type NoncashPaymentAccount = 'BANK_CONTROL' | 'MOBILE_MONEY_CONTROL';
 export interface AccountingCheck { ledgerMinor: string; subledgerMinor: string; differenceMinor: string; balanced: boolean }
 export interface AccountingControls {
   generatedAt: string; businessDate: string; currency: string; timeZone: string;
-  controls: { receivables: AccountingCheck; inventory: AccountingCheck; payables: AccountingCheck };
+  controls: { receivables: AccountingCheck; inventory: AccountingCheck; payables: AccountingCheck; stockExceptionClearing: AccountingCheck };
   incomingMpesa: { recordedMinor: string; matchedMinor: string; unmatchedMinor: string; recordedCount: string; matchedCount: string; unmatchedCount: string; unmatchedStatementMinor: string; unmatchedStatementCount: string };
   coverage: { status: 'PARTIAL'; exclusions: string[]; negativeNoncashAccounts: Array<{ accountCode: NoncashPaymentAccount; balanceMinor: string }> };
   categories: Array<{ code: ExpenseCategory; label: string }>;

@@ -4,7 +4,7 @@ import { formatDecimalQuantity, formatMinorMoneyText } from './money.js';
 export interface ReceiptPresentation {
   receiptId: string; tenantName: string; outletName: string; currency: string; createdAt: string; timeZone: string; operatorName: string;
   receiptProfile?: Partial<{ legalName: string; registrationNumber: string; taxRegistrationNumber: string; address: string; phone: string; email: string; website: string; receiptHeader: string; receiptFooter: string; taxLabel: string }>;
-  lines: Array<{ name: string; quantity: string; unitPriceMinor: string; subtotalMinor: string; originalSubtotalMinor?: string; discountMinor?: string; discountReason?: string | null }>;
+  lines: Array<{ name: string; quantity: string; unrecordedQuantity?:string; unitPriceMinor: string; subtotalMinor: string; originalSubtotalMinor?: string; discountMinor?: string; discountReason?: string | null }>;
   payments: Array<{ method: string; amountMinor: string; currency: string; reference?: string | null }>;
   originalSubtotalMinor?: string; discountMinor?: string; subtotalMinor: string; taxMinor: string; totalMinor: string; amountPaidMinor: string;
   customerAccountCharge: { customerName: string; amountDueMinor: string } | null; cashTenderedMinor: string | null; changeMinor: string | null;
@@ -40,6 +40,7 @@ export function textReceipt(receipt: ReceiptPresentation) {
       `${line.name} | ${displayQuantity(line.quantity)} x ` +
       `${money(line.unitPriceMinor, receipt.currency)} | ` +
       `${money(line.subtotalMinor, receipt.currency)}`,
+      ...(line.unrecordedQuantity&&line.unrecordedQuantity!=='0'?[`  Recorded stock short by ${displayQuantity(line.unrecordedQuantity)}; physical availability was confirmed.`]:[]),
       ...(BigInt(line.discountMinor ?? '0') > 0n ? [`  Original value: ${money(line.originalSubtotalMinor ?? (BigInt(line.subtotalMinor) + BigInt(line.discountMinor ?? '0')).toString(), receipt.currency)}`, `  Item discount: ${money(line.discountMinor!, receipt.currency)}${line.discountReason ? ` (${line.discountReason})` : ''}`] : []),
     ]),
     '',

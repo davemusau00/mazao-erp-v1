@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays } from 'lucide-react';
+import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays, PackageSearch } from 'lucide-react';
 import type { WorkspaceId } from '../../types/ui';
 import { featureState, workspaceFeatures } from '../../app/featureRegistry';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
@@ -10,7 +10,7 @@ import { MyAccountDialog } from '../auth/MyAccountDialog';
 import { actionStatusLabel, operationLabel, roleLabel } from '../../utils/presentation';
 
 export type ActiveTab=WorkspaceId;
-const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
+const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,'stock-exceptions':<PackageSearch/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
 const workspaceItems=workspaceFeatures.map(feature=>({...feature,icon:workspaceIcons[feature.id]}));
 const groups=[{id:'work',label:'WORK'},{id:'money',label:'MONEY'},{id:'manage',label:'MANAGE'},{id:'support',label:'SUPPORT'}] as const;
 
@@ -88,7 +88,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     finally{setCheckingCommand('');}
   };
   const openCommandWorkspace=(type:string)=>{
-    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
+    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
     setRecoveryOpen(false);selectWorkspace(destination);
   };
   return <div className="app-shell">
