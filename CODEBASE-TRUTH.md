@@ -5,6 +5,8 @@
 **Audited main:** `6119ee2d2043afca38b764b5a0750dd9cf75908c` — Confirmed stock exception sales and reconciliation (#23)  
 **Purpose:** finish the documented Mazao v1 through prioritized, reviewable vertical slices. This is a development plan; no application source, GitHub issue/PR state, production data or deployment was changed.
 
+**Implementation tracking:** The audit above describes the planning baseline. Subsequent fixes, filled gaps, observed validation and remaining delivery gates are recorded in [the execution evidence register](docs/48-CODEBASE-TRUTH-EXECUTION.md). Every implementation must update that register and its focused evidence document; the backlog below is not automatically complete when code is added.
+
 ## 1. Decision
 
 Mazao has a substantial working online foundation. The fastest route to completion is to close operational dead ends, finish catalog and stock semantics, establish outlet and approval boundaries, then complete payment corrections, purchasing, restaurant and hotel workflows. Complete finance from those source workflows before implementing bounded offline cash and final acceptance.

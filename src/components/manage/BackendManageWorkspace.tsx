@@ -1,10 +1,11 @@
 import { permissionLabel, roleLabel, setupCheckLabel, setupCheckDetail } from '../../utils/presentation';
 import React, { useEffect, useRef, useState } from 'react';
-import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard, PackageSearch } from 'lucide-react';
+import { Building2, CheckCircle2, CircleAlert, ClipboardCheck, ContactRound, FileUp, MonitorCog, ReceiptText, Settings2, Shield, Wrench, Truck, WifiOff, CreditCard, PackageSearch, Banknote, CalendarDays } from 'lucide-react';
 import { apiClient, ApiClientError, type BackendBusinessConfigurationInput, type BackendCommand, type BackendConfiguration, type BackendOutletConfigurationInput, type BackendStockSalePolicy } from '../../services/apiClient';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { canDiscover, managementFeatureState, managementFeatures, type ManagementFeatureId } from '../../app/featureRegistry';
 import type { WorkspaceId } from '../../types/ui';
+import type { AccountingArea } from '../../types/accounting';
 import { StaffAccessWorkspace } from './StaffAccessWorkspace';
 import { safeRasterImageSource } from '../../utils/html';
 import './BackendManageWorkspace.css';
@@ -12,7 +13,7 @@ import './BackendManageWorkspace.css';
 type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices'|'stockExceptions';
 type ImageDraft={mode:'keep'|'remove'|'replace';draftId?:string;dataUrl?:string};
 const capabilityLabels:Record<string,string>={commerce:'Sales and customer accounts',inventory:'Inventory',retail:'Retail workspace',hospitality:'Rooms and guest stays'};
-const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>,stockExceptions:<PackageSearch/>};
+const managementIcons:Record<ManagementFeatureId,React.ReactNode>={business:<Building2/>,staff:<ContactRound/>,permissions:<Shield/>,devices:<MonitorCog/>,imports:<FileUp/>,assets:<Wrench/>,suppliers:<Truck/>,expenses:<Banknote/>,periods:<CalendarDays/>,offline:<WifiOff/>,payments:<CreditCard/>,capabilities:<Settings2/>,readiness:<ClipboardCheck/>,outlet:<ReceiptText/>,stockExceptions:<PackageSearch/>};
 
 function businessInput(configuration:BackendConfiguration):BackendBusinessConfigurationInput {
   const {id:_,version:__,...fields}=configuration.business;
@@ -23,7 +24,7 @@ function outletInput(configuration:BackendConfiguration):BackendOutletConfigurat
   return fields;
 }
 
-export function BackendManageWorkspace({initialSection='overview',onNavigate,onOpenImport}:{initialSection?:Section;onNavigate:(workspace:WorkspaceId)=>boolean|void;onOpenImport:()=>void}) {
+export function BackendManageWorkspace({initialSection='overview',onNavigate,onOpenImport,onOpenAccounting}:{initialSection?:Section;onNavigate:(workspace:WorkspaceId)=>boolean|void;onOpenImport:()=>void;onOpenAccounting:(area:AccountingArea)=>void}) {
   const session=apiClient.getSession()!;
   const canEdit=session.user.permissions.includes('config.manage');
   const canConfigureStockExceptions=session.user.permissions.includes('inventory.shortfall.configure');
@@ -172,6 +173,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   const openFeature=(id:ManagementFeatureId)=>{
     const feature=managementFeatures.find(item=>item.id===id);
     if(!feature||['insufficient_permission','not_enabled','not_connected'].includes(managementFeatureState(session,feature)))return;
+    if(feature.accountingArea){onOpenAccounting(feature.accountingArea);return;}
     if(feature.route){const accepted=onNavigate(feature.route);if(feature.id==='imports'&&accepted!==false)onOpenImport();return;}
     if(feature.section)changeSection(feature.section);
   };
@@ -214,7 +216,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
         const disabled=state==='insufficient_permission'||state==='not_enabled'||state==='not_connected'||(!feature.route&&!feature.section);
         const status=state==='insufficient_permission'?'Requires access':state==='not_enabled'?'Not enabled':feature.status;
         const statusClass=state==='not_connected'||state==='not_enabled'||state==='insufficient_permission'?'not-connected':'manage-feature-status';
-        return <button key={feature.id} type="button" className={`manage-card manage-card-button ${disabled?'manage-card-disabled':''}`} disabled={disabled} aria-disabled={disabled} title={disabled?feature.explanation:undefined} onClick={()=>openFeature(feature.id)}><div className="manage-card-icon">{managementIcons[feature.id]}</div><div><h2>{feature.title}</h2><p>{feature.description}</p></div><span className={statusClass}>{status}</span><span className="sr-only">{feature.explanation}</span></button>;
+        return <button key={feature.id} type="button" className={`manage-card manage-card-button ${disabled?'manage-card-disabled':''}`} disabled={disabled} aria-disabled={disabled} title={disabled?feature.explanation:undefined} onClick={()=>openFeature(feature.id)}><div className="manage-card-icon">{managementIcons[feature.id]}</div><div><h2>{feature.title}</h2><p>{feature.description}</p>{feature.accountingArea&&<p className="mt-2 text-xs leading-5 text-zinc-400">{feature.explanation}</p>}</div><span className={statusClass}>{status}</span>{!feature.accountingArea&&<span className="sr-only">{feature.explanation}</span>}</button>;
       })}</div>
     </>}
     {section!=='overview'&&<nav aria-label="Settings sections" className="flex flex-wrap gap-2">

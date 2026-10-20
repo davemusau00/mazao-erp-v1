@@ -1,0 +1,142 @@
+import { DomainError, type ApiPermission, type CommandEnvelope } from './contracts.js';
+import { assertContract, type ContractSchema, uuidSchema, versionSchema, versionsSchema } from './contractValidation.js';
+import { COMMAND_ENVELOPE_SCHEMA } from './publicInputs.js';
+
+export interface CommandContract {
+  schemaVersion: 1;
+  transport: 'commands' | 'credential';
+  permissions: readonly ApiPermission[];
+  capabilities: readonly string[];
+  offlineMode: 'ONLINE_ONLY';
+  validation: 'SCHEMA_AND_DOMAIN' | 'DOMAIN_PAYLOAD';
+  inputSchema: ContractSchema;
+  outputSchema: ContractSchema;
+  domainHandler: string;
+  effects: readonly string[];
+  approval: 'EXISTING_DOMAIN_RULES';
+  isolation: 'SERIALIZABLE_WITH_DOMAIN_LOCKS';
+  idempotency: 'TENANT_COMMAND_ID_WITH_ACTOR_OUTLET_RECOVERY';
+  audit: 'DOMAIN_AUDIT_AND_OUTBOX';
+}
+
+const objectResult: ContractSchema = { type: 'object' };
+const minorSchema: ContractSchema = { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER };
+// Match staff.text(): 1..500 characters after trimming, with no controls in
+// the original value. Do not rewrite the value retained in the command hash.
+const reasonSchema: ContractSchema = {
+  type: 'string', minLength: 1,
+  pattern: '^[^\\S\\u0000-\\u001f\\u007f]*[^\\s\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]{0,498}[^\\s\\u0000-\\u001f\\u007f])?[^\\S\\u0000-\\u001f\\u007f]*$',
+};
+const strictObject = (properties: Record<string, ContractSchema>, required = Object.keys(properties)): ContractSchema => ({ type: 'object', properties, required, additionalProperties: false });
+
+// Each migrated schema is used at execution. Remaining entries deliberately
+// describe only the object boundary; their referenced domain validator remains
+// authoritative until that command receives a reviewed schema migration.
+const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  'shift.open': {
+    payload: strictObject({ openingFloatMinor: minorSchema }),
+    output: strictObject({ shiftId: uuidSchema, version: versionSchema, openingFloatMinor: minorSchema }),
+  },
+  'hotel.room.mark_ready': {
+    payload: strictObject({ roomId: uuidSchema }),
+    output: strictObject({ roomId: uuidSchema, status: { type: 'string', const: 'READY' }, version: versionSchema }),
+  },
+  'auth.session.revoke': {
+    payload: strictObject({ sessionId: uuidSchema, reason: reasonSchema }),
+    output: strictObject({ sessionId: uuidSchema, version: versionSchema, reauthenticate: { type: 'boolean' } }),
+  },
+  'staff.sessions.revoke': {
+    payload: strictObject({ userId: uuidSchema, sessionId: uuidSchema, reason: reasonSchema }),
+    output: strictObject({ sessionId: uuidSchema, version: versionSchema, reauthenticate: { type: 'boolean' } }),
+  },
+};
+
+const credentialProperties: Record<string, ContractSchema> = {
+  protocolVersion: { type: 'integer', const: 1 }, commandId: uuidSchema, expectedVersions: versionsSchema,
+  newPassword: { type: 'string', minLength: 12, maxLength: 256 },
+};
+
+function contract(name: string, permissions: readonly ApiPermission[], capabilities: readonly string[], domainHandler: string, effects: readonly string[], transport: CommandContract['transport'] = 'commands'): CommandContract {
+  const schema = migrated[name];
+  return {
+    schemaVersion: 1, transport, permissions, capabilities, offlineMode: 'ONLINE_ONLY',
+    validation: schema ? 'SCHEMA_AND_DOMAIN' : 'DOMAIN_PAYLOAD',
+    inputSchema: transport === 'credential' ? strictObject({
+      ...credentialProperties,
+      ...(name === 'auth.password.change' ? { currentPassword: { type: 'string' as const, maxLength: 256 } } : {}),
+    }) : {
+      ...COMMAND_ENVELOPE_SCHEMA,
+      properties: { ...COMMAND_ENVELOPE_SCHEMA.properties, type: { type: 'string', const: name }, payload: schema?.payload ?? { type: 'object' } },
+    },
+    outputSchema: schema?.output ?? objectResult,
+    domainHandler, effects, approval: 'EXISTING_DOMAIN_RULES',
+    isolation: 'SERIALIZABLE_WITH_DOMAIN_LOCKS', idempotency: 'TENANT_COMMAND_ID_WITH_ACTOR_OUTLET_RECOVERY', audit: 'DOMAIN_AUDIT_AND_OUTBOX',
+  };
+}
+
+/** Version 1 catalogue: one entry for every executable/recoverable command.
+ * Payload-dependent permissions (discount, credit, exception approval) remain
+ * in the domain handler and cannot be granted by this baseline. */
+export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
+  'catalog.product.create': contract('catalog.product.create', ['catalog.manage'], ['inventory'], 'commands.ts#createProduct', ['catalogue']),
+  'catalog.import.validate': contract('catalog.import.validate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
+  'catalog.import.revalidate': contract('catalog.import.revalidate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
+  'catalog.import.apply': contract('catalog.import.apply', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['catalogue', 'stock', 'journal']),
+  'inventory.receive': contract('inventory.receive', ['inventory.receive'], ['inventory'], 'commands.ts#receiveInventory', ['stock', 'journal']),
+  'inventory.count.open': contract('inventory.count.open', ['inventory.count'], ['inventory'], 'commands.ts#openStockCount', ['stock_count']),
+  'inventory.count.save': contract('inventory.count.save', ['inventory.count'], ['inventory'], 'commands.ts#saveStockCount', ['stock_count']),
+  'inventory.count.post': contract('inventory.count.post', ['inventory.count.approve'], ['inventory'], 'commands.ts#postStockCount', ['stock_count', 'stock', 'journal']),
+  'inventory.count.cancel': contract('inventory.count.cancel', ['inventory.count.approve'], ['inventory'], 'commands.ts#cancelStockCount', ['stock_count']),
+  'inventory.sale_shortfall.resolve': contract('inventory.sale_shortfall.resolve', ['inventory.shortfall.resolve'], ['inventory'], 'stockShortfalls.ts#executeStockExceptionCommand', ['stock_exception', 'stock', 'journal']),
+  'shift.open': contract('shift.open', ['shift.open'], ['commerce'], 'commands.ts#openShift', ['shift', 'journal']),
+  'shift.cash.movement': contract('shift.cash.movement', ['shift.payout'], ['commerce'], 'commands.ts#recordShiftCashMovement', ['shift', 'journal']),
+  'shift.close': contract('shift.close', ['shift.close'], ['commerce'], 'commands.ts#closeShift', ['shift', 'close_report', 'journal']),
+  'sales.order.settle': contract('sales.order.settle', ['commerce.sell'], ['commerce', 'inventory'], 'commands.ts#settleSale', ['sale', 'receipt', 'tender', 'customer_account', 'stock', 'journal']),
+  'sales.order.refund': contract('sales.order.refund', ['commerce.refund'], ['commerce', 'inventory'], 'commands.ts#refundSale', ['refund', 'tender', 'stock', 'journal']),
+  'finance.expense.record': contract('finance.expense.record', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['expense', 'journal']),
+  'finance.account.label': contract('finance.account.label', ['finance.manage'], [], 'accountCatalog.ts#executeAccountCatalogCommand', ['account_label']),
+  'finance.expense.reverse': contract('finance.expense.reverse', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['expense', 'journal']),
+  'finance.expense.reclassify': contract('finance.expense.reclassify', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['expense', 'journal']),
+  'finance.supplier.create': contract('finance.supplier.create', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['supplier']),
+  'finance.supplier.invoice': contract('finance.supplier.invoice', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['supplier_invoice', 'journal']),
+  'finance.supplier.invoice.reverse': contract('finance.supplier.invoice.reverse', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['supplier_invoice', 'journal']),
+  'finance.supplier.payment': contract('finance.supplier.payment', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['supplier_payment', 'journal']),
+  'finance.mpesa.statement.record': contract('finance.mpesa.statement.record', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['mpesa_statement']),
+  'finance.mpesa.statement.match': contract('finance.mpesa.statement.match', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['mpesa_statement', 'settlement', 'journal']),
+  'finance.mpesa.statement.correct': contract('finance.mpesa.statement.correct', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['mpesa_statement', 'settlement', 'journal']),
+  'finance.period.create': contract('finance.period.create', ['finance.close'], [], 'accounting.ts#executeAccountingCommand', ['financial_period']),
+  'finance.period.transition': contract('finance.period.transition', ['finance.close'], [], 'accounting.ts#executeAccountingCommand', ['financial_period']),
+  'customers.account.create': contract('customers.account.create', ['customers.manage'], ['commerce'], 'commands.ts#createCustomerAccount', ['customer_account']),
+  'customers.account.update': contract('customers.account.update', ['customers.manage'], ['commerce'], 'commands.ts#updateCustomerAccount', ['customer_account']),
+  'customers.repayment': contract('customers.repayment', ['customers.settle'], ['commerce'], 'commands.ts#recordCustomerRepayment', ['customer_account', 'tender', 'shift', 'journal']),
+  'hotel.room.create': contract('hotel.room.create', ['hotel.manage'], ['hospitality'], 'commands.ts#createHotelRoom', ['room']),
+  'hotel.reservation.create': contract('hotel.reservation.create', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#createReservation', ['reservation', 'room']),
+  'hotel.reservation.cancel': contract('hotel.reservation.cancel', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#cancelReservation', ['reservation', 'room']),
+  'hotel.checkin': contract('hotel.checkin', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#checkInGuest', ['reservation', 'stay', 'room']),
+  'hotel.checkout': contract('hotel.checkout', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#checkOutGuest', ['stay', 'room', 'tender', 'shift', 'journal']),
+  'hotel.room.mark_ready': contract('hotel.room.mark_ready', ['hotel.housekeeping'], ['hospitality'], 'commands.ts#markRoomReady', ['room', 'housekeeping']),
+  'configuration.business.update': contract('configuration.business.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
+  'configuration.outlet.update': contract('configuration.outlet.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
+  'configuration.capabilities.update': contract('configuration.capabilities.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
+  'configuration.stock_exception_policy.update': contract('configuration.stock_exception_policy.update', ['inventory.shortfall.configure'], ['inventory'], 'stockShortfalls.ts#executeStockExceptionCommand', ['configuration', 'stock_exception_policy']),
+  'staff.member.create': contract('staff.member.create', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['identity', 'membership']),
+  'staff.member.update': contract('staff.member.update', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['membership', 'session_revocation']),
+  'staff.member.set_active': contract('staff.member.set_active', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['membership', 'session_revocation']),
+  'staff.sessions.revoke': contract('staff.sessions.revoke', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['session_revocation']),
+  'devices.assignment.create': contract('devices.assignment.create', ['devices.manage'], [], 'staff.ts#executeStaffCommand', ['workspace_assignment']),
+  'devices.assignment.update': contract('devices.assignment.update', ['devices.manage'], [], 'staff.ts#executeStaffCommand', ['workspace_assignment', 'session_revocation']),
+  'devices.assignment.revoke': contract('devices.assignment.revoke', ['devices.manage'], [], 'staff.ts#executeStaffCommand', ['workspace_assignment', 'session_revocation']),
+  'auth.session.revoke': contract('auth.session.revoke', [], [], 'staff.ts#executeStaffCommand', ['session_revocation']),
+  'staff.password.set': contract('staff.password.set', ['staff.manage'], [], 'credentials.ts#changeCredential', ['credential', 'session_revocation'], 'credential'),
+  'auth.password.change': contract('auth.password.change', [], [], 'credentials.ts#changeCredential', ['credential', 'session_revocation'], 'credential'),
+};
+
+export function validateCommandPayload(envelope: CommandEnvelope): void {
+  const entry = Object.hasOwn(COMMAND_CATALOGUE, envelope.type) ? COMMAND_CATALOGUE[envelope.type] : undefined;
+  // Unknown command types retain the controlled domain rejection and recovery
+  // checks. Dedicated credential operations never execute through this route.
+  if (!entry || entry.transport !== 'commands') return;
+  const schema = entry.inputSchema.properties?.payload;
+  if (!schema) throw new DomainError('INTERNAL_ERROR', 'Command contract is unavailable.', 500);
+  assertContract(envelope.payload, schema, 'Command payload');
+}

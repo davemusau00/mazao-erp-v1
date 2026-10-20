@@ -1,7 +1,8 @@
-import { inReadSnapshot, pool } from './db.js';
+import { inReadSnapshot } from './db.js';
 import type { ApiSession } from './contracts.js';
 import { DomainError } from './contracts.js';
 import { requireCustomerView } from './customerPolicy.js';
+import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 
 function customerId(value: unknown) {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
@@ -10,11 +11,20 @@ function customerId(value: unknown) {
   return value;
 }
 
-export async function listCustomerAccounts(session: ApiSession) {
+export async function listCustomerAccounts(session: ApiSession, query: HistoryQuery = {}) {
   requireCustomerView(session);
-  const result = await pool.query(`SELECT id,display_name,phone,email,credit_limit_minor::text,balance_minor::text,status,version,created_at,updated_at
-    FROM finance.customer_accounts WHERE tenant_id=$1 ORDER BY lower(display_name),id LIMIT 500`, [session.tenantId]);
-  return { customers: result.rows.map(row => ({
+  return inReadSnapshot(async client => {
+  const result = await readHistoryPage(client, session, 'customer-accounts', query,
+    `SELECT id,display_name,phone,email,credit_limit_minor::text,balance_minor::text,status,version,created_at,updated_at,
+      created_at sort_at,concat_ws(' ',id::text,display_name,phone,email) search_text
+    FROM finance.customer_accounts WHERE tenant_id=$1`, [session.tenantId], 100);
+  const totals = await client.query(`SELECT COALESCE(sum(balance_minor),0)::text total_balance_minor,
+    COALESCE(sum(credit_limit_minor),0)::text total_credit_limit_minor,count(*)::int account_count,
+    count(*) FILTER(WHERE balance_minor>0)::int debtors,count(*) FILTER(WHERE status='SUSPENDED')::int suspended
+    FROM finance.customer_accounts WHERE tenant_id=$1`, [session.tenantId]);
+  const total = totals.rows[0];
+  return { summary: { totalBalanceMinor: total.total_balance_minor,totalCreditLimitMinor: total.total_credit_limit_minor,
+    accountCount: total.account_count,debtors: total.debtors,suspended: total.suspended }, page: result.page, customers: result.rows.map(row => ({
     id: row.id,
     name: row.display_name,
     phone: row.phone,
@@ -26,6 +36,7 @@ export async function listCustomerAccounts(session: ApiSession) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   })) };
+  });
 }
 
 export async function getCustomerStatement(session: ApiSession, idValue: unknown) {

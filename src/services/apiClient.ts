@@ -1,3 +1,4 @@
+import {historyUrl,type HistoryOptions,type HistoryPage} from '../types/history';
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
@@ -18,10 +19,10 @@ export interface BackendSession {
 export interface BackendAssignmentChoice {deviceId:string;deviceLabel:string;tenantId:string;tenantName:string;outletId:string;outletName:string}
 export interface BackendAssignmentSelection {status:'ASSIGNMENT_REQUIRED';assignments:BackendAssignmentChoice[]}
 export interface BackendStaffMember {userId:string;displayName:string;email:string;role:string;active:boolean;version:number;credentialVersion:number;hasCredential:boolean;assignmentCount:number;activeSessionCount:number}
-export interface BackendStaffDirectory {staff:BackendStaffMember[];roles:Array<{role:string;label:string;permissions:string[];assignable:boolean}>;outlets:Array<{id:string;name:string;timeZone:string;active:boolean}>;authorizationModel:'COARSE_ROLE_MAP'}
+export interface BackendStaffDirectory {page?:HistoryPage;staff:BackendStaffMember[];roles:Array<{role:string;label:string;permissions:string[];assignable:boolean}>;outlets:Array<{id:string;name:string;timeZone:string;active:boolean}>;authorizationModel:'COARSE_ROLE_MAP'}
 export interface BackendWorkspaceAssignment {id:string;kind:'WORKSPACE_ASSIGNMENT';label:string;outletId:string;outletName:string;assignedUserId:string;assignedUserName:string;active:boolean;version:number;createdAt:string;revokedAt:string|null}
 export interface BackendOperatorSession {id:string;deviceId:string;deviceLabel:string;outletId:string;outletName:string;createdAt:string;expiresAt:string;revokedAt:string|null;version:number;current:boolean}
-export interface BackendOperatorSessions {userId:string;credentialVersion:number;sessions:BackendOperatorSession[]}
+export interface BackendOperatorSessions {page?:HistoryPage;userId:string;credentialVersion:number;sessions:BackendOperatorSession[]}
 export interface BackendCommandResult {commandId:string;status:string;value?:Record<string,unknown>;code?:string;message?:string;details?:unknown}
 export interface BackendBusinessConfiguration {
   id:string;name:string;currency:string;timeZone:string;version:number;
@@ -66,7 +67,7 @@ export interface ProductImportBatch extends ProductImportBatchSummary {
   source:{csv:string;mapping:ProductImportMapping};errors:ProductImportIssue[];warnings:ProductImportIssue[];rows:ProductImportRow[];
 }
 export interface BackendShiftCashMovement { id:string;movementType:'PAID_IN'|'PAYOUT';amountMinor:number;reason:string;reference:string|null;actorName:string;createdAt:string }
-export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;mpesaSalesMinor?:string|number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[] }
+export interface BackendShift { id:string;status:'OPEN';openingFloatMinor:number;cashSalesMinor:number;mpesaSalesMinor?:string|number;customerCollectionsMinor:number;cashRefundsMinor:number;cashPaidInMinor:number;cashPayoutMinor:number;expectedCashMinor:number;version:number;openedAt:string;cashMovements:BackendShiftCashMovement[];cashMovementPage?:HistoryPage }
 export interface BackendShiftCloseReport {id:string;shiftId:string;commandId:string;operatorId:string;operatorName:string;tenantName:string;outletName:string;timeZone:string;businessDate:string;currency:string;shiftVersion:number;openedAt:string;closedAt:string;openingFloatMinor:string;cashSalesMinor:string;mpesaSalesMinor?:string;customerCollectionsMinor:string;cashRefundsMinor:string;cashPaidInMinor:string;cashPayoutMinor:string;expectedCashMinor:string;countedCashMinor:string;varianceMinor:string;stockExceptionSalesCount?:number}
 export interface BackendStockSalePolicy {enabled:boolean;requirePhysicalConfirmation:true;requireReason:true;allowZeroReferenceCost:boolean;version:number;updatedBy:string|null;updatedByName:string|null;updatedAt:string|null}
 export interface BackendStockShortfall {
@@ -137,6 +138,12 @@ const READ_TIMEOUT_MS = 20_000;
 const READ_SLOW_WARNING_MS = 10_000;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function isTerminalCredentialOutcome(result:unknown,operation:SecretOperationRecovery):boolean{
+  if(!isTerminalOutcome(result,operation.commandId,operation.kind)||!isRecord(result))return false;
+  if(result.status!=='CONFIRMED')return typeof result.code==='string'&&result.code.trim().length>0&&result.code!=='IDEMPOTENCY_MISMATCH';
+  const value=result.value;
+  return isRecord(value)&&value.userId===operation.targetUserId&&Number.isSafeInteger(value.credentialVersion)&&Number(value.credentialVersion)>=1&&Number.isSafeInteger(value.sessionsRevoked)&&Number(value.sessionsRevoked)>=0&&typeof value.reauthenticate==='boolean'&&value.reauthenticate===(operation.kind==='auth.password.change');
 }
 function requestIdentifier(): string {
   return globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
@@ -316,19 +323,19 @@ class ApiClient {
   async restore(){try{const s=await this.request<unknown>('/auth/me');assertBackendSession(s);this.csrf=s.csrfToken;this.publish(s);return s}catch(error){if((error as {status?:number}).status!==401)throw error;this.csrf='';this.publish(null);return null}}
   async logout(){await this.request('/auth/logout',{method:'POST'});this.csrf='';this.publish(null)}
   clearAuthenticatedSession(){this.csrf='';this.publish(null);}
-  async listStaff(signal?:AbortSignal){
-    const result=await this.request<BackendStaffDirectory>('/staff',{signal});
+  async listStaff(signal?:AbortSignal,options:HistoryOptions={}){
+    const result=await this.request<BackendStaffDirectory>(historyUrl('/staff',options),{signal});
     if(!Array.isArray(result.staff)||!Array.isArray(result.roles)||!Array.isArray(result.outlets)||result.authorizationModel!=='COARSE_ROLE_MAP')
       throw new ApiClientError('The staff directory response is incomplete. Retry the staff read.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
-  async listWorkspaceAssignments(signal?:AbortSignal){
-    const result=await this.request<{devices:BackendWorkspaceAssignment[]}>('/devices',{signal});
+  async listWorkspaceAssignments(signal?:AbortSignal,options:HistoryOptions={}){
+    const result=await this.request<{devices:BackendWorkspaceAssignment[];page?:HistoryPage}>(historyUrl('/devices',options),{signal});
     if(!Array.isArray(result.devices))throw new ApiClientError('The workspace assignment response is incomplete. Retry the assignments read.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
-  async getOwnSessions(signal?:AbortSignal){const result=await this.requestArray<BackendOperatorSessions>('/auth/sessions','sessions',signal);if(typeof result.userId!=='string'||typeof result.credentialVersion!=='number')throw new ApiClientError('The session response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
-  async getStaffSessions(userId:string,signal?:AbortSignal){const result=await this.requestArray<BackendOperatorSessions>('/staff/'+encodeURIComponent(userId)+'/sessions','sessions',signal);if(typeof result.userId!=='string'||typeof result.credentialVersion!=='number')throw new ApiClientError('The session response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
+  async getOwnSessions(signal?:AbortSignal,options:HistoryOptions={}){const result=await this.requestArray<BackendOperatorSessions>(historyUrl('/auth/sessions',options),'sessions',signal);if(typeof result.userId!=='string'||typeof result.credentialVersion!=='number')throw new ApiClientError('The session response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
+  async getStaffSessions(userId:string,signal?:AbortSignal,options:HistoryOptions={}){const result=await this.requestArray<BackendOperatorSessions>(historyUrl('/staff/'+encodeURIComponent(userId)+'/sessions',options),'sessions',signal);if(typeof result.userId!=='string'||typeof result.credentialVersion!=='number')throw new ApiClientError('The session response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getConfiguration(signal?:AbortSignal){
     const result=await this.request<{configuration:BackendConfiguration}>('/configuration',{signal});
     const configuration=result.configuration as unknown;
@@ -365,21 +372,21 @@ class ApiClient {
     return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.outlet.update',occurredAt:new Date().toISOString(),expectedVersions:{['outlet:'+session.outlet.id]:version},payload:input});
   }
   listCatalog(signal?:AbortSignal){return this.requestArray<{items:BackendProduct[]}>('/catalog/items','items',signal)}
-  listProductImports(signal?:AbortSignal){return this.requestArray<{batches:ProductImportBatchSummary[]}>('/catalog/imports','batches',signal)}
+  listProductImports(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{batches:ProductImportBatchSummary[];page?:HistoryPage}>(historyUrl('/catalog/imports',options),'batches',signal)}
   getProductImport(batchId:string,signal?:AbortSignal){return this.requestRecord<{batch:ProductImportBatch}>('/catalog/imports/'+encodeURIComponent(batchId),'batch',signal)}
   async getProductImportErrorsCsv(batchId:string):Promise<string>{
     return this.requestText('/catalog/imports/'+encodeURIComponent(batchId)+'/errors.csv');
   }
-  listCustomerAccounts(signal?:AbortSignal){return this.requestArray<{customers:BackendCustomerAccount[]}>('/customers','customers',signal)}
+  listCustomerAccounts(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{customers:BackendCustomerAccount[];page?:HistoryPage;summary?:{totalBalanceMinor:string;totalCreditLimitMinor:string;accountCount:number;debtors:number;suspended:number}}>(historyUrl('/customers',options),'customers',signal)}
   async getCustomerStatement(customerId:string,signal?:AbortSignal){const result=await this.request<BackendCustomerStatement>('/customers/'+encodeURIComponent(customerId)+'/statement',{signal});if(!isRecord(result.customer)||!Array.isArray(result.entries))throw new ApiClientError('The customer statement response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
-  listInventoryMovements(signal?:AbortSignal){return this.requestArray<{movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string;valueMinor?:string}>}>('/inventory/movements','movements',signal)}
+  listInventoryMovements(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{page?:HistoryPage;movements:Array<{id:string;timestamp:string;sku:string;productName:string;type:'sale'|'restock'|'adjustment';quantity:string;balanceAfter:string;note:string;reference?:string;valueMinor?:string}>}>(historyUrl('/inventory/movements',options),'movements',signal)}
   async listStockShortfalls(query:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:number;after?:string}={},signal?:AbortSignal){
     const result=await this.request<BackendStockShortfallPage>('/inventory/shortfalls?'+this.reportQuery(query),{signal});
     if(!Array.isArray(result.items)||typeof result.limit!=='number'||!Object.hasOwn(result,'nextAfter'))throw new ApiClientError('The stock exception list is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
   getStockShortfallDetail(shortfallId:string,signal?:AbortSignal){return this.request<{exception:Record<string,unknown>}>('/inventory/shortfalls/'+encodeURIComponent(shortfallId),{signal});}
-  getStockShortfallEvidence(shortfallId:string,signal?:AbortSignal){return this.request<{evidence:BackendStockShortfallEvidence[]}>('/inventory/shortfalls/'+encodeURIComponent(shortfallId)+'/evidence',{signal});}
+  getStockShortfallEvidence(shortfallId:string,signal?:AbortSignal,options:HistoryOptions={}){return this.request<{evidence:BackendStockShortfallEvidence[];page?:HistoryPage}>(historyUrl('/inventory/shortfalls/'+encodeURIComponent(shortfallId)+'/evidence',options),{signal});}
   async getStockExceptionReport(from:string,to:string,signal?:AbortSignal){
     const result=await this.request<BackendStockExceptionReport>('/reports/stock-exceptions?'+new URLSearchParams({from,to}),{signal});
     if(!isRecord(result.totals)||!Array.isArray(result.byOperator)||!Array.isArray(result.byProduct)||!isRecord(result.coverage))throw new ApiClientError('The stock exception report is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
@@ -390,11 +397,12 @@ class ApiClient {
     const session=this.session;if(!session)throw new Error('Sign in before resolving a stock exception.');
     return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'inventory.sale_shortfall.resolve',occurredAt:new Date().toISOString(),expectedVersions:{['shortfall:'+input.shortfallId]:shortfallVersion,['balance:'+productId]:balanceVersion},payload:input});
   }
-  listInventoryCounts(signal?:AbortSignal){return this.requestArray<{counts:BackendInventoryCountSummary[]}>('/inventory/counts','counts',signal)}
+  listInventoryCounts(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{counts:BackendInventoryCountSummary[];page?:HistoryPage}>(historyUrl('/inventory/counts',options),'counts',signal)}
   async getCurrentInventoryCount(signal?:AbortSignal){const result=await this.request<unknown>('/inventory/counts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'count')||(result.count!==null&&!isRecord(result.count)))throw new ApiClientError('The current stock count response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {count:BackendInventoryCount|null};}
   getInventoryCount(countId:string,signal?:AbortSignal){return this.requestRecord<{count:BackendInventoryCount}>('/inventory/counts/'+encodeURIComponent(countId),'count',signal)}
   async getCurrentShift(signal?:AbortSignal){const result=await this.request<unknown>('/shifts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'shift')||(result.shift!==null&&!isRecord(result.shift)))throw new ApiClientError('The current shift response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {shift:BackendShift|null};}
-  listShiftCloseReports(signal?:AbortSignal){return this.requestArray<{reports:BackendShiftCloseReport[]}>('/shifts/close-reports','reports',signal)}
+  listShiftCashMovements(shiftId:string,signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{movements:BackendShiftCashMovement[];page?:HistoryPage}>(historyUrl('/shifts/'+encodeURIComponent(shiftId)+'/cash-movements',options),'movements',signal)}
+  listShiftCloseReports(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{reports:BackendShiftCloseReport[];page?:HistoryPage}>(historyUrl('/shifts/close-reports',options),'reports',signal)}
   listSalesOrders(signal?:AbortSignal,query:SaleHistoryQuery={}){const search=this.reportQuery(query).toString();return this.requestArray<SaleHistory>('/sales/orders'+(search?'?'+search:''),'orders',signal);}
   async getSaleReceipt(orderId:string,signal?:AbortSignal){const result=await this.request<BackendSaleReceipt>('/sales/orders/'+encodeURIComponent(orderId)+'/receipt',{signal});if(result.status!=='CONFIRMED'||!Array.isArray(result.lines)||!Array.isArray(result.payments)||typeof result.receiptNumber!=='string')throw new ApiClientError('The sale receipt response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getTrialBalance(asOf:string,signal?:AbortSignal){const result=await this.request<BackendTrialBalance>('/reports/trial-balance?'+new URLSearchParams({asOf}),{signal});if(!isRecord(result.totals)||!Array.isArray(result.accounts)||!isRecord(result.coverage))throw new ApiClientError('The trial balance response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
@@ -412,7 +420,7 @@ class ApiClient {
   listAccountingRecords<K extends AccountingRecordKind>(kind:K,query:{after?:string;limit?:number;reference?:string}={},signal?:AbortSignal){return this.request<AccountingRecordPage<K>>('/finance/records/'+encodeURIComponent(kind)+'?'+this.reportQuery(query),{signal});}
   private reportQuery(query:object){return new URLSearchParams(Object.entries(query).filter(([,value])=>value!==undefined).map(([key,value]):[string,string]=>[key,String(value)]));}
   listHotelRooms(signal?:AbortSignal){return this.requestArray<{rooms:BackendRoom[]}>('/hospitality/rooms','rooms',signal)}
-  listHotelReservations(signal?:AbortSignal){return this.requestArray<{reservations:BackendReservation[]}>('/hospitality/reservations','reservations',signal)}
+  listHotelReservations(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{reservations:BackendReservation[];page?:HistoryPage}>(historyUrl('/hospitality/reservations',options),'reservations',signal)}
   listHotelStays(signal?:AbortSignal){return this.requestArray<{stays:BackendStay[]}>('/hospitality/stays','stays',signal)}
   async submitCommand(command:BackendCommand){
     const hasSecret=(value:unknown):boolean=>Array.isArray(value)?value.some(hasSecret):!!value&&typeof value==='object'&&Object.entries(value).some(([key,entry])=>/password|credentialhash|passwordhash/i.test(key)||hasSecret(entry));
@@ -434,16 +442,27 @@ class ApiClient {
     try{
       const path=operation.kind==='auth.password.change'?'/auth/password':'/staff/'+encodeURIComponent(operation.targetUserId)+'/password';
       const result=await this.request<BackendCommandResult>(path,{method:'POST',body:JSON.stringify({protocolVersion:1,commandId:operation.commandId,expectedVersions:{['credential:'+operation.targetUserId]:operation.expectedCredentialVersion},newPassword,...(operation.kind==='auth.password.change'?{currentPassword}: {})})});
-      if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))await secretOperationJournal.remove(operation.commandId);else await secretOperationJournal.save({...operation,state:'outcome_unknown'});
+      if(!isTerminalCredentialOutcome(result,operation))throw new ApiClientError(unconfirmedActionMessage(path),'OUTCOME_UNKNOWN');
+      await secretOperationJournal.remove(operation.commandId);
       await this.emitSecretRecovery();return presentOutcome(result);
     }catch(cause){
-      const status=(cause as {status?:number}).status;
-      if(status&&status>=400&&status<500){await secretOperationJournal.remove(operation.commandId);await this.emitSecretRecovery();throw Object.assign(new Error(cause instanceof Error?cause.message:'The server rejected the password request.'),{code:'COMMAND_NOT_SENT',status});}
+      // HTTP rejection alone is not a canonical outcome for the original ID.
+      // Keep metadata until status/reconciliation proves completion or fencing.
       await secretOperationJournal.save({...operation,state:'outcome_unknown'});await this.emitSecretRecovery();throw cause;
     }finally{newPassword='';currentPassword='';}
   }
   async listSecretOperationRecovery():Promise<SecretOperationRecovery[]>{const session=this.session;try{return session?await secretOperationJournal.list(session.tenant.id,session.user.id):[];}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
-  async checkSecretOperationStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){await secretOperationJournal.remove(commandId);await this.emitSecretRecovery();}return result;}
+  private async finishSecretRecovery(operation:SecretOperationRecovery,result:{commandId:string;status:string;response:Record<string,unknown>}){
+    if(!isRecord(result)||result.commandId!==operation.commandId||!isRecord(result.response)||result.response.status!==result.status||(result.response.commandId!==undefined&&result.response.commandId!==operation.commandId)||!isTerminalCredentialOutcome({...result.response,commandId:result.commandId},operation))throw new ApiClientError(unconfirmedActionMessage('/auth/password'),'INVALID_SERVER_RESPONSE');
+    await secretOperationJournal.remove(operation.commandId);await this.emitSecretRecovery();return {...result,response:presentOutcome(result.response)};
+  }
+  async checkSecretOperationStatus(commandId:string){const operation=(await this.listSecretOperationRecovery()).find(record=>record.commandId===commandId);if(!operation)throw new ApiClientError('The original password recovery metadata could not be found.','RECOVERY_STORAGE_UNAVAILABLE');const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));return this.finishSecretRecovery(operation,result);}
+  async reconcileSecretOperation(operation:SecretOperationRecovery){
+    const session=this.session;
+    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id)throw new ApiClientError('Sign in with the account that owns this password operation.','FORBIDDEN',403);
+    const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/auth/password/reconcile',{method:'POST',body:JSON.stringify({protocolVersion:1,commandId:operation.commandId,kind:operation.kind,targetUserId:operation.targetUserId,expectedCredentialVersion:operation.expectedCredentialVersion})});
+    return this.finishSecretRecovery(operation,result);
+  }
   private async emitSecretRecovery(){const records=await this.listSecretOperationRecovery();this.secretRecoveryListeners.forEach(listener=>listener(records));}
   async submitImportValidation(command:BackendCommand,fileName:string,sourceHash:string){
     const session=this.session;if(!session)throw new Error('Sign in before validating an import.');

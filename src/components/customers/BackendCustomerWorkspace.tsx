@@ -4,6 +4,8 @@ import { AlertCircle, ArrowDownLeft, CheckCircle2, CreditCard, DollarSign, Plus,
 import { apiClient, type BackendCommand, type BackendCustomerAccount, type BackendCustomerStatement, type BackendShift } from '../../services/apiClient';
 import { formatMinorMoneyText, minorToMoneyInput, parseMoneyToMinor } from '../../utils/money';
 import { filterCustomers, summarizeCustomers, type CustomerFilter } from './customerPresentation';
+import { HistoryNavigation } from '../common/HistoryNavigation';
+import type { HistoryPage, HistoryOptions } from '../../types/history';
 
 type AccountDraft = { name: string; phone: string; email: string; creditLimit: string; status: 'ACTIVE' | 'SUSPENDED' };
 
@@ -12,6 +14,9 @@ export function BackendCustomerWorkspace({ onNavigate }: { onNavigate: (tab: 'sh
   const canManage = session.user.permissions.includes('customers.manage');
   const canSettle = session.user.permissions.includes('customers.settle');
   const [customers, setCustomers] = useState<BackendCustomerAccount[]>([]);
+  const [page, setPage] = useState<HistoryPage>();
+  const [portfolio, setPortfolio] = useState<Awaited<ReturnType<typeof apiClient.listCustomerAccounts>>['summary']>();
+  const appliedSearch = useRef('');
   const [selectedId, setSelectedId] = useState('');
   const [statement, setStatement] = useState<BackendCustomerStatement | null>(null);
   const [shift, setShift] = useState<BackendShift | null>(null);
@@ -69,14 +74,17 @@ export function BackendCustomerWorkspace({ onNavigate }: { onNavigate: (tab: 'sh
     void loadStatement(customerId);
   };
 
-  const load = async (preferredId = selectedId) => {
+  const load = async (preferredId = selectedId, options: HistoryOptions = { q: search.trim() }, append = false) => {
     const request = ++accountGeneration.current;
     setLoading(true); setError('');
     if (canSettle) void loadShift();
     try {
-      const result = await apiClient.listCustomerAccounts();
+      const result = await apiClient.listCustomerAccounts(undefined, options);
       if (request !== accountGeneration.current) return;
-      setCustomers(result.customers);
+      appliedSearch.current = options.q ?? '';
+      setPage(result.page); setPortfolio(result.summary);
+      setCustomers(current => append ? [...current, ...result.customers.filter(row => !current.some(item => item.id === row.id))] : result.customers);
+      if (append) return;
       const nextId = result.customers.some(customer => customer.id === preferredId) ? preferredId : result.customers[0]?.id ?? '';
       setSelectedId(nextId);
       if (nextId) {
@@ -101,8 +109,20 @@ export function BackendCustomerWorkspace({ onNavigate }: { onNavigate: (tab: 'sh
     return () => { ++accountGeneration.current; ++statementGeneration.current; ++shiftGeneration.current; };
   }, []);
 
-  const summary = useMemo(() => summarizeCustomers(customers), [customers]);
+  useEffect(() => {
+    if (search.trim() === appliedSearch.current) return;
+    const timeout = setTimeout(() => { void load('', { q: search.trim() }); }, 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const summary = useMemo(() => {
+    if (!portfolio) return summarizeCustomers(customers);
+    const totalBalanceMinor = BigInt(portfolio.totalBalanceMinor), totalCreditLimitMinor = BigInt(portfolio.totalCreditLimitMinor);
+    return { totalBalanceMinor,totalCreditLimitMinor,debtors:portfolio.debtors,suspended:portfolio.suspended,
+      utilizationTenths:totalCreditLimitMinor>0n?(totalBalanceMinor*1000n/totalCreditLimitMinor).toString():null };
+  }, [customers,portfolio]);
   const visibleCustomers = useMemo(() => filterCustomers(customers, search, filter), [customers, search, filter]);
+  const loadedSummary = useMemo(() => summarizeCustomers(customers), [customers]);
   const suspended = summary.suspended;
   const metricsAvailable = !error && (!loading || customers.length > 0);
 
@@ -181,7 +201,7 @@ export function BackendCustomerWorkspace({ onNavigate }: { onNavigate: (tab: 'sh
 
   return <main className="min-h-full space-y-4 overflow-y-auto bg-[#090b10] p-3 pb-24 text-zinc-100 sm:p-5 lg:p-6">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h1 className="flex items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl"><UserRound className="h-6 w-6 text-blue-400"/>Customer Directory &amp; Credit Accounts</h1><span className="rounded border border-blue-800/60 bg-blue-950/60 px-2 py-0.5 text-[11px] font-medium text-blue-300">{metricsAvailable ? `${customers.length} Accounts` : 'Accounts'}</span></div><p className="mt-1 text-xs text-zinc-400">Customer accounts · {session.tenant.name}</p></div>
+      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h1 className="flex items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl"><UserRound className="h-6 w-6 text-blue-400"/>Customer Directory &amp; Credit Accounts</h1><span className="rounded border border-blue-800/60 bg-blue-950/60 px-2 py-0.5 text-[11px] font-medium text-blue-300">{metricsAvailable ? `${portfolio?.accountCount??customers.length} Accounts` : 'Accounts'}</span></div><p className="mt-1 text-xs text-zinc-400">Customer accounts · {session.tenant.name}</p></div>
       <div className="flex flex-wrap gap-2"><button type="button" onClick={()=>void load()} disabled={loading||busy} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 px-3.5 text-xs font-medium disabled:opacity-50"><RefreshCw size={14}/>Refresh</button>{canManage&&<button type="button" onClick={openCreate} disabled={!!unknownId} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-3.5 text-xs font-semibold hover:bg-blue-500 disabled:opacity-50"><Plus size={15}/>New Customer</button>}{canSettle&&<button type="button" onClick={()=>{if(selected&&BigInt(selected.balanceMinor)>0n){setAmount(minorToMoneyInput(selected.balanceMinor,session.tenant.currency));setReference('');setRepaymentOpen(true);setNotice('');}}} disabled={!selected||BigInt(selected.balanceMinor)===0n||!shift||!!unknownId} title={!shift?'Open a till before recording a cash repayment.':!selected||BigInt(selected.balanceMinor)===0n?'Select an account with an outstanding balance.':'Record a cash repayment'} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-3.5 text-xs font-semibold hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"><CreditCard size={14}/>Record Repayment</button>}</div>
     </header>
     {error&&<div role="alert" className="rounded-xl border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}<button type="button" className="ml-3 min-h-11 underline" disabled={loading} onClick={()=>void load()}>Retry customer loading</button></div>}
@@ -196,13 +216,15 @@ export function BackendCustomerWorkspace({ onNavigate }: { onNavigate: (tab: 'sh
       <div className="flex flex-col gap-3 border-b border-zinc-800 p-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="relative block w-full sm:max-w-md"><Search size={15} className="absolute left-3 top-3 text-zinc-500"/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search customer name, phone, or email…" className="min-h-10 w-full rounded-lg border border-zinc-800 bg-zinc-900 pl-9 pr-9 text-xs text-white placeholder:text-zinc-500 focus:border-blue-500" aria-label="Search customer accounts"/>{search&&<button type="button" onClick={()=>setSearch('')} aria-label="Clear search" className="absolute right-2 top-2.5 text-zinc-500 hover:text-zinc-200"><X size={15}/></button>}</label>
         <div role="group" aria-label="Filter customer accounts" className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          {([{id:'all',label:'All Accounts',count:customers.length,active:'bg-blue-600 text-white'},{id:'debtors',label:'Debtors',count:summary.debtors,active:'bg-amber-600 text-white'},{id:'good_standing',label:'Zero Balance',count:customers.length-summary.debtors,active:'bg-emerald-700 text-white'},{id:'suspended',label:'Suspended',count:suspended,active:'bg-rose-700 text-white'}] as const).map(item=><button key={item.id} type="button" aria-pressed={filter===item.id} onClick={()=>setFilter(item.id)} className={`min-h-9 whitespace-nowrap rounded-lg px-3 text-[11px] font-medium transition-colors ${filter===item.id?item.active:'border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100'}`}>{item.label} ({metricsAvailable?item.count:'—'})</button>)}
+          {([{id:'all',label:'All Accounts',count:customers.length,active:'bg-blue-600 text-white'},{id:'debtors',label:'Debtors',count:loadedSummary.debtors,active:'bg-amber-600 text-white'},{id:'good_standing',label:'Zero Balance',count:customers.length-loadedSummary.debtors,active:'bg-emerald-700 text-white'},{id:'suspended',label:'Suspended',count:loadedSummary.suspended,active:'bg-rose-700 text-white'}] as const).map(item=><button key={item.id} type="button" aria-pressed={filter===item.id} onClick={()=>setFilter(item.id)} className={`min-h-9 whitespace-nowrap rounded-lg px-3 text-[11px] font-medium transition-colors ${filter===item.id?item.active:'border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100'}`}>{item.label} ({metricsAvailable?item.count:'—'})</button>)}
         </div>
       </div>
       {loading&&customers.length>0&&<p role="status" className="px-4 py-2 text-xs text-zinc-400">Refreshing customer accounts; previously loaded accounts remain available.</p>}{loading&&customers.length===0?<div role="status" className="p-10 text-center text-sm text-zinc-400">Loading customer accounts…</div>:error&&customers.length===0?<div role="status" className="p-10 text-center text-sm text-zinc-400">Customer accounts are unavailable. Retry the read above.</div>:visibleCustomers.length===0?<div className="p-10 text-center"><UserRound className="mx-auto text-zinc-600"/><p className="mt-3 text-sm font-semibold">{search||filter!=='all'?'No customers match this search or filter':'No customer accounts yet'}</p><p className="mt-1 text-xs text-zinc-500">{canManage?'Add a customer account with an approved credit limit.':'A manager can add customer accounts.'}</p></div>:<>
         <div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-xs"><thead className="border-b border-zinc-800 bg-zinc-900/80 text-[10px] font-semibold uppercase text-zinc-400"><tr><th className="px-4 py-3">Customer / Contact</th><th className="px-4 py-3 text-right">Credit Limit</th><th className="px-4 py-3 text-right">Outstanding Debt</th><th className="px-4 py-3 text-right">Available Credit</th><th className="px-4 py-3 text-center">Status</th><th className="px-4 py-3 text-right">Quick Actions</th></tr></thead><tbody className="divide-y divide-zinc-800">{visibleCustomers.map(customer=><tr key={customer.id} className={`hover:bg-zinc-900/50 ${selectedId===customer.id?'bg-blue-950/20':''}`}><td className="px-4 py-2.5"><button type="button" onClick={()=>{selectCustomer(customer.id)}} className="flex items-center gap-2.5 text-left"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-blue-800/60 bg-blue-950/60 text-[10px] font-bold text-blue-300">{customer.name.slice(0,2).toUpperCase()}</span><span><strong className="block text-xs text-zinc-100">{customer.name}</strong><small className="text-[11px] text-zinc-500">{customer.phone}{customer.email?` · ${customer.email}`:''}</small></span></button></td><td className="px-4 py-2.5 text-right font-mono text-zinc-300">{formatMinorMoneyText(customer.creditLimitMinor,session.tenant.currency)}</td><td className="px-4 py-2.5 text-right font-mono text-amber-300">{formatMinorMoneyText(customer.balanceMinor,session.tenant.currency)}</td><td className="px-4 py-2.5 text-right font-mono text-zinc-300">{formatMinorMoneyText(availableCredit(customer),session.tenant.currency)}</td><td className="px-4 py-2.5 text-center"><StatusBadge status={customer.status}/></td><td className="px-4 py-2.5 text-right"><button type="button" onClick={()=>{selectCustomer(customer.id)}} className="min-h-8 rounded-md border border-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:border-blue-500 hover:text-white">Statement</button>{canManage&&<button type="button" onClick={()=>{selectCustomer(customer.id);setEditing(true);setDraft({name:customer.name,phone:customer.phone,email:customer.email??'',creditLimit:minorToMoneyInput(customer.creditLimitMinor,session.tenant.currency),status:customer.status});setDraftOpen(true)}} disabled={!!unknownId} className="ml-1.5 min-h-8 rounded-md border border-zinc-700 px-2.5 text-[11px] text-zinc-300 disabled:opacity-50">Edit</button>}</td></tr>)}</tbody></table></div>
         <div className="divide-y divide-zinc-800 md:hidden">{visibleCustomers.map(customer=><article key={customer.id} className={`p-3 ${selectedId===customer.id?'bg-blue-950/20':''}`}><button type="button" onClick={()=>{selectCustomer(customer.id)}} aria-pressed={selectedId===customer.id} className="flex w-full items-start justify-between gap-3 text-left"><span className="flex min-w-0 items-center gap-2.5"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-blue-800/60 bg-blue-950/60 text-[10px] font-bold text-blue-300">{customer.name.slice(0,2).toUpperCase()}</span><span className="min-w-0"><strong className="block truncate text-sm">{customer.name}</strong><small className="block truncate text-[11px] text-zinc-500">{customer.phone}{customer.email?` · ${customer.email}`:''}</small></span></span><StatusBadge status={customer.status}/></button><div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 pl-11 text-[11px]"><span className="text-zinc-500">Limit <b className="float-right font-mono font-medium text-zinc-300">{formatMinorMoneyText(customer.creditLimitMinor,session.tenant.currency)}</b></span><span className="text-zinc-500">Owed <b className="float-right font-mono font-medium text-amber-300">{formatMinorMoneyText(customer.balanceMinor,session.tenant.currency)}</b></span><span className="text-zinc-500">Available <b className="float-right font-mono font-medium text-zinc-300">{formatMinorMoneyText(availableCredit(customer),session.tenant.currency)}</b></span><span className="flex justify-end gap-1.5"><button type="button" onClick={()=>{selectCustomer(customer.id)}} className="min-h-8 rounded-md border border-zinc-700 px-2.5 text-[11px] text-zinc-300">Statement</button>{canManage&&<button type="button" onClick={()=>{selectCustomer(customer.id);setEditing(true);setDraft({name:customer.name,phone:customer.phone,email:customer.email??'',creditLimit:minorToMoneyInput(customer.creditLimitMinor,session.tenant.currency),status:customer.status});setDraftOpen(true)}} disabled={!!unknownId} className="min-h-8 rounded-md border border-zinc-700 px-2.5 text-[11px] text-zinc-300 disabled:opacity-50">Edit</button>}</span></div></article>)}</div>
       </>}
+      <HistoryNavigation page={page} loaded={customers.length} busy={loading} label="customer accounts" onMore={()=>void load(selectedId,{q:appliedSearch.current,after:page?.nextCursor??undefined},true)}/>
+      {page&&<p className="px-4 pb-3 text-xs text-zinc-500">Search checks all customer accounts. Status filters apply to the loaded records; portfolio totals cover the whole business.</p>}
     </section>
     <section className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-950">
         {!selected?<div className="p-10 text-center text-sm text-zinc-500">Select a customer to review their statement.</div>:<>

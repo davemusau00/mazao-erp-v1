@@ -19,10 +19,11 @@ function minorInput(minor: number, currency: string) {
   return `${amount / scale}${digits ? `.${(amount % scale).toString().padStart(digits, '0')}` : ''}`;
 }
 
-/** The purchasing workspace exposes authoritative receiving until supplier/PO services exist. */
-export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsumed }: { initialTab?: ProcurementTab; onInitialTabConsumed?: () => void }) {
+/** Receiving stays in Purchasing; supplier accounting uses the authorized Money workspace. */
+export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsumed, onOpenSupplierAccounts }: { initialTab?: ProcurementTab; onInitialTabConsumed?: () => void; onOpenSupplierAccounts: () => void }) {
   const session = apiClient.getSession()!;
   const currency = session.tenant.currency;
+  const canViewSupplierAccounts = session.user.permissions.includes('finance.view');
   const [products, setProducts] = useState<BackendProduct[]>([]);
   const [supplierName, setSupplierName] = useState('');
   const [reference, setReference] = useState('');
@@ -97,6 +98,7 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
   return <main className="page-stack">
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
     <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-blue-300">Purchasing · {session.outlet.name}</p><h1 className="mt-1 text-3xl font-bold">Receive a delivery</h1><p className="mt-2 text-sm text-zinc-400">Review received quantities and costs before adding this delivery to stock.</p></div><button type="button" disabled={loading || locked} onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-sm"><RefreshCw size={16} />Refresh</button></header>
+    <section className="workflow-panel" aria-labelledby="supplier-accounting-title"><div className="panel-heading"><div><h2 id="supplier-accounting-title">Supplier bills and payments</h2><p>Manage suppliers and unpaid bills in Money. A stock bill must match the full value of one recorded delivery. Partial payments already made by bank or M-Pesa can be recorded there.</p></div></div><p className="mb-3 text-sm text-zinc-400">Purchase orders, partial delivery matching and supplier credits are unavailable.</p>{canViewSupplierAccounts?<button type="button" className="secondary-action" onClick={onOpenSupplierAccounts}>Open supplier bills and payments</button>:<p className="text-sm text-zinc-400">Viewing supplier bills and payments requires finance access. Your delivery receiving access is unchanged.</p>}</section>
     {error && <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-800 p-3 text-sm text-rose-200"><CircleAlert size={16} />{error}</div>}
     {notice && <div role={unknownId ? 'alert' : 'status'} className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-800 p-3 text-sm text-blue-200"><PackageCheck size={16} /><span>{notice}</span>{unknownId && <button type="button" disabled={busy} onClick={() => void recover()} className="min-h-11 underline">Check receipt status</button>}</div>}
     <section className="workflow-panel"><div className="panel-heading"><div><h2>Delivery paperwork</h2><p>{currency} · quantities in the item's base unit</p></div><Truck size={19} /></div>

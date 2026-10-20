@@ -1,6 +1,7 @@
 /** Exact money is serialized in minor units. These operations record reviewed
  * business evidence; they do not initiate bank or mobile-money transfers. */
 export type ExpenseCategory = 'OPERATING_EXPENSE' | 'RENT_EXPENSE' | 'UTILITIES_EXPENSE';
+export type AccountingArea = 'overview' | 'expenses' | 'suppliers' | 'mpesa' | 'periods';
 export type NoncashPaymentAccount = 'BANK_CONTROL' | 'MOBILE_MONEY_CONTROL';
 export interface AccountingCheck { ledgerMinor: string; subledgerMinor: string; differenceMinor: string; balanced: boolean }
 export interface AccountingControls {

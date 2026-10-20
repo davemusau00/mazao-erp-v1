@@ -8,6 +8,7 @@ import { executeProductImportCommand, validateCatalogMetadata } from './productI
 import { executeStaffCommand } from './staff.js';
 import { revalidateOperator } from './identityAuthority.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
+import { validateCommandPayload } from './commandCatalogue.js';
 import { executeAccountingCommand, guardFinancialCommand } from './accounting.js';
 import { executeAccountCatalogCommand } from './accountCatalog.js';
 import { executeStockExceptionCommand } from './stockShortfalls.js';
@@ -164,6 +165,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   // so an earlier HTTP preflight cannot preserve a revoked or changed role.
   session = await revalidateOperator(client, session);
   requireCommandAuthority(session, envelope.type);
+  validateCommandPayload(envelope);
   await guardFinancialCommand(client, session, envelope);
   switch (envelope.type) {
     case 'finance.account.label': return executeAccountCatalogCommand(client, session, envelope);

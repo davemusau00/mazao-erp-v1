@@ -4,6 +4,8 @@ The deployed administration/configuration gaps are recorded in [the server confi
 
 This register describes the actual authenticated API boundary. An unsubmitted draft is not committed state, an outbox row is not remote delivery, and a cash command is not a card or mobile-money provider confirmation. All reachable workspaces use server records; archived prototype code has no runtime authority.
 
+The 20 October S00 continuation is recorded in [the execution register](48-CODEBASE-TRUTH-EXECUTION.md): strict public inputs and an incremental command catalogue; additive migration 022 for metadata-only credential fencing; and scoped search/continuation for previously capped histories, evidence, directories, sessions and reservations. Existing arrays remain available with page metadata. [Credential fencing](50-CREDENTIAL-OPERATION-FENCING.md), [history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [directory contracts](54-DIRECTORY-CONTINUATION.md) describe the exact changed boundaries and local evidence. This source work has not been deployed.
+
 ## Runtime and first operator
 
 The API is a Fastify modular monolith at `apps/api/src/server.ts`; PostgreSQL is required through `DATABASE_URL`. The Vite development server proxies `/api/v1` to `http://127.0.0.1:4101`. Production needs TLS termination and an explicit API route. Do not expose the development bind address publicly.

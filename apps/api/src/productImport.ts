@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { pool } from './db.js';
+import { pool, inReadSnapshot } from './db.js';
+import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
 import { readBusinessProfile } from './configuration.js';
@@ -268,12 +269,14 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
 function batchMetadata(row:Record<string,any>){
   return {id:row.id,fileName:row.file_name,mode:row.import_mode,status:row.status,version:Number(row.version),sourceHash:row.source_sha256,sourceBytes:row.source_bytes,businessVersion:row.configuration_snapshot.businessVersion,currency:row.configuration_snapshot.currency,defaultTaxRateBps:row.configuration_snapshot.taxRateBps,createdAt:row.created_at,createdBy:row.created_by,appliedAt:row.applied_at,summary:row.validation_report.summary};
 }
-export async function listProductImports(session:ApiSession){
+export async function listProductImports(session:ApiSession,query:HistoryQuery={}){
   requireProductImportAccess(session);
-  const result=await pool.query(`SELECT id,file_name,import_mode,status,version,source_sha256,source_bytes,configuration_snapshot,created_at,created_by,applied_at,
+  return inReadSnapshot(async client=>{
+  const result=await readHistoryPage(client,session,'catalog.imports',query,`SELECT id,created_at sort_at,concat_ws(' ',file_name,import_mode,status,id::text) search_text,file_name,import_mode,status,version,source_sha256,source_bytes,configuration_snapshot,created_at,created_by,applied_at,
     jsonb_build_object('summary',validation_report->'summary') validation_report FROM catalog.product_import_batches
-    WHERE tenant_id=$1 AND outlet_id=$2 ORDER BY created_at DESC,id DESC LIMIT 50`,[session.tenantId,session.outletId]);
-  return {batches:result.rows.map(batchMetadata)};
+    WHERE tenant_id=$1 AND outlet_id=$2`,[session.tenantId,session.outletId]);
+  return {batches:result.rows.map(batchMetadata),page:result.page};
+  });
 }
 export async function getProductImport(session:ApiSession,id:unknown){
   requireProductImportAccess(session);const client=await pool.connect();

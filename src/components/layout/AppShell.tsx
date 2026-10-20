@@ -88,7 +88,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     finally{setCheckingCommand('');}
   };
   const openCommandWorkspace=(type:string)=>{
-    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
+    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('finance.')?'money':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'stock':'shifts';
     setRecoveryOpen(false);selectWorkspace(destination);
   };
   return <div className="app-shell">

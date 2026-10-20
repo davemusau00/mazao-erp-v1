@@ -7,6 +7,8 @@ import { decimalStringsEqual, subtractDecimalStrings } from '../../utils/decimal
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
 import { useCommandRecoveryReadiness } from '../../hooks/useCommandRecoveryReadiness';
 import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
+import { HistoryNavigation } from '../common/HistoryNavigation';
+import type { HistoryPage } from '../../types/history';
 
 const quantityPattern = /^\d+(?:\.\d{1,6})?$/;
 
@@ -25,6 +27,12 @@ export function BackendStockCountWorkspace() {
   const canApprove = session.user.permissions.includes('inventory.count.approve');
   const [count, setCount] = useState<BackendInventoryCount | null>(null);
   const [history, setHistory] = useState<BackendInventoryCountSummary[]>([]);
+  const [historyPage, setHistoryPage] = useState<HistoryPage>();
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState('');
+  const historyController = useRef<AbortController | null>(null);
+  const historyAttempt = useRef({ more: false, search: '' });
   const [catalog, setCatalog] = useState<BackendProduct[]>([]);
   const [catalogError, setCatalogError] = useState('');
   const [areaLabel, setAreaLabel] = useState('');
@@ -49,14 +57,31 @@ export function BackendStockCountWorkspace() {
   const locked = loading || !dataReady || !recovery.ready || busy || !!unknownId;
   const catalogByProduct = new Map(catalog.map(product => [product.id, product]));
 
+  const loadHistory = async (more = false, search = historyQuery) => {
+    historyController.current?.abort();
+    const controller = new AbortController();
+    historyController.current = controller;
+    historyAttempt.current = { more, search };
+    setHistoryLoading(true); setHistoryError('');
+    try {
+      const result = await apiClient.listInventoryCounts(controller.signal, { q: search, ...(more && historyPage?.nextCursor ? { after: historyPage.nextCursor } : {}) });
+      if (controller.signal.aborted) return;
+      setHistory(previous => more ? [...previous, ...result.counts] : result.counts);
+      setHistoryPage(result.page);
+    } catch (cause) {
+      if (!controller.signal.aborted) setHistoryError(cause instanceof Error ? cause.message : 'Count history could not be loaded.');
+    } finally {
+      if (!controller.signal.aborted) setHistoryLoading(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setDataReady(false);
     setError('');
     try {
-      const [current, previous] = await Promise.all([apiClient.getCurrentInventoryCount(), apiClient.listInventoryCounts()]);
+      const [current] = await Promise.all([apiClient.getCurrentInventoryCount(), loadHistory()]);
       setCount(current.count);
-      setHistory(previous.counts);
       setAreaLabel(current.count?.areaLabel ?? '');
       setDirty(false);
       setDataReady(true);
@@ -72,7 +97,7 @@ export function BackendStockCountWorkspace() {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); return () => historyController.current?.abort(); }, []);
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => { if (dirty || recovery.inFlight.current) { event.preventDefault(); event.returnValue = ''; } };
     const navigate = (event: Event) => {
@@ -304,7 +329,7 @@ export function BackendStockCountWorkspace() {
       })}</div> : <p className="p-5 text-sm text-zinc-400">No count items match that search.</p>}
       <footer className="flex flex-col gap-3 border-t border-zinc-800 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div className="text-xs text-zinc-400">{dirty ? 'Unsaved changes · save the draft before leaving.' : 'Draft saved.'}{!canApprove && <span className="block mt-1 text-amber-200">A manager must review and post the count.</span>}</div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void saveDraft()} disabled={!canCount || !dirty || locked} className="min-h-11 rounded-lg border border-zinc-700 px-4 text-sm font-semibold disabled:opacity-50">{busy ? 'Saving…' : 'Save draft'}</button>{canApprove && <button type="button" onClick={() => setReviewOpen(true)} disabled={!complete || missingReasons || dirty || locked || count.status !== 'OPEN'} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"><ShieldCheck size={16} /> Review and post</button>}</div></footer>
     </section>}
-    <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"><div className="border-b border-zinc-800 p-4"><h2 className="font-semibold">Count history</h2><p className="mt-1 text-xs text-zinc-500">Latest 50 outlet count sessions</p></div>{history.length ? <div className="divide-y divide-zinc-800">{history.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="flex items-center gap-2"><strong className="text-sm">{item.areaLabel || 'Full outlet count'}</strong><span className={`rounded-full px-2 py-1 text-[11px] ${item.status === 'POSTED' ? 'bg-emerald-950 text-emerald-300' : item.status === 'CANCELLED' ? 'bg-zinc-800 text-zinc-400' : 'bg-amber-950 text-amber-200'}`}>{actionStatusLabel(item.status)}</span></div><p className="mt-1 text-xs text-zinc-500">{item.countedLineCount}/{item.lineCount} counted · opened {dateLabel(item.openedAt, (session.outlet.timeZone ?? session.tenant.timeZone))}{item.postedAt ? ` · posted ${dateLabel(item.postedAt, (session.outlet.timeZone ?? session.tenant.timeZone))}` : ''}</p></div><button type="button" onClick={() => void openHistoryDetail(item.id)} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs text-zinc-200">View details</button></div>)}</div> : <p className="p-4 text-sm text-zinc-400">No stock counts have been recorded.</p>}</section>
+    <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"><div className="border-b border-zinc-800 p-4"><h2 className="font-semibold">Count history</h2><p className="mt-1 text-xs text-zinc-500">Outlet count sessions, newest first</p></div>{historyLoading&&<p role="status" className="p-4 text-sm text-zinc-400">Loading count history...</p>}{historyError&&<p role="alert" className="p-4 text-sm text-rose-300">{historyError}<button type="button" className="ml-3 min-h-11 underline" onClick={()=>void loadHistory(historyAttempt.current.more,historyAttempt.current.search)}>Retry count history</button></p>}{history.length ? <div className="divide-y divide-zinc-800">{history.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="flex items-center gap-2"><strong className="text-sm">{item.areaLabel || 'Full outlet count'}</strong><span className={`rounded-full px-2 py-1 text-[11px] ${item.status === 'POSTED' ? 'bg-emerald-950 text-emerald-300' : item.status === 'CANCELLED' ? 'bg-zinc-800 text-zinc-400' : 'bg-amber-950 text-amber-200'}`}>{actionStatusLabel(item.status)}</span></div><p className="mt-1 text-xs text-zinc-500">{item.countedLineCount}/{item.lineCount} counted · opened {dateLabel(item.openedAt, (session.outlet.timeZone ?? session.tenant.timeZone))}{item.postedAt ? ` · posted ${dateLabel(item.postedAt, (session.outlet.timeZone ?? session.tenant.timeZone))}` : ''}</p></div><button type="button" onClick={() => void openHistoryDetail(item.id)} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs text-zinc-200">View details</button></div>)}</div> : !historyLoading&&!historyError&&<p className="p-4 text-sm text-zinc-400">No stock counts match this search.</p>}<HistoryNavigation page={historyPage} loaded={history.length} busy={historyLoading} label="count history" onMore={()=>void loadHistory(true)} onSearch={value=>{setHistoryQuery(value);setHistory([]);setHistoryPage(undefined);void loadHistory(false,value);}}/></section>
 
     {reviewOpen && count && <ResponsiveDialog isOpen={reviewOpen} onClose={() => setReviewOpen(false)} title="Review full stock count" subtitle={`${count.areaLabel || 'Outlet count'} · ${count.lineCount} items`} icon={<ShieldCheck className="h-5 w-5 text-blue-400" />} maxWidth="lg" footerActions={<><button type="button" onClick={() => setReviewOpen(false)} className="min-h-11 rounded-lg px-4 text-zinc-300 hover:bg-zinc-800">Return to count</button><button type="button" onClick={() => void postCount()} disabled={locked || !complete || missingReasons} className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white disabled:opacity-50">{busy ? 'Posting…' : 'Post reviewed count'}</button></>}>
       {recoveryMessage}<div className="max-h-[50vh] space-y-2 overflow-y-auto">{count.lines.filter(line => {const delta=lineVariance(line);return delta!==null&&!decimalStringsEqual(delta,'0')}).map(line => <div key={line.productId} className="flex flex-wrap justify-between gap-2 rounded-lg border border-zinc-800 p-3 text-sm"><span><strong>{line.name}</strong><small className="mt-1 block text-xs text-zinc-400">Expected {formatDecimalQuantity(line.expectedQuantity)} · counted {line.countedQuantity === null ? null : formatDecimalQuantity(line.countedQuantity)} {line.unit} · {line.varianceReason}</small></span><span className="font-mono text-amber-200">{formatDecimalQuantity(lineVariance(line) ?? '0')}</span></div>)}{!count.lines.some(line=>{const delta=lineVariance(line);return delta!==null&&!decimalStringsEqual(delta,'0')})&&<p className="rounded-lg border border-zinc-800 p-3 text-sm text-zinc-300">All counted quantities match the saved baseline. Posting will close the count without creating stock adjustments.</p>}</div>

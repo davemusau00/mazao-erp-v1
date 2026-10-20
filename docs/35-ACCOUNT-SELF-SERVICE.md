@@ -18,8 +18,10 @@ The existing OLED surfaces, blue actions, responsive dialog, keyboard focus trap
 - `e2e/integration/account-access.spec.ts` uses a uniquely provisioned disposable PostgreSQL tenant and a cashier identity. It opens My account, revokes a second browser session, confirms persisted revocation, changes the password, checks the credential version and confirmed command rows, rejects the old password, and signs in with the new password. It does not truncate or reuse another test's records.
 - Screenshot artifacts from the account tests capture the three sizes above. These are regression evidence, not approval of the entire seven-viewport UI parity or a completed screen-reader/contrast/hardware review.
 
-## Remaining credential recovery gap (F08)
+## Credential recovery gap (F08): resolved locally on 20 October
 
-A password request can be retained locally but never reach the API. The current status lookup then returns 404, and the private operation remains pending. The UI continues to block a new password command for that target and offers another status check. This slice deliberately does not discard that evidence or invent a new operation ID. A separate server-backed reconciliation design is required to distinguish an operation that never arrived from one still executing and allow a safe resolution without retaining or replaying a secret.
+The original 16 October slice left a never-received password request pending after a status 404. S00-03 now closes that dead end through [metadata-only credential fencing](50-CREDENTIAL-OPERATION-FENCING.md), additive migration 022 and `POST /api/v1/auth/password/reconcile`. An accepted operation returns its stored result; a never-received original ID is atomically fenced so a delayed password request cannot execute. Only a complete, matching terminal acknowledgement unlocks another operation. HTTP errors, malformed confirmations and a 404 alone retain metadata. No password or replayable secret body is retained. Local evidence and the pending release boundary are recorded in the focused document and [execution register](48-CODEBASE-TRUTH-EXECUTION.md).
+
+The account session list also supports full server search and continuation; see [staff/session history](53-STAFF-SESSION-HISTORY.md). These follow-up changes are distinct from the original dated acceptance above.
 
 Automatic first-login password expiry, physical workstation pairing, custom role grants, and a full accessibility/visual acceptance matrix remain outside this slice. No production or physical-device acceptance is claimed.

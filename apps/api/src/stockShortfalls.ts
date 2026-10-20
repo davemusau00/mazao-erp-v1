@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { DomainError, ROLE_PERMISSIONS, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { inReadSnapshot, pool } from './db.js';
 import { csvExportCell } from './csvParser.js';
+import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 
 const scale = 1_000_000n;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -336,7 +337,7 @@ export async function getStockShortfallDetail(session: ApiSession, shortfallId: 
       ...(costsAllowed ? { provisionalCogsReleasedMinor: item.provisional_cogs_released_minor, actualCogsMinor: item.actual_cogs_minor, cogsAdjustmentMinor: item.cogs_adjustment_minor } : {}) })) } };
 }
 
-export async function getStockShortfallEvidence(session: ApiSession, shortfallId: string) {
+export async function getStockShortfallEvidence(session: ApiSession, shortfallId: string, query: HistoryQuery = {}) {
   permission(session, 'inventory.shortfall.resolve');
   if (!uuid.test(shortfallId)) throw new DomainError('VALIDATION_FAILED', 'Choose a valid stock exception.');
   return inReadSnapshot(async client => {
@@ -344,14 +345,14 @@ export async function getStockShortfallEvidence(session: ApiSession, shortfallId
       'SELECT product_id FROM inventory.sale_shortfalls WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3',
       [shortfallId, session.tenantId, session.outletId]);
     if (!found.rowCount) throw new DomainError('NOT_FOUND', 'Stock exception was not found at this outlet.', 404);
-    const rows = await client.query(`SELECT m.id,m.created_at,m.movement_type,m.quantity_delta::text quantity,m.document_reference,
+    const rows = await readHistoryPage(client,session,'shortfall.evidence:'+shortfallId,query,`SELECT m.id,m.created_at sort_at,m.created_at,m.movement_type,m.quantity_delta::text quantity,m.document_reference,
+        concat_ws(' ',m.document_reference,m.movement_type,m.id::text) search_text,
         (m.quantity_delta-COALESCE(sum(r.quantity),0))::text available_quantity
       FROM inventory.movements m LEFT JOIN inventory.sale_shortfall_resolutions r
         ON r.tenant_id=m.tenant_id AND r.outlet_id=m.outlet_id AND r.supporting_movement_id=m.id
       WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.product_id=$3 AND m.movement_type IN ('RECEIPT','COUNT_ADJUSTMENT') AND m.quantity_delta>0
-      GROUP BY m.id HAVING m.quantity_delta>COALESCE(sum(r.quantity),0)
-      ORDER BY m.created_at DESC,m.id DESC LIMIT 100`, [session.tenantId, session.outletId, found.rows[0].product_id]);
-    return { evidence: rows.rows.map(row => ({ id: row.id, createdAt: row.created_at, type: row.movement_type,
+      GROUP BY m.id HAVING m.quantity_delta>COALESCE(sum(r.quantity),0)`, [session.tenantId, session.outletId, found.rows[0].product_id],100);
+    return { page:rows.page,evidence: rows.rows.map(row => ({ id: row.id, createdAt: row.created_at, type: row.movement_type,
       quantity: row.quantity, availableQuantity: row.available_quantity, documentReference: row.document_reference })) };
   });
 }
@@ -377,10 +378,10 @@ export async function getStockExceptionReport(session: ApiSession, query: Record
     const resolutions = await client.query(`SELECT count(*)::text count,COALESCE(sum(quantity),0)::text quantity,
         COALESCE(sum(actual_cogs_minor),0)::text actual_cogs_minor,COALESCE(sum(cogs_adjustment_minor),0)::text cogs_adjustment_minor
       FROM inventory.sale_shortfall_resolutions WHERE tenant_id=$1 AND outlet_id=$2 AND (created_at AT TIME ZONE $5)::date BETWEEN $3::date AND $4::date`, [session.tenantId, session.outletId, from, to, session.timeZone]);
-    const operators = await client.query(`SELECT operator_id,operator_name_snapshot operator_name,count(*)::text event_count,
+    const operators = await client.query(`SELECT operator_id,operator_name_snapshot operator_name,count(*)::text event_count,count(*) OVER()::text total_groups,
         COALESCE(sum(quantity),0)::text quantity FROM inventory.sale_shortfalls WHERE tenant_id=$1 AND outlet_id=$2
         AND (created_at AT TIME ZONE $5)::date BETWEEN $3::date AND $4::date GROUP BY operator_id,operator_name_snapshot ORDER BY count(*) DESC,operator_name_snapshot LIMIT 100`, [session.tenantId, session.outletId, from, to, session.timeZone]);
-    const products = await client.query(`SELECT s.product_id,l.sku_snapshot sku,l.name_snapshot name,count(*)::text event_count,
+    const products = await client.query(`SELECT s.product_id,l.sku_snapshot sku,l.name_snapshot name,count(*)::text event_count,count(*) OVER()::text total_groups,
         COALESCE(sum(s.quantity),0)::text quantity FROM inventory.sale_shortfalls s JOIN commerce.order_lines l ON l.tenant_id=s.tenant_id AND l.outlet_id=s.outlet_id AND l.id=s.order_line_id
         WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND (s.created_at AT TIME ZONE $5)::date BETWEEN $3::date AND $4::date
         GROUP BY s.product_id,l.sku_snapshot,l.name_snapshot ORDER BY count(*) DESC,l.name_snapshot LIMIT 100`, [session.tenantId, session.outletId, from, to, session.timeZone]);
@@ -394,7 +395,9 @@ export async function getStockExceptionReport(session: ApiSession, query: Record
           cogsAdjustmentInPeriodMinor: resolved.cogs_adjustment_minor } : {}) },
       byOperator: operators.rows.map(row => ({ operatorId: row.operator_id, operatorName: row.operator_name, eventCount: row.event_count, quantity: row.quantity })),
       byProduct: products.rows.map(row => ({ productId: row.product_id, sku: row.sku, name: row.name, eventCount: row.event_count, quantity: row.quantity })),
-      coverage: { completeTotals: true, costVisible: canReadCosts, policy: 'Unresolved quantity is current across all creation dates. Created and resolved totals use the selected business dates.' } };
+      coverage: { completeTotals: true, costVisible: canReadCosts,
+        operatorGroups:Number(operators.rows[0]?.total_groups??0),productGroups:Number(products.rows[0]?.total_groups??0),summaryLimit:100,
+        policy: 'Unresolved quantity is current across all creation dates. Created and resolved totals use the selected business dates. Operator and product summaries show at most the top 100 groups; totals cover every matching event.' } };
   });
 }
 

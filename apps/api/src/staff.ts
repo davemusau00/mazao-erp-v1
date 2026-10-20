@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { pool } from './db.js';
+import { inReadSnapshot } from './db.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiRole, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { requireIdentityPermission } from './identityAuthority.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
+import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 
 export const STAFF_COMMANDS=['staff.member.create','staff.member.update','staff.member.set_active','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','staff.sessions.revoke','auth.session.revoke'] as const;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -117,29 +118,36 @@ export async function executeStaffCommand(client:PoolClient,session:ApiSession,e
   const changed=await client.query('UPDATE identity.sessions SET revoked_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING version',[session.tenantId,sessionId]);
   const value={sessionId,version:Number(changed.rows[0].version),reauthenticate:sessionId===session.sessionId};await identityEvidence(client,session,envelope.commandId,envelope.type,{...value,userId,reason:p.reason});return value;
 }
-export async function listStaff(session:ApiSession){
+export async function listStaff(session:ApiSession,query:HistoryQuery={}){
   requireIdentityPermission(session,'staff.view');
-  const result=await pool.query(`SELECT m.user_id,m.display_name,m.role,m.active,m.version,u.email,u.credential_version,u.password_hash IS NOT NULL has_credential,
+  return inReadSnapshot(async client=>{
+  const result=await readHistoryPage(client,session,'staff-directory',query,`SELECT m.user_id id,m.user_id,m.display_name,m.role,m.active,m.version,u.email,u.credential_version,u.password_hash IS NOT NULL has_credential,
+    u.created_at sort_at,concat_ws(' ',m.user_id::text,m.display_name,u.email,m.role) search_text,
     (SELECT count(*)::int FROM identity.devices d WHERE d.tenant_id=m.tenant_id AND d.assigned_user_id=m.user_id AND d.active) assignment_count,
     (SELECT count(*)::int FROM identity.sessions s WHERE s.tenant_id=m.tenant_id AND s.user_id=m.user_id AND s.revoked_at IS NULL AND s.expires_at>now()) active_session_count
-    FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id WHERE m.tenant_id=$1 ORDER BY m.display_name,m.user_id LIMIT 500`,[session.tenantId]);
-  const outlets=await pool.query('SELECT id,name,time_zone,active FROM core.outlets WHERE tenant_id=$1 ORDER BY name,id',[session.tenantId]);
-  return {staff:result.rows.map(row=>({userId:row.user_id,displayName:row.display_name,email:row.email,role:row.role,active:row.active,version:Number(row.version),credentialVersion:Number(row.credential_version),hasCredential:row.has_credential,assignmentCount:row.assignment_count,activeSessionCount:row.active_session_count})),roles:Object.entries(ROLE_PERMISSIONS).map(([role,permissions])=>({role,label:roleLabels[role as ApiRole],permissions,assignable:roleAssignable(role,session.capabilities)})),outlets:outlets.rows.map(row=>({id:row.id,name:row.name,timeZone:row.time_zone,active:row.active})),authorizationModel:'COARSE_ROLE_MAP'};
+    FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id WHERE m.tenant_id=$1`,[session.tenantId],100);
+  const outlets=await client.query('SELECT id,name,time_zone,active FROM core.outlets WHERE tenant_id=$1 ORDER BY name,id',[session.tenantId]);
+  return {page:result.page,staff:result.rows.map(row=>({userId:row.user_id,displayName:row.display_name,email:row.email,role:row.role,active:row.active,version:Number(row.version),credentialVersion:Number(row.credential_version),hasCredential:row.has_credential,assignmentCount:row.assignment_count,activeSessionCount:row.active_session_count})),roles:Object.entries(ROLE_PERMISSIONS).map(([role,permissions])=>({role,label:roleLabels[role as ApiRole],permissions,assignable:roleAssignable(role,session.capabilities)})),outlets:outlets.rows.map(row=>({id:row.id,name:row.name,timeZone:row.time_zone,active:row.active})),authorizationModel:'COARSE_ROLE_MAP'};
+  });
 }
-export async function listAssignments(session:ApiSession){
+export async function listAssignments(session:ApiSession,query:HistoryQuery={}){
   requireIdentityPermission(session,'devices.view');
-  const result=await pool.query(`SELECT d.*,o.name outlet_name,m.display_name assigned_user_name FROM identity.devices d
+  return inReadSnapshot(async client=>{
+  const result=await readHistoryPage(client,session,'workspace-assignments',query,`SELECT d.*,d.created_at sort_at,
+    concat_ws(' ',d.id::text,d.label,o.name,m.display_name,d.assigned_user_id::text) search_text,o.name outlet_name,m.display_name assigned_user_name FROM identity.devices d
     JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=d.assigned_user_id
-    WHERE d.tenant_id=$1 ORDER BY d.created_at DESC,d.id LIMIT 500`,[session.tenantId]);
-  return {devices:result.rows.map(row=>({id:row.id,kind:'WORKSPACE_ASSIGNMENT',label:row.label,outletId:row.outlet_id,outletName:row.outlet_name,assignedUserId:row.assigned_user_id,assignedUserName:row.assigned_user_name,active:row.active,version:Number(row.version),createdAt:row.created_at,revokedAt:row.revoked_at}))};
+    WHERE d.tenant_id=$1`,[session.tenantId],100);
+  return {page:result.page,devices:result.rows.map(row=>({id:row.id,kind:'WORKSPACE_ASSIGNMENT',label:row.label,outletId:row.outlet_id,outletName:row.outlet_name,assignedUserId:row.assigned_user_id,assignedUserName:row.assigned_user_name,active:row.active,version:Number(row.version),createdAt:row.created_at,revokedAt:row.revoked_at}))};
+  });
 }
-export async function listOperatorSessions(session:ApiSession,target?:unknown){
+export async function listOperatorSessions(session:ApiSession,target?:unknown,query:HistoryQuery={}){
   const userId=target===undefined?session.userId:id(target,'userId');if(target!==undefined)requireIdentityPermission(session,'staff.view');
-  const client=await pool.connect();try{
+  return inReadSnapshot(async client=>{
     const staff=await member(client,session,userId,false);
-    const result=await client.query(`SELECT s.id,s.device_id,s.outlet_id,s.created_at,s.expires_at,s.revoked_at,s.version,d.label device_label,o.name outlet_name
+    const result=await readHistoryPage(client,session,`operator-sessions:${userId}`,query,`SELECT s.id,s.device_id,s.outlet_id,s.created_at,s.expires_at,s.revoked_at,s.version,
+      s.created_at sort_at,concat_ws(' ',s.id::text,d.label,o.name) search_text,d.label device_label,o.name outlet_name
       FROM identity.sessions s JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
-      WHERE s.tenant_id=$1 AND s.user_id=$2 ORDER BY s.created_at DESC,s.id LIMIT 100`,[session.tenantId,userId]);
-    return {userId,credentialVersion:Number(staff.credential_version),sessions:result.rows.map(row=>({id:row.id,deviceId:row.device_id,deviceLabel:row.device_label,outletId:row.outlet_id,outletName:row.outlet_name,createdAt:row.created_at,expiresAt:row.expires_at,revokedAt:row.revoked_at,version:Number(row.version),current:row.id===session.sessionId}))};
-  }finally{client.release();}
+      WHERE s.tenant_id=$1 AND s.user_id=$2`,[session.tenantId,userId],50);
+    return {page:result.page,userId,credentialVersion:Number(staff.credential_version),sessions:result.rows.map(row=>({id:row.id,deviceId:row.device_id,outletId:row.outlet_id,deviceLabel:row.device_label,outletName:row.outlet_name,createdAt:row.created_at,expiresAt:row.expires_at,revokedAt:row.revoked_at,version:Number(row.version),current:row.id===session.sessionId}))};
+  });
 }

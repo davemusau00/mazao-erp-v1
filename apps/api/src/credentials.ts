@@ -5,14 +5,61 @@ import { revalidateOperator } from './identityAuthority.js';
 import { requireCommandAuthority, requireCommandRecoveryAuthority } from './commandAuthorization.js';
 import { identityEvidence } from './staff.js';
 import { credentialFingerprint, hashPassword, verifyPassword } from './security.js';
+import type { PoolClient } from 'pg';
 
 export interface CredentialInput {protocolVersion:1;commandId:string;expectedVersions:Record<string,number>;newPassword:string;currentPassword?:string}
+export interface CredentialReconciliationInput {protocolVersion:1;commandId:string;kind:'staff.password.set'|'auth.password.change';targetUserId:string;expectedCredentialVersion:number}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const fencedResponse={status:'REJECTED',code:'CREDENTIAL_OPERATION_FENCED',message:'The earlier password request was safely stopped. Enter a new password to continue.'};
+async function readCredentialCommand(client:PoolClient,session:ApiSession,commandId:string,mode:'status'|'replay'='status'){
+  const stored=await client.query(`SELECT c.actor_id,c.request_hash,c.status,c.response,c.command_type,d.outlet_id,
+      m.target_user_id,m.expected_credential_version,m.fenced
+    FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
+    LEFT JOIN system.credential_operations m ON m.tenant_id=c.tenant_id AND m.command_id=c.command_id
+    WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[session.tenantId,commandId]);
+  const row=stored.rows[0];
+  if(row){
+    if(row.actor_id!==session.userId)throw new DomainError('NOT_FOUND','Credential operation was not found in your operator scope.',404);
+    requireCommandRecoveryAuthority(session,row,mode);
+  }
+  return row;
+}
+async function recordCredentialMetadata(client:PoolClient,session:ApiSession,input:CredentialReconciliationInput,fenced:boolean){
+  await client.query(`INSERT INTO system.credential_operations(tenant_id,command_id,target_user_id,expected_credential_version,fenced)
+    VALUES($1,$2,$3,$4,$5)`,[session.tenantId,input.commandId,input.targetUserId,input.expectedCredentialVersion,fenced]);
+}
+/** Reconciliation retains only metadata. The original endpoint and this operation
+ * serialize on the same tenant lock, so a committed fence defeats late originals,
+ * including requests from a pre-upgrade client that cannot send this metadata. */
+export async function reconcileCredentialOperation(operator:ApiSession,input:CredentialReconciliationInput){
+  if(!input||typeof input!=='object'||Array.isArray(input)||input.protocolVersion!==1||typeof input.commandId!=='string'||!uuid.test(input.commandId)||!['staff.password.set','auth.password.change'].includes(input.kind)||typeof input.targetUserId!=='string'||!uuid.test(input.targetUserId)||!Number.isSafeInteger(input.expectedCredentialVersion)||input.expectedCredentialVersion<1||Object.keys(input).some(key=>!['protocolVersion','commandId','kind','targetUserId','expectedCredentialVersion'].includes(key)))throw new DomainError('VALIDATION_FAILED','Provide only the original password operation ID, kind, target and credential version.');
+  if(input.kind==='auth.password.change'&&input.targetUserId!==operator.userId)throw new DomainError('NOT_FOUND','Password operation was not found in your operator scope.',404);
+  if(input.kind==='staff.password.set'&&input.targetUserId===operator.userId)throw new DomainError('USE_SELF_PASSWORD_CHANGE','Use My account for your own password operation.',403);
+  return inTransaction(async client=>{
+    const session=await revalidateOperator(client,operator);
+    requireCommandAuthority(session,input.kind);
+    await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[session.tenantId]);
+    const stored=await readCredentialCommand(client,session,input.commandId);
+    if(stored){
+      if(stored.command_type!==input.kind||(stored.target_user_id&&(stored.target_user_id!==input.targetUserId||Number(stored.expected_credential_version)!==input.expectedCredentialVersion)))throw new DomainError('IDEMPOTENCY_MISMATCH','Recovery metadata does not match the original password operation.',409);
+      // Legacy commands have no descriptor. Their persisted actor/outlet/type
+      // remain authoritative; no password or fingerprint is needed for recovery.
+      return {commandId:input.commandId,status:stored.status,response:stored.response};
+    }
+    const member=await client.query('SELECT user_id FROM identity.memberships WHERE tenant_id=$1 AND user_id=$2 FOR SHARE',[session.tenantId,input.targetUserId]);
+    if(!member.rowCount)throw new DomainError('NOT_FOUND','Staff membership was not found for this business.',404);
+    await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status,response,completed_at)
+      VALUES($1,$2,$3,$4,$5,$6,'REJECTED',$7::jsonb,now())`,[session.tenantId,input.commandId,session.userId,session.deviceId,input.kind,Buffer.alloc(0),JSON.stringify(fencedResponse)]);
+    await recordCredentialMetadata(client,session,input,true);
+    await identityEvidence(client,session,input.commandId,'credential.operation.fenced',{kind:input.kind,targetUserId:input.targetUserId,expectedCredentialVersion:input.expectedCredentialVersion});
+    return {commandId:input.commandId,status:fencedResponse.status,response:fencedResponse};
+  });
+}
 export async function changeCredential(operator:ApiSession,input:CredentialInput,target?:unknown){
   const self=target===undefined;const userId=self?operator.userId:target;
   const type=self?'auth.password.change':'staff.password.set';
   if(!self&&userId===operator.userId)throw new DomainError('USE_SELF_PASSWORD_CHANGE','Use My account and verify your current password to change your own credential.',403);
-  if(typeof userId!=='string'||!uuid.test(userId)||!input||input.protocolVersion!==1||!uuid.test(input.commandId??'')||!input.expectedVersions||typeof input.expectedVersions!=='object'||Array.isArray(input.expectedVersions)||typeof input.newPassword!=='string'||input.newPassword.length<12||input.newPassword.length>256||Object.keys(input).some(key=>!['protocolVersion','commandId','expectedVersions','newPassword',...(self?['currentPassword']:[])].includes(key)))throw new DomainError('VALIDATION_FAILED','Provide a command ID, expected credential version and a new password of 12 to 256 characters.');
+  if(typeof userId!=='string'||!uuid.test(userId)||!input||typeof input!=='object'||Array.isArray(input)||input.protocolVersion!==1||typeof input.commandId!=='string'||!uuid.test(input.commandId)||!input.expectedVersions||typeof input.expectedVersions!=='object'||Array.isArray(input.expectedVersions)||Object.keys(input.expectedVersions).length!==1||typeof input.newPassword!=='string'||input.newPassword.length<12||input.newPassword.length>256||Object.keys(input).some(key=>!['protocolVersion','commandId','expectedVersions','newPassword',...(self?['currentPassword']:[])].includes(key)))throw new DomainError('VALIDATION_FAILED','Provide a command ID, expected credential version and a new password of 12 to 256 characters.');
   if(self&&(typeof input.currentPassword!=='string'||input.currentPassword.length>256))throw new DomainError('VALIDATION_FAILED','Enter your current password to change your account credential.');
   const expected=input.expectedVersions[`credential:${userId}`];if(!Number.isSafeInteger(expected)||expected<1)throw new DomainError('VALIDATION_FAILED','Expected credential version is required.');
   if(!process.env.CREDENTIAL_FINGERPRINT_KEY||!/^[a-f0-9]{64}$/i.test(process.env.CREDENTIAL_FINGERPRINT_KEY))throw new DomainError('CREDENTIAL_SERVICE_UNAVAILABLE','Credential management is not configured on this server.',503);
@@ -27,14 +74,14 @@ export async function changeCredential(operator:ApiSession,input:CredentialInput
     const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
       VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[session.tenantId,input.commandId,session.userId,session.deviceId,type,digest]);
     if(!inserted.rowCount){
-      const stored=await client.query(`SELECT c.actor_id,c.request_hash,c.status,c.response,c.command_type,d.outlet_id
-        FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
-        WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[session.tenantId,input.commandId]);
-      if(stored.rows[0].actor_id!==session.userId)throw new DomainError('NOT_FOUND','Credential operation was not found in your operator scope.',404);
-      requireCommandRecoveryAuthority(session,stored.rows[0],'replay');
-      if(!Buffer.from(stored.rows[0].request_hash).equals(digest))return {commandId:input.commandId,status:'REJECTED',code:'IDEMPOTENCY_MISMATCH',message:'This operation ID was used with different content.'};
-      return {commandId:input.commandId,...stored.rows[0].response};
+      const stored=await readCredentialCommand(client,session,input.commandId,'replay');
+      // Check the durable fence before comparing password fingerprints. A late
+      // request is terminal even when its secret body was never received before.
+      if(stored.fenced&&stored.command_type===type)return {commandId:input.commandId,...stored.response};
+      if(!Buffer.from(stored.request_hash).equals(digest))throw new DomainError('IDEMPOTENCY_MISMATCH','This operation ID was used with different content.',409);
+      return {commandId:input.commandId,...stored.response};
     }
+    await recordCredentialMetadata(client,session,{protocolVersion:1,commandId:input.commandId,kind:type,targetUserId:userId,expectedCredentialVersion:expected},false);
     await client.query('SAVEPOINT credential_change');
     let response:Record<string,unknown>;
     try{

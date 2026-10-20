@@ -1,63 +1,7 @@
-import { DomainError, ROLE_PERMISSIONS, type ApiPermission, type ApiSession } from './contracts.js';
+import { DomainError, ROLE_PERMISSIONS, type ApiSession } from './contracts.js';
+import { COMMAND_CATALOGUE } from './commandCatalogue.js';
 
-interface CommandPolicy { permissions: readonly ApiPermission[]; capabilities: readonly string[] }
-
-// One baseline for execution and recovery. Payload-dependent permissions and
-// domain invariants still belong to their command's application service.
-const policies: Readonly<Record<string, CommandPolicy>> = {
-  'catalog.product.create': { permissions: ['catalog.manage'], capabilities: ['inventory'] },
-  'catalog.import.validate': { permissions: ['catalog.manage'], capabilities: ['inventory'] },
-  'catalog.import.revalidate': { permissions: ['catalog.manage'], capabilities: ['inventory'] },
-  'catalog.import.apply': { permissions: ['catalog.manage'], capabilities: ['inventory'] },
-  'inventory.receive': { permissions: ['inventory.receive'], capabilities: ['inventory'] },
-  'inventory.count.open': { permissions: ['inventory.count'], capabilities: ['inventory'] },
-  'inventory.count.save': { permissions: ['inventory.count'], capabilities: ['inventory'] },
-  'inventory.count.post': { permissions: ['inventory.count.approve'], capabilities: ['inventory'] },
-  'inventory.count.cancel': { permissions: ['inventory.count.approve'], capabilities: ['inventory'] },
-  'inventory.sale_shortfall.resolve': { permissions: ['inventory.shortfall.resolve'], capabilities: ['inventory'] },
-  'shift.open': { permissions: ['shift.open'], capabilities: ['commerce'] },
-  'shift.cash.movement': { permissions: ['shift.payout'], capabilities: ['commerce'] },
-  'shift.close': { permissions: ['shift.close'], capabilities: ['commerce'] },
-  'sales.order.settle': { permissions: ['commerce.sell'], capabilities: ['commerce', 'inventory'] },
-  'sales.order.refund': { permissions: ['commerce.refund'], capabilities: ['commerce', 'inventory'] },
-  'finance.expense.record': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.account.label': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.expense.reverse': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.expense.reclassify': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.supplier.create': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.supplier.invoice': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.supplier.invoice.reverse': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.supplier.payment': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.mpesa.statement.record': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.mpesa.statement.match': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.mpesa.statement.correct': { permissions: ['finance.manage'], capabilities: [] },
-  'finance.period.create': { permissions: ['finance.close'], capabilities: [] },
-  'finance.period.transition': { permissions: ['finance.close'], capabilities: [] },
-  'customers.account.create': { permissions: ['customers.manage'], capabilities: ['commerce'] },
-  'customers.account.update': { permissions: ['customers.manage'], capabilities: ['commerce'] },
-  'customers.repayment': { permissions: ['customers.settle'], capabilities: ['commerce'] },
-  'hotel.room.create': { permissions: ['hotel.manage'], capabilities: ['hospitality'] },
-  'hotel.reservation.create': { permissions: ['hotel.frontdesk'], capabilities: ['hospitality'] },
-  'hotel.reservation.cancel': { permissions: ['hotel.frontdesk'], capabilities: ['hospitality'] },
-  'hotel.checkin': { permissions: ['hotel.frontdesk'], capabilities: ['hospitality'] },
-  'hotel.checkout': { permissions: ['hotel.frontdesk'], capabilities: ['hospitality'] },
-  'hotel.room.mark_ready': { permissions: ['hotel.housekeeping'], capabilities: ['hospitality'] },
-  'configuration.business.update': { permissions: ['config.manage'], capabilities: [] },
-  'configuration.outlet.update': { permissions: ['config.manage'], capabilities: [] },
-  'configuration.capabilities.update': { permissions: ['config.manage'], capabilities: [] },
-  'configuration.stock_exception_policy.update': { permissions: ['inventory.shortfall.configure'], capabilities: ['inventory'] },
-  'staff.member.create': { permissions: ['staff.manage'], capabilities: [] },
-  'staff.member.update': { permissions: ['staff.manage'], capabilities: [] },
-  'staff.member.set_active': { permissions: ['staff.manage'], capabilities: [] },
-  'staff.sessions.revoke': { permissions: ['staff.manage'], capabilities: [] },
-  'devices.assignment.create': { permissions: ['devices.manage'], capabilities: [] },
-  'devices.assignment.update': { permissions: ['devices.manage'], capabilities: [] },
-  'devices.assignment.revoke': { permissions: ['devices.manage'], capabilities: [] },
-  'auth.session.revoke': { permissions: [], capabilities: [] },
-  // These execute only through their dedicated credential endpoints.
-  'staff.password.set': { permissions: ['staff.manage'], capabilities: [] },
-  'auth.password.change': { permissions: [], capabilities: [] },
-};
+const policies = COMMAND_CATALOGUE;
 
 export function requireCommandAuthority(session: ApiSession, type: string, recovery = false) {
   if (!Object.hasOwn(policies, type)) {

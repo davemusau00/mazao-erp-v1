@@ -120,11 +120,13 @@ if (!databaseUrl) {
       assert.deepEqual(history.find((row: { id: string }) => row.id === firstSale.saleId), firstHistory);
       assert.equal(history.find((row: { id: string }) => row.id === nextSale.saleId).cashierName, 'Asha North Updated');
       const finalReports = await read(app, northCashier, '/shifts/close-reports');
-      assert.deepEqual(finalReports, reports);
+      assert.deepEqual(finalReports.reports, reports.reports, 'paging timestamps are read metadata; closed report evidence remains immutable');
+      assert.equal(finalReports.page.totalCount, reports.page.totalCount);
+      assert.equal(finalReports.page.nextCursor, null);
       assert.deepEqual(finalReports.reports.find((row: { id: string }) => row.id === firstReport.id), firstReport);
       assert.deepEqual(await read(app, southCashier, `/sales/orders/${southSale.saleId}/receipt`), southReceipt);
       assert.deepEqual(await read(app, southCashier, `/sales/orders?asOf=${encodeURIComponent(southHistory.asOf)}`), southHistory);
-      assert.deepEqual(await read(app, southCashier, '/shifts/close-reports'), southReports);
+      assert.deepEqual((await read(app, southCashier, '/shifts/close-reports')).reports, southReports.reports);
     } finally { await app.close(); }
   });
 

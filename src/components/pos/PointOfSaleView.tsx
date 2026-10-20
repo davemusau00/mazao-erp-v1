@@ -5,6 +5,8 @@ import { moneyInputToMinor, minorToMoneyInput, formatMinorMoneyText } from '../.
 import { subtractDecimalStrings, sumDecimalStrings } from '../../utils/decimal';
 import { formatDecimalQuantity } from '../../utils/presentation';
 import { ResponsiveDialog } from '../common/ResponsiveDialog';
+import { HistoryNavigation } from '../common/HistoryNavigation';
+import type { HistoryPage, HistoryOptions } from '../../types/history';
 
 interface BasketLine { productId: string; quantity: string; discount: string; discountReason: string }
 type StockExceptionReason='SUSPECTED_UNRECORDED_DELIVERY'|'SUSPECTED_OUTDATED_COUNT'|'UNKNOWN'|'';
@@ -31,6 +33,9 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   const [stockPolicy, setStockPolicy] = useState<BackendStockSalePolicy | null>(null);
   const [stockAcknowledgements, setStockAcknowledgements] = useState<Record<string,StockExceptionAcknowledgement>>({});
   const [customers, setCustomers] = useState<BackendCustomerAccount[]>([]);
+  const [customerPage, setCustomerPage] = useState<HistoryPage>();
+  const customerSearch = useRef('');
+  const customerGeneration = useRef(0);
   const [basket, setBasket] = useState<BasketLine[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -68,12 +73,13 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
     const current = () => mounted.current && refreshController.current === controller && !controller.signal.aborted;
     setLoading(true); setLoaded(false); setError(''); setStockAcknowledgements({});
     if (session.user.permissions.includes('customers.view')) {
+      const customerRequest = ++customerGeneration.current;
       setCustomersBusy(true);
-      void apiClient.listCustomerAccounts(controller.signal).then(result => {
-        if (current()) { setCustomers(result.customers); setCustomerError(''); }
+      void apiClient.listCustomerAccounts(controller.signal,{q:customerSearch.current}).then(result => {
+        if (current()&&customerRequest===customerGeneration.current) { setCustomers(result.customers); setCustomerPage(result.page); setCustomerError(''); }
       }).catch(failure => {
-        if (current()) setCustomerError(failure instanceof Error ? failure.message : 'Customer accounts could not be loaded.');
-      }).finally(() => { if (current()) setCustomersBusy(false); });
+        if (current()&&customerRequest===customerGeneration.current) setCustomerError(failure instanceof Error ? failure.message : 'Customer accounts could not be loaded.');
+      }).finally(() => { if (current()&&customerRequest===customerGeneration.current) setCustomersBusy(false); });
     }
     try {
       const [catalog, currentShift, policy] = await Promise.all([apiClient.listCatalog(controller.signal), apiClient.getCurrentShift(controller.signal), apiClient.getStockSalePolicy(controller.signal)]);
@@ -106,8 +112,26 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   };
   useEffect(() => {
     mounted.current = true; void refresh(); void loadRecovery();
-    return () => { mounted.current = false; refreshController.current?.abort(); };
+    return () => { mounted.current = false; refreshController.current?.abort(); ++customerGeneration.current; };
   }, [session.tenant.id, session.outlet.id, session.deviceId]);
+  const loadCustomers = async (options: HistoryOptions, append = false) => {
+    const generation = ++customerGeneration.current;
+    setCustomersBusy(true); setCustomerError('');
+    try {
+      const result = await apiClient.listCustomerAccounts(undefined, options);
+      if (!mounted.current || generation !== customerGeneration.current) return;
+      customerSearch.current = options.q ?? '';
+      setCustomerPage(result.page);
+      setCustomers(current => append ? [...current,...result.customers.filter(row=>!current.some(item=>item.id===row.id))] : result.customers);
+    } catch (failure) {
+      if (mounted.current && generation === customerGeneration.current) setCustomerError(failure instanceof Error ? failure.message : 'Customer accounts could not be loaded.');
+    } finally { if (mounted.current && generation === customerGeneration.current) setCustomersBusy(false); }
+  };
+  useEffect(()=>{
+    if (customerQuery.trim() === customerSearch.current || !session.user.permissions.includes('customers.view')) return;
+    const timeout=setTimeout(()=>{void loadCustomers({q:customerQuery.trim()});},300);
+    return ()=>clearTimeout(timeout);
+  },[customerQuery]);
   const productById = new Map(products.map(product => [product.id, product]));
   const validBasket = basket.length > 0 && basket.every(line => {
     const micros = quantityMicros(line.quantity), discount = discountFor(line);
@@ -234,7 +258,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
       <div className="grid grid-cols-2 gap-3"><button type="button" disabled={locked} onClick={() => selectMethod('cash')} aria-pressed={paymentMethod === 'cash'} className={`${actionClass} ${paymentMethod === 'cash' ? 'border-blue-500 bg-blue-950' : ''}`}><Banknote size={17} />Cash</button><button type="button" disabled={locked} onClick={() => selectMethod('manual_mpesa')} aria-pressed={paymentMethod === 'manual_mpesa'} className={`${actionClass} ${paymentMethod === 'manual_mpesa' ? 'border-blue-500 bg-blue-950' : ''}`}><Smartphone size={17} />M-Pesa</button>{canChargeAccount && <button type="button" disabled={locked} onClick={() => selectMethod('customer_credit')} aria-pressed={paymentMethod === 'customer_credit'} className={`${actionClass} ${paymentMethod === 'customer_credit' ? 'border-blue-500 bg-blue-950' : ''}`}><Users size={17} />Customer account</button>}</div>
       {paymentMethod === 'cash' ? <div className="space-y-3"><label className="block text-sm">Cash received ({currency})<input disabled={locked} autoFocus inputMode="decimal" value={tender} onChange={event => setTender(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 font-mono" /></label><button type="button" disabled={locked} onClick={() => setTender(minorToMoneyInput(totalMinor, currency))} className={actionClass}>Exact amount</button><p className="flex justify-between"><span>Change</span><strong className="font-mono">{formatMinorMoneyText(tenderMinor !== null && tenderMinor >= totalMinor ? tenderMinor - totalMinor : 0n, currency)}</strong></p>{(tenderMinor === null || tenderMinor < totalMinor) && <p role="status" className="text-amber-300">Enter cash received covering the amount due.</p>}</div>
         : paymentMethod === 'manual_mpesa' ? <div className="space-y-3"><p className="text-sm text-zinc-300">Check the business’s M-Pesa payment confirmation for the exact amount due before completing this sale.</p><label className="block text-sm">M-Pesa transaction reference<input disabled={locked} value={mpesaReference} autoCapitalize="characters" autoComplete="off" maxLength={64} onChange={event => { setMpesaReference(event.target.value.toUpperCase()); setMpesaConfirmed(false); }} className="mt-2 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 font-mono" /></label>{mpesaReference && !validReference && <p role="status" className="text-amber-300">Enter the transaction reference using 4–64 letters, numbers or hyphens.</p>}<label className="flex min-h-11 items-start gap-3 rounded-xl border border-zinc-700 p-3 text-sm"><input type="checkbox" disabled={locked} checked={mpesaConfirmed} onChange={event => setMpesaConfirmed(event.target.checked)} className="mt-1" /><span>I have checked that {formatMinorMoneyText(totalMinor, currency)} was received by M-Pesa.</span></label><p className="text-xs text-zinc-500">Recorded as confirmed by you. Statement matching is separate. This payment adds no cash to the drawer.</p></div>
-        : <div className="space-y-3">{customersBusy && <p role="status">Loading customer accounts…</p>}{customerError && <p role="alert" className="text-rose-300">{customerError}<button type="button" onClick={() => void refresh()} className="ml-2 underline">Try again</button></p>}<label className="block text-sm">Find a customer<input disabled={locked} value={customerQuery} onChange={event => setCustomerQuery(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3" /></label><div className="max-h-56 space-y-2 overflow-y-auto">{filteredCustomers.length ? filteredCustomers.map(customer => <button type="button" key={customer.id} disabled={locked || customersBusy || !!customerError} onClick={() => setCustomerId(customer.id)} aria-pressed={customer.id === customerId} className={`min-h-14 w-full rounded-xl border p-3 text-left ${customer.id === customerId ? 'border-blue-500 bg-blue-950' : 'border-zinc-700'}`}><strong className="block">{customer.name}</strong><small className="mt-1 block text-zinc-400">{customer.phone} · {customer.status === 'ACTIVE' ? 'Active' : 'Suspended'} · available {formatMinorMoneyText(BigInt(customer.creditLimitMinor) - BigInt(customer.balanceMinor), currency)}</small></button>) : !customersBusy && <p className="text-zinc-400">No customer accounts match. A manager can add an account in Customers.</p>}</div>{selectedCustomer && <p role="status" className={creditAllowed ? 'text-emerald-300' : 'text-rose-300'}>{creditAllowed ? 'The amount is within the approved account limit.' : 'Check the account status and available credit.'}</p>}<p className="text-xs text-zinc-500">Account charges increase the customer’s balance. They do not record money received.</p></div>}
+        : <div className="space-y-3">{customersBusy && <p role="status">Loading customer accounts…</p>}{customerError && <p role="alert" className="text-rose-300">{customerError}<button type="button" onClick={() => void refresh()} className="ml-2 underline">Try again</button></p>}<label className="block text-sm">Find a customer<input disabled={locked} value={customerQuery} onChange={event => setCustomerQuery(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3" /></label><div className="max-h-56 space-y-2 overflow-y-auto">{filteredCustomers.length ? filteredCustomers.map(customer => <button type="button" key={customer.id} disabled={locked || customersBusy || !!customerError} onClick={() => setCustomerId(customer.id)} aria-pressed={customer.id === customerId} className={`min-h-14 w-full rounded-xl border p-3 text-left ${customer.id === customerId ? 'border-blue-500 bg-blue-950' : 'border-zinc-700'}`}><strong className="block">{customer.name}</strong><small className="mt-1 block text-zinc-400">{customer.phone} · {customer.status === 'ACTIVE' ? 'Active' : 'Suspended'} · available {formatMinorMoneyText(BigInt(customer.creditLimitMinor) - BigInt(customer.balanceMinor), currency)}</small></button>) : !customersBusy && <p className="text-zinc-400">No customer accounts match. A manager can add an account in Customers.</p>}</div><HistoryNavigation page={customerPage} loaded={customers.length} busy={customersBusy} label="customer accounts" onMore={()=>void loadCustomers({q:customerSearch.current,after:customerPage?.nextCursor??undefined},true)}/>{selectedCustomer && <p role="status" className={creditAllowed ? 'text-emerald-300' : 'text-rose-300'}>{creditAllowed ? 'The amount is within the approved account limit.' : 'Check the account status and available credit.'}</p>}<p className="text-xs text-zinc-500">Account charges increase the customer’s balance. They do not record money received.</p></div>}
       {notice && <p role={unknownId ? 'alert' : 'status'} className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">{notice}{unknownId && <button type="button" disabled={busy} onClick={() => void recover()} className="ml-3 underline">Check payment status</button>}</p>}
     </ResponsiveDialog>
   </main>;

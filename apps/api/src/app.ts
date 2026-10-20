@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { pool, inTransaction } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
+import { parseCommandEnvelope, parseLoginInput, validateRequestIdentifiers } from './publicInputs.js';
 import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
@@ -17,12 +18,15 @@ import { getCustomerBalanceReport, getInventoryValueReport } from './controlRepo
 import { getAccountCatalog } from './accountCatalog.js';
 import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
+import { listHotelReservations } from './hospitalityDirectory.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
 import { getStockExceptionReport, getStockSalePolicy, getStockShortfallDetail, getStockShortfallEvidence, getStockShortfalls, getStockShortfallsCsv } from './stockShortfalls.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
-import { changeCredential } from './credentials.js';
-import type { CredentialInput } from './credentials.js';
+import { changeCredential, reconcileCredentialOperation } from './credentials.js';
+import type { CredentialInput, CredentialReconciliationInput } from './credentials.js';
+import { listInventoryMovements, listInventoryCounts, listShiftCashMovements } from './inventoryHistory.js';
+import type { HistoryQuery } from './historyPagination.js';
 import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from './staff.js';
 import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
@@ -45,6 +49,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
+  app.addHook('preValidation', async request => validateRequestIdentifiers(request.params, request.query));
   app.addHook('onRequest', (request, _reply, done) => {
     const metrics: RequestMetrics = {
       requestId: request.id,
@@ -125,6 +130,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (error instanceof DomainError) return reply.code(error.statusCode).send({ error:{code:error.code,message:error.message,details:error.details} });
     if ((error as { statusCode?: number }).statusCode === 429) return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many sign-in attempts. Try again shortly.' } });
     if((error as {code?:string}).code==='FST_ERR_CTP_BODY_TOO_LARGE')return reply.code(413).send({error:{code:'PAYLOAD_TOO_LARGE',message:'The request exceeds the upload limit. CSV source must be 512 KiB or smaller.'}});
+    if (['FST_ERR_CTP_INVALID_JSON_BODY', 'FST_ERR_CTP_EMPTY_JSON_BODY'].includes((error as { code?: string }).code ?? '')) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request body must contain valid JSON.' } });
     request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'The request could not be completed.' } });
@@ -137,9 +143,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
 
   const registerLogin = () => app.post<{ Body: { email: string; password: string; deviceId?: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
-    const email = request.body?.email?.trim().toLowerCase();
-    const password = request.body?.password;
-    if (!email || typeof password !== 'string') throw new DomainError('VALIDATION_FAILED', 'Email and password are required.');
+    const { email, password, deviceId: selectedDevice } = parseLoginInput(request.body);
     const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
     const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
     if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
@@ -150,7 +154,6 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id AND o.active
       WHERE u.id=$1 AND u.active AND m.active ORDER BY t.name,o.name,d.label,d.id`,[identity.rows[0].id]);
     if(!assignments.rowCount)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const selectedDevice=request.body.deviceId;
     let row;
     if(selectedDevice!==undefined){
       row=assignments.rows.find(assignment=>assignment.device_id===selectedDevice);
@@ -197,12 +200,13 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
   app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
-  app.get('/api/v1/staff',async request=>listStaff(request.operator!));
-  app.get('/api/v1/devices',async request=>listAssignments(request.operator!));
-  app.get('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!));
-  app.get<{Params:{userId:string}}>('/api/v1/staff/:userId/sessions',async request=>listOperatorSessions(request.operator!,request.params.userId));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/staff',async request=>listStaff(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/devices',async request=>listAssignments(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!,undefined,request.query));
+  app.get<{Params:{userId:string};Querystring:HistoryQuery}>('/api/v1/staff/:userId/sessions',async request=>listOperatorSessions(request.operator!,request.params.userId,request.query));
   app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
   app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
+  app.post<{Body:CredentialReconciliationInput}>('/api/v1/auth/password/reconcile',async request=>reconcileCredentialOperation(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
   app.get('/api/v1/configuration/stock-sale-policy', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockSalePolicy(request.operator!);});
   app.get<{ Params:{ assetId:string } }>('/api/v1/configuration/assets/:assetId', async (request, reply) => {
@@ -217,7 +221,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
   });
   app.post<{ Body:unknown }>('/api/v1/configuration/assets', async request => inTransaction(client => stageConfigurationAsset(client,request.operator!,request.body)));
-  app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/catalog/imports',async request=>listProductImports(request.operator!,request.query));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{
     const csv=await productImportErrorsCsv(request.operator!,request.params.batchId);
@@ -238,22 +242,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
     return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
-  app.get('/api/v1/inventory/movements', async request => {
-    const operator=request.operator!;
-    requireEnabledCapability(operator, 'inventory');
-    const permissions=ROLE_PERMISSIONS[operator.role];
-    if(!permissions.includes('inventory.receive')) throw new DomainError('FORBIDDEN','Your role cannot review stock movements.',403);
-    const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT m.id,m.created_at,m.movement_type,m.quantity_delta,m.document_reference,CASE WHEN $3::boolean THEN m.value_minor::text END value_minor,p.sku,p.name,
-        SUM(m.quantity_delta) OVER(PARTITION BY m.product_id ORDER BY m.created_at,m.id ROWS UNBOUNDED PRECEDING) balance_after
-      FROM inventory.movements m JOIN catalog.products p ON p.id=m.product_id AND p.tenant_id=m.tenant_id AND p.outlet_id=m.outlet_id
-      WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
-    return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference,...(canReadCost?{valueMinor:String(r.value_minor)}:{})}))};
-  });
+  app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/movements',async request=>listInventoryMovements(request.operator!,request.query));
   app.get<{Querystring:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:string;after?:string}}>(
     '/api/v1/inventory/shortfalls', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfalls(request.operator!, request.query);});
   app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallDetail(request.operator!, request.params.shortfallId);});
-  app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId);});
+  app.get<{Params:{shortfallId:string};Querystring:HistoryQuery}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId,request.query);});
   const requireInventoryCountAccess = (operator: ApiSession) => {
     requireEnabledCapability(operator, 'inventory');
     if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
@@ -279,15 +272,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         expectedQuantity:String(line.baseline_quantity),expectedBalanceVersion:Number(line.baseline_balance_version),countedQuantity:line.counted_quantity===null?null:String(line.counted_quantity),
         varianceReason:line.variance_reason,countedBy:line.counted_by,countedAt:line.counted_at}))};
   };
-  app.get('/api/v1/inventory/counts', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const result=await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.opened_at,c.posted_at,opened.full_name opened_by_name,posted.full_name posted_by_name,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
-      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by LEFT JOIN identity.users posted ON posted.id=c.posted_by
-      WHERE c.tenant_id=$1 AND c.outlet_id=$2 ORDER BY c.opened_at DESC,c.id DESC LIMIT 50`,[operator.tenantId,operator.outletId]);
-    return {counts:result.rows.map(row=>({id:row.id,status:row.status,areaLabel:row.area_label,version:Number(row.version),openedAt:row.opened_at,openedBy:row.opened_by_name,postedAt:row.posted_at,postedBy:row.posted_by_name,lineCount:row.line_count,countedLineCount:row.counted_line_count}))};
-  });
+  app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/counts',async request=>listInventoryCounts(request.operator!,request.query));
   app.get('/api/v1/inventory/counts/current', async request => {
     const operator=request.operator!; requireInventoryCountAccess(operator);
     const current=await pool.query<{id:string}>('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' ORDER BY opened_at DESC LIMIT 1',[operator.tenantId,operator.outletId]);
@@ -309,12 +294,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
     const r=result.rows[0];
     if(!r)return {shift:null};
-    const movements=await pool.query(`SELECT m.id,m.movement_type,m.amount_minor,m.reason,m.reference,m.created_at,u.full_name actor_name
-      FROM commerce.shift_cash_movements m JOIN identity.users u ON u.id=m.actor_id
-      WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.shift_id=$3 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`,[s.tenantId,s.outletId,r.id]);
-    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),mpesaSalesMinor:Number(r.mpesa_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
+    const movementResult=await listShiftCashMovements(s,r.id);
+    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),mpesaSalesMinor:Number(r.mpesa_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movementResult.movements,cashMovementPage:movementResult.page} };
   });
-  app.get('/api/v1/shifts/close-reports', async request => listShiftCloseReports(request.operator!));
+  app.get<{Params:{shiftId:string};Querystring:HistoryQuery}>('/api/v1/shifts/:shiftId/cash-movements',async request=>listShiftCashMovements(request.operator!,request.params.shiftId,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/shifts/close-reports', async request => listShiftCloseReports(request.operator!,request.query));
   app.get<{Querystring:{after?:string;asOf?:string;limit?:string;q?:string}}>('/api/v1/sales/orders', async request => {
     const operator=request.operator!;
     const permissions=ROLE_PERMISSIONS[operator.role];
@@ -350,7 +334,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!image) throw new DomainError('NOT_FOUND', 'Historical receipt image was not found for this outlet.', 404);
     return reply.type('image/png').header('cache-control', 'private, no-store').header('x-content-type-options', 'nosniff').send(image);
   });
-  app.get('/api/v1/customers', async request => listCustomerAccounts(request.operator!));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/customers', async request => listCustomerAccounts(request.operator!,request.query));
   app.get<{ Params: { customerId: string } }>('/api/v1/customers/:customerId/statement', async request =>
     getCustomerStatement(request.operator!, request.params.customerId));
   app.get<{ Querystring: { asOf?: string } }>('/api/v1/reports/trial-balance', async request =>
@@ -389,14 +373,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       FROM hospitality.rooms r WHERE r.tenant_id=$1 AND r.outlet_id=$2 ORDER BY r.room_number`,[operator.tenantId,operator.outletId]);
     return {rooms:result.rows.map(r=>({id:r.id,roomNumber:r.room_number,roomType:r.room_type,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),activeStay:r.active_stay}))};
   });
-  app.get('/api/v1/hospitality/reservations',async request=>{
-    const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
-    if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'))throw new DomainError('FORBIDDEN','Your role cannot view reservations.',403);
-    const result=await pool.query(`SELECT b.id,b.room_id,r.room_number,b.guest_name,b.guest_contact,to_char(b.check_in_date,'YYYY-MM-DD') check_in_date,to_char(b.check_out_date,'YYYY-MM-DD') check_out_date,b.nightly_rate_minor,b.tax_rate_bps,b.currency,b.status,b.version
-      FROM hospitality.reservations b JOIN hospitality.rooms r ON r.id=b.room_id AND r.tenant_id=b.tenant_id AND r.outlet_id=b.outlet_id
-      WHERE b.tenant_id=$1 AND b.outlet_id=$2 AND b.status='CONFIRMED' ORDER BY b.check_in_date,b.room_id LIMIT 250`,[operator.tenantId,operator.outletId]);
-    return {reservations:result.rows.map(r=>({id:r.id,roomId:r.room_id,roomNumber:r.room_number,guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.check_out_date,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version)}))};
-  });
+  app.get<{Querystring:HistoryQuery}>('/api/v1/hospitality/reservations',async request=>listHotelReservations(request.operator!,request.query));
   app.get('/api/v1/hospitality/stays',async request=>{
     const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
     if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'))throw new DomainError('FORBIDDEN','Your role cannot view guest stays.',403);
@@ -405,8 +382,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return {stays:result.rows.map(r=>{const subtotal=BigInt(r.nightly_rate_minor)*BigInt(r.nights);const tax=(subtotal*BigInt(r.tax_rate_bps)+5000n)/10000n;if(subtotal+tax>BigInt(Number.MAX_SAFE_INTEGER))throw new DomainError('VALIDATION_FAILED','Stay estimate exceeds the supported money range.');return {id:r.id,roomId:r.room_id,roomNumber:r.room_number,roomVersion:Number(r.room_version),guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.expected_check_out_date,checkedInAt:r.checked_in_at,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),nights:r.nights,estimatedSubtotalMinor:Number(subtotal),estimatedTaxMinor:Number(tax),estimatedTotalMinor:Number(subtotal+tax)}})};
   });
   app.post<{ Body: CommandEnvelope }>('/api/v1/commands',{bodyLimit:2_097_152}, async (request, reply) => {
-    const envelope=request.body; const s=request.operator!;
-    if (!envelope || envelope.protocolVersion!==1 || !/^[0-9a-f-]{36}$/i.test(envelope.commandId ?? '') || typeof envelope.type!=='string' || typeof envelope.deviceId!=='string' || !Number.isFinite(Date.parse(envelope.occurredAt)) || !envelope.expectedVersions || typeof envelope.expectedVersions!=='object' || !envelope.payload || typeof envelope.payload!=='object') throw new DomainError('VALIDATION_FAILED','Command envelope is invalid.');
+    const envelope=parseCommandEnvelope(request.body); const s=request.operator!;
     if (envelope.tenantId && envelope.tenantId!==s.tenantId) throw new DomainError('FORBIDDEN','Command tenant differs from authenticated tenant.',403);
     if(envelope.deviceId!==s.deviceId)throw new DomainError('FORBIDDEN','Command device differs from the authenticated assignment.',403);
     assertImportSourceSafe(envelope);

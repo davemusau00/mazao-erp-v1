@@ -6,6 +6,8 @@ import { CsvColumnMapper, type CsvMappingField } from '../common/CsvColumnMapper
 import { readCsvHeaders, safeCsvCell } from '../../utils/csv';
 import { downloadCsv } from '../../utils/csvDownload';
 import { formatDecimalQuantity, formatBasisPoints, currencyMinorDigits, formatMinorMoneyText, minorToMoneyInput } from '../../utils/money';
+import { HistoryNavigation } from '../common/HistoryNavigation';
+import type { HistoryPage } from '../../types/history';
 
 const fields:CsvMappingField[]=[
   {key:'sku',label:'SKU',required:true,detail:'Matches existing items in update mode.'},
@@ -39,6 +41,8 @@ export function ProductCsvImportWorkspace({onBack}:{onBack:()=>void}) {
   const [mapping,setMapping]=useState<ProductImportMapping>(emptyMapping);const [mode,setMode]=useState<ProductImportMode>('CREATE_ONLY');
   const [batch,setBatch]=useState<ProductImportBatch|null>(null);const [selectedBatchId,setSelectedBatchId]=useState('');
   const [history,setHistory]=useState<ProductImportBatchSummary[]>([]);const [historyLoading,setHistoryLoading]=useState(true);const [historyError,setHistoryError]=useState('');
+  const [historyPage,setHistoryPage]=useState<HistoryPage>();const [historyQuery,setHistoryQuery]=useState('');
+  const historyController=useRef<AbortController|null>(null);const historyAttempt=useRef({more:false,search:''});
   const [busy,setBusy]=useState(false);const [loading,setLoading]=useState(false);const [readingFile,setReadingFile]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');
   const [recoveryReady,setRecoveryReady]=useState(false);const [recoveryError,setRecoveryError]=useState('');
   const [unknownId,setUnknownId]=useState('');const [unknownType,setUnknownType]=useState('');const [validationMissing,setValidationMissing]=useState(false);
@@ -50,11 +54,13 @@ export function ProductCsvImportWorkspace({onBack}:{onBack:()=>void}) {
   const canApply=!!batch&&batch.status==='READY'&&batch.summary.errorCount===0&&!stale&&!dirty&&!blockEdits&&reviewed&&(batch.summary.warningCount===0||warningsAcknowledged)&&batch.createdBy===session.user.id;
   const resetReview=()=>{setReviewed(false);setWarningsAcknowledged(false);setStale(false);setRowPage(0);setRowFilter('ALL');};
 
-  const loadHistory=async()=>{
+  const loadHistory=async(more=false,search=historyQuery)=>{
+    historyController.current?.abort();const controller=new AbortController();historyController.current=controller;
+    historyAttempt.current={more,search};
     setHistoryLoading(true);setHistoryError('');
-    try{setHistory((await apiClient.listProductImports()).batches);}
-    catch(cause){setHistoryError(cause instanceof Error?cause.message:'Import history could not be loaded.');}
-    finally{setHistoryLoading(false);}
+    try{const result=await apiClient.listProductImports(controller.signal,{q:search,...(more&&historyPage?.nextCursor?{after:historyPage.nextCursor}:{})});if(!controller.signal.aborted){setHistory(previous=>more?[...previous,...result.batches]:result.batches);setHistoryPage(result.page);}}
+    catch(cause){if(!controller.signal.aborted)setHistoryError(cause instanceof Error?cause.message:'Import history could not be loaded.');}
+    finally{if(!controller.signal.aborted)setHistoryLoading(false);}
   };
   const loadBatch=async(batchId:string)=>{
     setSelectedBatchId(batchId);setLoading(true);setError('');setBatch(null);resetReview();
@@ -76,7 +82,7 @@ export function ProductCsvImportWorkspace({onBack}:{onBack:()=>void}) {
       setRecoveryReady(true);
     }catch(cause){setRecoveryError(cause instanceof Error?cause.message:'We could not check for unfinished imports.');}
   };
-  useEffect(()=>{if(canImport){void loadHistory();void loadRecovery();heading.current?.focus();}},[]);
+  useEffect(()=>{if(canImport){void loadHistory();void loadRecovery();heading.current?.focus();}return()=>historyController.current?.abort();},[]);
   useEffect(()=>{
     const unload=(event:BeforeUnloadEvent)=>{if(dirty){event.preventDefault();event.returnValue='';}};
     const leave=(event:Event)=>{if(dirty&&!window.confirm('Discard the CSV and column mapping that have not been checked?'))event.preventDefault();};
@@ -173,7 +179,7 @@ export function ProductCsvImportWorkspace({onBack}:{onBack:()=>void}) {
       <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Proposed changes</h2><label className="text-sm text-zinc-300">Show rows<select value={rowFilter} onChange={event=>{setRowFilter(event.target.value);setRowPage(0);}} className="ml-2 min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-2"><option value="ALL">All actions</option><option value="CREATE">Create</option><option value="UPDATE">Update</option><option value="UNCHANGED">Unchanged</option><option value="INVALID">Invalid</option></select></label></div><div className="mt-4 grid gap-3">{visibleRows.slice(rowPage*50,(rowPage+1)*50).map(row=><ImportRow key={row.rowNumber+'-'+row.sku} row={row}/>)}{visibleRows.length===0&&<p className="p-4 text-sm text-zinc-400">No rows match this filter.</p>}</div><Pagination page={rowPage} count={visibleRows.length} onChange={setRowPage}/></section>
       {batch.status!=='APPLIED'&&<section className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"><h2 className="text-lg font-semibold">Confirm the complete import</h2><p className="text-sm leading-6 text-zinc-400">All rows apply together. Any validation error or changed baseline blocks the complete import. Updates preserve existing stock and cannot change base units or currency.</p><label className="flex min-h-11 items-start gap-3 text-sm text-zinc-300"><input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-blue-500" checked={reviewed} disabled={blockEdits||batch.status!=='READY'||stale} onChange={event=>setReviewed(event.target.checked)}/><span>I reviewed every proposed change and opening stock value</span></label>{batch.summary.warningCount>0&&<label className="flex min-h-11 items-start gap-3 text-sm text-zinc-300"><input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-blue-500" checked={warningsAcknowledged} disabled={blockEdits||batch.status!=='READY'||stale} onChange={event=>setWarningsAcknowledged(event.target.checked)}/><span>I acknowledge all import warnings</span></label>}<div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-4"><span className="text-sm text-zinc-400">{batch.summary.errorCount>0?'Apply is blocked until all errors are corrected.':'Reviewed confirmation is required.'}</span><button type="button" className={button+' border-blue-600 bg-blue-600 font-semibold text-white'} disabled={!canApply} onClick={apply}>{busy?'Applying…':'Apply reviewed import'}</button></div></section>}
     </>}
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs text-zinc-400">Showing the latest 50 import reviews</p></div><button type="button" className={button} disabled={busy||historyLoading} onClick={()=>void loadHistory()}><RefreshCw size={15}/>Refresh history</button></div>{historyError&&<p role="alert" className="mt-3 text-sm text-rose-300">{historyError}</p>}{historyLoading?<p role="status" className="py-5 text-zinc-400">Loading import history…</p>:history.length===0?<p className="py-5 text-sm text-zinc-400">No import reviews have been recorded.</p>:<div className="mt-3 space-y-2">{history.map(item=><article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-3"><div className="min-w-0"><h3 className="break-all text-sm font-semibold">{item.fileName}</h3><p className="mt-1 text-xs text-zinc-400">{actionStatusLabel(item.status)} · {item.summary.rowCount} rows · {item.summary.errorCount} errors · {date(item.createdAt)}</p></div><button type="button" className={button} disabled={blockEdits} aria-label={'Review import '+item.fileName} onClick={()=>{if(!dirty||window.confirm('Discard the CSV changes that have not been validated?'))void loadBatch(item.id);}}>Review import</button></article>)}</div>}</section>
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs text-zinc-400">Import reviews, newest first</p></div><button type="button" className={button} disabled={busy||historyLoading} onClick={()=>void loadHistory()}><RefreshCw size={15}/>Refresh history</button></div>{historyError&&<p role="alert" className="mt-3 text-sm text-rose-300">{historyError}<button type="button" className={button+' ml-3'} onClick={()=>void loadHistory(historyAttempt.current.more,historyAttempt.current.search)}>Retry import history</button></p>}{historyLoading?<p role="status" className="py-5 text-zinc-400">Loading import history…</p>:history.length===0?<p className="py-5 text-sm text-zinc-400">No import reviews match this search.</p>:<div className="mt-3 space-y-2">{history.map(item=><article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 p-3"><div className="min-w-0"><h3 className="break-all text-sm font-semibold">{item.fileName}</h3><p className="mt-1 text-xs text-zinc-400">{actionStatusLabel(item.status)} · {item.summary.rowCount} rows · {item.summary.errorCount} errors · {date(item.createdAt)}</p></div><button type="button" className={button} disabled={blockEdits} aria-label={'Review import '+item.fileName} onClick={()=>{if(!dirty||window.confirm('Discard the CSV changes that have not been validated?'))void loadBatch(item.id);}}>Review import</button></article>)}</div>}<HistoryNavigation page={historyPage} loaded={history.length} busy={historyLoading} label="import history" onMore={()=>void loadHistory(true)} onSearch={value=>{setHistoryQuery(value);setHistory([]);setHistoryPage(undefined);void loadHistory(false,value);}}/></section>
   </section>;
 }
 

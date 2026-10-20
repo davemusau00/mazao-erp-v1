@@ -255,7 +255,7 @@ test('staff stays usable when the independent business configuration read fails'
   await page.getByRole('heading',{name:'Manage your business'}).waitFor();
   await page.locator('.manage-grid').getByRole('button',{name:/^Staff/}).click();
   await expect(page.getByRole('heading',{name:'Staff access'})).toBeVisible();
-  await expect(page.getByText('No staff accounts are recorded for this business.')).toBeVisible();
+  await expect(page.getByText('No staff accounts match this search.')).toBeVisible();
   await expect(page.getByRole('alert').filter({hasText:'Retry loading settings'})).toBeVisible();
 });
 
@@ -282,10 +282,15 @@ test('management overview exposes connected setup and disabled admin modules wit
   await page.goto('/');
   await page.getByRole('button',{name:'Manage',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Manage your business'})).toBeVisible();
-  for(const label of ['Roles and permissions','Assets and maintenance','Supplier accounts and payables','Connection and recovery','Payment reconciliation']){
+  for(const label of ['Roles and permissions','Assets and maintenance','Connection and recovery']){
     const card=page.getByRole('button',{name:new RegExp("^"+label)});
     await expect(card).toBeDisabled();
     await expect(card).toContainText('Unavailable');
+  }
+  for(const label of ['Supplier accounts and payables','Expenses','Accounting periods','Payment reconciliation']){
+    const card=page.getByRole('button',{name:new RegExp("^"+label)});
+    await expect(card).toBeDisabled();
+    await expect(card).toContainText('Requires access');
   }
   for(const label of ['Staff','Workspace assignments']){
     const card=page.getByRole('button',{name:new RegExp("^"+label)});

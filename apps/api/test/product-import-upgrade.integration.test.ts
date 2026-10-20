@@ -30,6 +30,8 @@ if(!sourceUrl){
       await fixture.query('INSERT INTO identity.users(id,email,password_hash,full_name) VALUES($1,$2,\'fixture-only-invalid-hash\',\'Legacy operator\')',[user,'legacy-'+user+'@example.invalid']);
       await fixture.query('INSERT INTO identity.memberships(tenant_id,user_id,role) VALUES($1,$2,\'admin\')',[tenant,user]);
       await fixture.query('INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,\'Legacy assignment\')',[device,tenant,outlet,user]);
+      await fixture.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status,response,completed_at)
+        VALUES($1,$2,$3,$4,'staff.password.set',$5,'REJECTED','{"status":"REJECTED","code":"VERSION_CONFLICT"}'::jsonb,now())`,[tenant,randomUUID(),user,device,Buffer.from('legacy-nonreplayable-fingerprint')]);
       await fixture.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps)
         VALUES($1,$2,$3,'LEGACY-001','Legacy item','each','KES',250,100,1600)`,[product,tenant,outlet]);
       await fixture.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,1,100)',[tenant,outlet,product]);
@@ -54,7 +56,8 @@ if(!sourceUrl){
         // snapshot separately below.
         const receipts=await fixture!.query("SELECT to_jsonb(o)-'operator_name_snapshot' AS prior_evidence FROM commerce.orders o ORDER BY id");
         const products=await fixture!.query('SELECT id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,active,version FROM catalog.products ORDER BY id');
-        return {balances:balances.rows,movements:movements.rows,journals:journals.rows,lines:lines.rows,receipts:receipts.rows,products:products.rows};
+        const commands=await fixture!.query('SELECT * FROM system.commands ORDER BY tenant_id,command_id');
+        return {balances:balances.rows,movements:movements.rows,journals:journals.rows,lines:lines.rows,receipts:receipts.rows,products:products.rows,commands:commands.rows};
       };
       const before=await snapshot();
       migrate();migrate();
@@ -64,7 +67,8 @@ if(!sourceUrl){
       const metadata=await fixture.query('SELECT category,barcode,reorder_level::text,last_import_batch_id FROM catalog.products WHERE id=$1',[product]);
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,21,'the complete additive upgrade reaches the current migration');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.credential_operations')).rows[0].total,0,'upgrade leaves pre-existing credential commands unchanged without inventing metadata');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,22,'the complete additive upgrade reaches the current migration');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

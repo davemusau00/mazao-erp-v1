@@ -10,6 +10,7 @@ const messages: Record<string, string> = {
   VALIDATION_FAILED: 'Check the amounts and required details, then try again.',
   VERSION_CONFLICT: 'This information changed on another device. Refresh and review the latest details.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
+  CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
   INSUFFICIENT_CASH: 'There is not enough cash in this till for this action. Review the cash-up details.',
   NOT_FOUND: 'This record could not be found in your workspace. Refresh and try again.',

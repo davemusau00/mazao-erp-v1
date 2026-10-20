@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppShell, canOpenWorkspace, type ActiveTab } from './components/layout/AppShell';
 import { PointOfSaleView } from './components/pos/PointOfSaleView';
 import { InventoryView } from './components/inventory/InventoryView';
@@ -20,6 +20,7 @@ import { BackendStockCountWorkspace } from './components/inventory/BackendStockC
 import { apiClient, type BackendSaleReceipt } from './services/apiClient';
 import { SignInForm } from './components/auth/SignInForm';
 import { normalizedWorkspaceRoute, workspaceInitialReads } from './services/workspacePerformance';
+import type { AccountingArea } from './types/accounting';
 
 function WorkspaceRenderProbe({workspace}:{workspace:string}){
   const startedAt=useRef(performance.now());
@@ -36,6 +37,7 @@ export default function App() {
   const [activeTab,setActiveTab]=useState<ActiveTab>('today');
   const [purchaseStartTab,setPurchaseStartTab]=useState<'orders'|'receive'>('orders');
   const [stockStartView,setStockStartView]=useState<'inventory'|'import'>('inventory');
+  const [moneyStartArea,setMoneyStartArea]=useState<AccountingArea|undefined>();
   const [session,setSession]=useState(apiClient.getSession());
   const visibleTab:ActiveTab=session&&canOpenWorkspace(session,activeTab)?activeTab:'today';
   const [sessionBootstrap,setSessionBootstrap]=useState<'checking'|'ready'|'error'>('checking');
@@ -58,7 +60,7 @@ export default function App() {
     return()=>{mounted=false;unsubscribe();};
   },[]);
   useEffect(()=>{++receiptRequest.current;setReceiptOrderId(null);setReceipt(null);setReceiptLoading(false);setReceiptError('');setActiveTab('today');},[session?.user.id]);
-  const changeWorkspace=(tab:ActiveTab)=>{workspaceNavigationStarted.current=performance.now();setActiveTab(tab);};
+  const changeWorkspace=(tab:ActiveTab)=>{workspaceNavigationStarted.current=performance.now();if(tab!=='money')setMoneyStartArea(undefined);setActiveTab(tab);};
   const navigate=(tab:ActiveTab):boolean=>{
     if(!session||!canOpenWorkspace(session,tab))return false;
     if(tab!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return false;
@@ -66,6 +68,7 @@ export default function App() {
     changeWorkspace(tab);
     return true;
   };
+  const openAccounting=(area:AccountingArea)=>{if(navigate('money'))setMoneyStartArea(area);};
   const openReceipt=(orderId:string)=>{
     const requestId=++receiptRequest.current;
     setReceiptOrderId(orderId);setReceipt(null);setReceiptLoading(true);setReceiptError('');
@@ -79,7 +82,7 @@ export default function App() {
     if(measuredWorkspaceIdentity.current!==identity){measuredWorkspaceIdentity.current=identity;workspaceNavigationStarted.current=performance.now();}
     const startedAt=workspaceNavigationStarted.current;
     const workspace=visibleTab;
-    const expected=new Set(workspaceInitialReads(workspace,session));
+    const expected=new Set(workspaceInitialReads(workspace,session,moneyStartArea));
     const settled=new Set<string>();
     let failed=false;let frame=0;let emitted=false;
     const emitUsable=()=>{
@@ -108,7 +111,7 @@ export default function App() {
       window.removeEventListener('mazao:api-request-failed',failedRead);
       if(frame)cancelAnimationFrame(frame);
     };
-  },[visibleTab,session?.user.id,session?.tenant.id,session?.outlet.id]);
+  },[visibleTab,session?.user.id,session?.tenant.id,session?.outlet.id,moneyStartArea]);
 
   if(sessionBootstrap==='checking')return <SessionBootstrapScreen status="checking"/>;
   if(sessionBootstrap==='error')return <SessionBootstrapScreen status="error" message={restoreError} onRetry={()=>{
@@ -127,12 +130,12 @@ export default function App() {
       {visibleTab==='stock'&&<InventoryView initialView={stockStartView} onInitialViewConsumed={()=>setStockStartView('inventory')} onOpenStockExceptions={()=>navigate('stock-exceptions')} onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}
       {visibleTab==='stock-count'&&<BackendStockCountWorkspace/>}
       {visibleTab==='stock-exceptions'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading stock exception records…</div>}><StockExceptionsWorkspace onNavigate={navigate}/></Suspense>}
-      {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')}/>}
+      {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')} onOpenSupplierAccounts={()=>openAccounting('suppliers')}/>}
       {visibleTab==='customers'&&<BackendCustomerWorkspace onNavigate={navigate}/>}
       {visibleTab==='shifts'&&<ShiftManagerView/>}
-      {visibleTab==='money'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading financial workspace…</div>}><MoneyWorkspace/></Suspense>}
+      {visibleTab==='money'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading financial workspace…</div>}><MoneyWorkspace initialAccountingArea={moneyStartArea}/></Suspense>}
       {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace onNavigate={navigate}/></Suspense>}
-      {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
+      {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')} onOpenAccounting={openAccounting}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>
     {receiptOrderId&&<BackendReceiptModal receipt={receipt} loading={receiptLoading} error={receiptError} onRetry={()=>openReceipt(receiptOrderId)} onClose={closeReceipt}/>}
