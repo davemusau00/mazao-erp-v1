@@ -8,6 +8,7 @@ import { lazy, Suspense } from 'react';
 const BackendOperationalAnalyticsWorkspace = lazy(() => import('./components/analytics/BackendOperationalAnalyticsWorkspace').then(module => ({ default: module.BackendOperationalAnalyticsWorkspace })));
 const BackendManageWorkspace = lazy(() => import('./components/manage/BackendManageWorkspace').then(module => ({ default: module.BackendManageWorkspace })));
 const MoneyWorkspace = lazy(() => import('./components/finance/MoneyWorkspace').then(module => ({ default: module.MoneyWorkspace })));
+const StockExceptionsWorkspace = lazy(() => import('./components/inventory/StockExceptionsWorkspace').then(module => ({ default: module.StockExceptionsWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
@@ -123,13 +124,14 @@ export default function App() {
       {visibleTab==='sales'&&<SalesHistoryView onReprintOrder={openReceipt}/>}
       {visibleTab==='hotel'&&<BackendHotelWorkspace/>}
       {visibleTab==='reservations'&&<BackendHotelWorkspace initialView="reservations"/>}
-      {visibleTab==='stock'&&<InventoryView initialView={stockStartView} onInitialViewConsumed={()=>setStockStartView('inventory')} onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}
+      {visibleTab==='stock'&&<InventoryView initialView={stockStartView} onInitialViewConsumed={()=>setStockStartView('inventory')} onOpenStockExceptions={()=>navigate('stock-exceptions')} onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}
       {visibleTab==='stock-count'&&<BackendStockCountWorkspace/>}
+      {visibleTab==='stock-exceptions'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading stock exception records…</div>}><StockExceptionsWorkspace onNavigate={navigate}/></Suspense>}
       {visibleTab==='purchasing'&&<ProcurementWorkspace initialTab={purchaseStartTab} onInitialTabConsumed={()=>setPurchaseStartTab('orders')}/>}
       {visibleTab==='customers'&&<BackendCustomerWorkspace onNavigate={navigate}/>}
       {visibleTab==='shifts'&&<ShiftManagerView/>}
       {visibleTab==='money'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading financial workspace…</div>}><MoneyWorkspace/></Suspense>}
-      {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace/></Suspense>}
+      {visibleTab==='reports'&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading operational reports…</div>}><BackendOperationalAnalyticsWorkspace onNavigate={navigate}/></Suspense>}
       {(visibleTab==='manage'||visibleTab==='onboarding')&&<Suspense fallback={<div role="status" className="p-6 text-sm text-zinc-400">Loading business administration…</div>}><BackendManageWorkspace key={visibleTab} initialSection={visibleTab==='onboarding'?'readiness':'overview'} onNavigate={navigate} onOpenImport={()=>setStockStartView('import')}/></Suspense>}
       {visibleTab==='help'&&<HelpWorkspace onNavigate={navigate}/>}
     </AppShell>

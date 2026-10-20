@@ -7,7 +7,7 @@ import type { AccountingControls, AccountingRecordKind, AccountingRecordPage, Ex
 const categories = [{ code: 'OPERATING_EXPENSE', label: 'Other operating expense' }, { code: 'RENT_EXPENSE', label: 'Rent' }, { code: 'UTILITIES_EXPENSE', label: 'Utilities' }] as const;
 const paymentAccounts = [{ code: 'BANK_CONTROL', label: 'Bank (manually recorded)' }, { code: 'MOBILE_MONEY_CONTROL', label: 'M-Pesa (manually recorded)' }] as const;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const postingCommands = new Set(['inventory.receive', 'inventory.count.post', 'shift.open', 'shift.cash.movement', 'shift.close', 'sales.order.settle', 'sales.order.refund', 'customers.repayment', 'hotel.checkout', 'catalog.import.apply', 'finance.expense.record', 'finance.expense.reverse', 'finance.expense.reclassify', 'finance.supplier.invoice', 'finance.supplier.invoice.reverse', 'finance.supplier.payment']);
+const postingCommands = new Set(['inventory.receive', 'inventory.count.post', 'inventory.sale_shortfall.resolve', 'shift.open', 'shift.cash.movement', 'shift.close', 'sales.order.settle', 'sales.order.refund', 'customers.repayment', 'hotel.checkout', 'catalog.import.apply', 'finance.expense.record', 'finance.expense.reverse', 'finance.expense.reclassify', 'finance.supplier.invoice', 'finance.supplier.invoice.reverse', 'finance.supplier.payment']);
 const financePostingCommands = new Set(['finance.expense.record', 'finance.expense.reverse', 'finance.expense.reclassify', 'finance.supplier.invoice', 'finance.supplier.invoice.reverse', 'finance.supplier.payment']);
 
 function record(value: unknown, keys: readonly string[]) {
@@ -267,6 +267,10 @@ async function readControls(client: PoolClient, session: ApiSession): Promise<Ac
       coalesce((SELECT sum(balance_minor) FROM finance.customer_accounts WHERE tenant_id=$1),0)::text ar_subledger,
       coalesce((SELECT balance FROM ledger WHERE account_code='INVENTORY'),0)::text inventory_ledger,
       coalesce((SELECT sum(inventory_value_minor) FROM inventory.balances WHERE tenant_id=$1),0)::text inventory_subledger,
+      coalesce((SELECT -balance FROM ledger WHERE account_code='UNRECORDED_STOCK_CLEARING'),0)::text stock_clearing_ledger,
+      coalesce((SELECT sum(s.provisional_cogs_minor-COALESCE(r.released,0)) FROM inventory.sale_shortfalls s
+        LEFT JOIN LATERAL (SELECT sum(x.provisional_cogs_released_minor) released FROM inventory.sale_shortfall_resolutions x WHERE x.tenant_id=s.tenant_id AND x.outlet_id=s.outlet_id AND x.shortfall_id=s.id) r ON true
+        WHERE s.tenant_id=$1),0)::text stock_clearing_subledger,
       coalesce((SELECT -balance FROM ledger WHERE account_code='ACCOUNTS_PAYABLE'),0)::text ap_ledger,
       coalesce((SELECT sum(amount_minor-paid_minor) FROM finance.supplier_invoices WHERE tenant_id=$1 AND status='OPEN'),0)::text ap_subledger,
       coalesce((SELECT jsonb_agg(jsonb_build_object('accountCode',account_code,'balanceMinor',balance::text)) FROM ledger WHERE account_code IN ('BANK_CONTROL','MOBILE_MONEY_CONTROL') AND balance<0),'[]'::jsonb) negative_accounts`, [session.tenantId]);
@@ -281,10 +285,11 @@ async function readControls(client: PoolClient, session: ApiSession): Promise<Ac
   const check = (ledger: string, subledger: string) => ({ ledgerMinor: ledger, subledgerMinor: subledger, differenceMinor: (BigInt(ledger)-BigInt(subledger)).toString(), balanced: BigInt(ledger) === BigInt(subledger) });
   return {
     generatedAt: new Date().toISOString(), businessDate: current.business_date, currency: current.currency, timeZone: current.time_zone,
-    controls: { receivables: check(r.ar_ledger,r.ar_subledger), inventory: check(r.inventory_ledger,r.inventory_subledger), payables: check(r.ap_ledger,r.ap_subledger) },
+    controls: { receivables: check(r.ar_ledger,r.ar_subledger), inventory: check(r.inventory_ledger,r.inventory_subledger), payables: check(r.ap_ledger,r.ap_subledger),
+      stockExceptionClearing: check(r.stock_clearing_ledger,r.stock_clearing_subledger) },
     incomingMpesa: { recordedMinor: m.recorded_minor, matchedMinor: m.matched_minor, unmatchedMinor: (BigInt(m.recorded_minor)-BigInt(m.matched_minor)).toString(), recordedCount: m.recorded_count, matchedCount: m.matched_count, unmatchedCount: (BigInt(m.recorded_count)-BigInt(m.matched_count)).toString(), unmatchedStatementMinor: m.unmatched_statement_minor, unmatchedStatementCount: m.unmatched_statement_count },
     coverage: { status: 'PARTIAL', negativeNoncashAccounts: r.negative_accounts,
-      exclusions: ['Bank balances and outgoing M-Pesa entries are not statement reconciled. A negative control balance does not prove money is available.', 'Incoming M-Pesa matching covers recorded entries only; no automated provider verification or statement completeness is claimed.', 'Inventory may include documented opening estimates and reference-cost estimates from zero-stock count gains.', 'Tax recovery, payroll, depreciation, supplier credits and complete financial statements need their separately supported source workflows.'] },
+      exclusions: ['Bank balances and outgoing M-Pesa entries are not statement reconciled. A negative control balance does not prove money is available.', 'Incoming M-Pesa matching covers recorded entries only; no automated provider verification or statement completeness is claimed.', 'Inventory may include documented opening estimates and reference-cost estimates from zero-stock count gains.', 'Stock exception clearing tracks provisional cost; it is not a supplier payable.', 'Tax recovery, payroll, depreciation, supplier credits and complete financial statements need their separately supported source workflows.'] },
     categories: categories.map(item => ({...item})), paymentAccounts: paymentAccounts.map(item => ({...item})),
     permissions: { manage: ROLE_PERMISSIONS[session.role].includes('finance.manage'), close: ROLE_PERMISSIONS[session.role].includes('finance.close') },
   };
@@ -330,9 +335,15 @@ async function period(client: PoolClient, session: ApiSession, envelope: Command
         (SELECT count(*)::text FROM (SELECT j.id FROM finance.journal_entries j LEFT JOIN finance.journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_entry_id=j.id
           WHERE j.tenant_id=$1 AND coalesce(j.effective_date,(j.posted_at AT TIME ZONE $4)::date) BETWEEN $2::date AND $3::date
           GROUP BY j.id HAVING coalesce(sum(l.debit_minor),0)=0 OR coalesce(sum(l.debit_minor),0)<>coalesce(sum(l.credit_minor),0)) bad) unbalanced_entries`, [session.tenantId,r.from_text,r.to_text,current.time_zone]);
-      const failures = unmatched.rows[0];
-      if (Object.values(controls.controls).some(control=>!control.balanced) || Object.values(failures).some(count=>BigInt(count as string)>0n)) throw new DomainError('PERIOD_RECONCILIATION_FAILED','Resolve ledger differences and unmatched incoming M-Pesa evidence before closing this period.',409,{controls:controls.controls,unmatchedPayments:failures.payments,unmatchedStatementLines:failures.statement_lines,unbalancedEntries:failures.unbalanced_entries});
-      checks = { generatedAt:controls.generatedAt,controls:controls.controls,unmatchedPayments:failures.payments,unmatchedStatementLines:failures.statement_lines,unbalancedEntries:failures.unbalanced_entries,coverage:controls.coverage };
+      const openExceptions = await client.query(`SELECT count(*)::text event_count,COALESCE(sum(s.quantity-s.resolved_quantity),0)::text quantity,
+          COALESCE(sum(s.provisional_cogs_minor-COALESCE(r.released,0)),0)::text provisional_cogs_minor
+        FROM inventory.sale_shortfalls s JOIN commerce.orders o ON o.tenant_id=s.tenant_id AND o.outlet_id=s.outlet_id AND o.id=s.order_id
+        LEFT JOIN LATERAL (SELECT sum(x.provisional_cogs_released_minor) released FROM inventory.sale_shortfall_resolutions x WHERE x.tenant_id=s.tenant_id AND x.outlet_id=s.outlet_id AND x.shortfall_id=s.id) r ON true
+        WHERE s.tenant_id=$1 AND s.resolved_quantity<s.quantity AND (o.created_at AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date`, [session.tenantId,r.from_text,r.to_text,current.time_zone]);
+      const failures = unmatched.rows[0], exceptions = openExceptions.rows[0];
+      const counts = [...Object.values(failures), exceptions.event_count];
+      if (Object.values(controls.controls).some(control=>!control.balanced) || counts.some(count=>BigInt(count as string)>0n)) throw new DomainError('PERIOD_RECONCILIATION_FAILED','Resolve ledger differences, unmatched incoming M-Pesa evidence, and stock exceptions from this period before closing it.',409,{controls:controls.controls,unmatchedPayments:failures.payments,unmatchedStatementLines:failures.statement_lines,unbalancedEntries:failures.unbalanced_entries,openStockExceptions:exceptions.event_count,unresolvedExceptionQuantity:exceptions.quantity,unresolvedExceptionProvisionalCogsMinor:exceptions.provisional_cogs_minor});
+      checks = { generatedAt:controls.generatedAt,controls:controls.controls,unmatchedPayments:failures.payments,unmatchedStatementLines:failures.statement_lines,unbalancedEntries:failures.unbalanced_entries,openStockExceptions:exceptions.event_count,unresolvedExceptionQuantity:exceptions.quantity,unresolvedExceptionProvisionalCogsMinor:exceptions.provisional_cogs_minor,coverage:controls.coverage };
     }
     await client.query('UPDATE finance.accounting_periods SET status=$3,version=version+1,reason=$4,operator_name_snapshot=$5,changed_at=clock_timestamp() WHERE tenant_id=$1 AND id=$2',[session.tenantId,periodId,next,reason,session.fullName]);
   }

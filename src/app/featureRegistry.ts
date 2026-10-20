@@ -22,6 +22,7 @@ export const workspaceFeatures: WorkspaceFeature[] = [
   { id: 'service', label: 'Tables & kitchen', description: 'Restaurant orders and kitchen preparation are unavailable', group: 'work', capability: 'hospitality', discoverability: 'all', availability: 'not_connected' },
   { id: 'stock', label: 'Stock', description: 'Items, movements and counts', group: 'work', capability: 'inventory', anyPermissions: ['catalog.manage', 'inventory.receive'], discoverability: 'authorized', availability: 'connected' },
   { id: 'stock-count', label: 'Count stock', description: 'Scan and review a count', group: 'work', capability: 'inventory', anyPermissions: ['inventory.count', 'inventory.count.approve'], discoverability: 'authorized', availability: 'connected' },
+  { id: 'stock-exceptions', label: 'Stock exceptions', description: 'Review confirmed sales with unrecorded stock', group: 'work', capability: 'inventory', anyPermissions: ['inventory.shortfall.view'], discoverability: 'authorized', availability: 'connected' },
   { id: 'purchasing', label: 'Purchasing', description: 'Suppliers and deliveries', group: 'work', capability: 'inventory', anyPermissions: ['inventory.receive'], discoverability: 'authorized', availability: 'partial' },
   { id: 'hotel', label: 'Hotel', description: 'Rooms and guest bills', group: 'work', capability: 'hospitality', anyPermissions: ['hotel.frontdesk', 'hotel.manage', 'hotel.housekeeping'], discoverability: 'authorized', availability: 'partial' },
   { id: 'reservations', label: 'Reservations', description: 'Check dates and room options', group: 'work', capability: 'hospitality', anyPermissions: ['hotel.frontdesk', 'hotel.manage'], discoverability: 'authorized', availability: 'partial' },
@@ -34,7 +35,7 @@ export const workspaceFeatures: WorkspaceFeature[] = [
   { id: 'help', label: 'Help', description: 'Guides and recovery steps', group: 'support', discoverability: 'all', availability: 'connected' },
 ];
 
-export type ManagementFeatureId = 'business' | 'staff' | 'permissions' | 'devices' | 'imports' | 'assets' | 'suppliers' | 'offline' | 'payments' | 'capabilities' | 'readiness' | 'outlet';
+export type ManagementFeatureId = 'business' | 'staff' | 'permissions' | 'devices' | 'imports' | 'assets' | 'suppliers' | 'offline' | 'payments' | 'capabilities' | 'readiness' | 'outlet' | 'stockExceptions';
 export interface ManagementFeature {
   id: ManagementFeatureId;
   title: string;
@@ -45,7 +46,7 @@ export interface ManagementFeature {
   requiredPermissions?: string[];
   discoverability: Discoverability;
   route?: WorkspaceId;
-  section?: 'business' | 'outlet' | 'capabilities' | 'readiness' | 'permissions' | 'staff' | 'devices';
+  section?: 'business' | 'outlet' | 'capabilities' | 'readiness' | 'permissions' | 'staff' | 'devices' | 'stockExceptions';
   explanation: string;
 }
 
@@ -62,6 +63,7 @@ export const managementFeatures: ManagementFeature[] = [
   { id: 'capabilities', title: 'Business capabilities', description: 'Services enabled for this business', status: 'Available', availability: 'connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'capabilities', explanation: 'Choose the services this business uses.' },
   { id: 'readiness', title: 'Setup checklist', description: 'First-sale setup checks', status: 'Limited', availability: 'partial', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'readiness', explanation: 'Review the setup needed for a first sale. Complete your wider business checks separately.' },
   { id: 'outlet', title: 'Outlet and receipts', description: 'Current outlet details and receipt text', status: 'Available', availability: 'connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', section: 'outlet', explanation: 'Manage outlet contact details, receipt text, the business logo and optional payment QR image.' },
+  { id: 'stockExceptions', title: 'Stock exception sales', description: 'Allow confirmed sales against a recorded stock shortfall', status: 'Available', availability: 'connected', capability: 'inventory', requiredPermissions: ['inventory.shortfall.configure'], discoverability: 'authorized', section: 'stockExceptions', explanation: 'Set the current outlet policy for confirmed sales when recorded stock is short.' },
 ];
 
 export function featureState(session: BackendSession, feature: Pick<WorkspaceFeature, 'capability' | 'anyPermissions' | 'availability'>): FeatureAvailability {

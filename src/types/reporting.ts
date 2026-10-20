@@ -3,14 +3,15 @@ export interface ItemReportRow {
   productId:string;sku:string;name:string;unit:string;quantity:string;returnedQuantity:string;
   originalSubtotalMinor:string;discountMinor:string;revenueMinor:string;taxMinor:string;
   refundSubtotalMinor:string;refundTaxMinor:string;refundDiscountMinor:string;
-  netRevenueMinor:string;cogsMinor:string;restockedCogsMinor:string;netCogsMinor:string;grossProfitMinor:string;orderCount:string;
+  netRevenueMinor:string;cogsMinor:string;verifiedCogsMinor:string;provisionalCogsMinor:string;cogsAdjustmentMinor:string;restockedCogsMinor:string;netCogsMinor:string;grossProfitMinor:string;orderCount:string;
 }
-export type ItemReportTotals=Pick<ItemReportRow,'originalSubtotalMinor'|'discountMinor'|'revenueMinor'|'taxMinor'|'refundSubtotalMinor'|'refundTaxMinor'|'refundDiscountMinor'|'netRevenueMinor'|'cogsMinor'|'restockedCogsMinor'|'netCogsMinor'|'grossProfitMinor'>;
+export type ItemReportTotals=Pick<ItemReportRow,'originalSubtotalMinor'|'discountMinor'|'revenueMinor'|'taxMinor'|'refundSubtotalMinor'|'refundTaxMinor'|'refundDiscountMinor'|'netRevenueMinor'|'cogsMinor'|'verifiedCogsMinor'|'provisionalCogsMinor'|'cogsAdjustmentMinor'|'restockedCogsMinor'|'netCogsMinor'|'grossProfitMinor'>;
 export interface BackendItemReport {
   reportType:'ITEM_PERFORMANCE';scope:'OUTLET';tenantId:string;outletId:string;outletName:string;
   currency:string;timeZone:string;from:string;to:string;generatedAt:string;asOf:string;
   total:string;limit:number;nextAfter:string|null;items:ItemReportRow[];totals:ItemReportTotals;
-  coverage:{completeTotals:true;namePolicy:string;returnsPolicy:string;snapshotPolicy:string};
+  stockExceptionCostCoverage:{initialProvisionalCogsMinor:string;unresolvedProvisionalCogsMinor:string;asOf:string;marginIncludesUnresolvedEstimate:boolean};
+  coverage:{completeTotals:true;namePolicy:string;returnsPolicy:string;costPolicy:string;snapshotPolicy:string};
 }
 export interface ItemReportQuery {from:string;to:string;limit?:number;after?:string;asOf?:string}
 export interface ItemEventsQuery extends ItemReportQuery {productId:string}

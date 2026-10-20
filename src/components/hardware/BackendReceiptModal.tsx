@@ -66,6 +66,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
                   <span>{formatDecimalQuantity(line.quantity)}{' × '}{money(line.unitPriceMinor, receipt.currency)}</span>
                   <span className="shrink-0 text-right font-medium">{money(line.subtotalMinor, receipt.currency)}</span>
                 </div>
+                {line.unrecordedQuantity&&line.unrecordedQuantity!=='0'&&<div className="mt-1 text-[10px] text-amber-800">Recorded stock was short by {formatDecimalQuantity(line.unrecordedQuantity)}; physical availability was confirmed.</div>}
                 {BigInt(line.discountMinor ?? '0') > 0n && <div className="mt-1 text-[10px] text-zinc-600"><div>Original value {money(line.originalSubtotalMinor ?? (BigInt(line.subtotalMinor) + BigInt(line.discountMinor ?? '0')).toString(), receipt.currency)}</div><div>Item discount {money(line.discountMinor!, receipt.currency)}{line.discountReason ? ` · ${line.discountReason}` : ''}</div></div>}
               </div>
             ))}
