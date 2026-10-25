@@ -106,3 +106,32 @@ test('all four migrated result schemas describe actual handler result fields',()
   };
   for(const [type,value] of Object.entries(results))assertContract(value,COMMAND_CATALOGUE[type].outputSchema);
 });
+
+test('catalogue maintenance schemas require complete reviewed metadata and reject immutable or unknown intent',()=>{
+  const id=randomUUID(),target=randomUUID();
+  const base={protocolVersion:1 as const,commandId:randomUUID(),deviceId:randomUUID(),occurredAt:'2026-10-25T11:00:00Z',expectedVersions:{}};
+  const payloads:Record<string,Record<string,unknown>>={
+    'catalog.product.update':{productId:id,name:'Tea',sellingPriceMinor:1234,costPriceMinor:275,taxRateBps:1600,category:'Pantry',barcode:null,reorderLevel:'0.25',reason:'Reviewed metadata'},
+    'catalog.product.set_active':{productId:id,active:false,reason:'Discontinued'},
+    'catalog.category.create':{name:'Pantry'},
+    'catalog.category.update':{categoryId:id,name:'Dry pantry',reason:'Clarify label'},
+    'catalog.category.set_active':{categoryId:id,active:false,reason:'No active products'},
+    'catalog.category.merge':{sourceCategoryId:id,targetCategoryId:target,reason:'Reviewed duplicate label'},
+  };
+  for(const [type,payload] of Object.entries(payloads)){
+    const entry=COMMAND_CATALOGUE[type];assert.equal(entry.validation,'SCHEMA_AND_DOMAIN');
+    assert.deepEqual(entry.permissions,['catalog.manage']);assert.deepEqual(entry.capabilities,['inventory']);assert.equal(entry.offlineMode,'ONLINE_ONLY');
+    validateCommandPayload({...base,type,payload});
+    for(const key of Object.keys(payload)){
+      const missing={...payload};delete missing[key];
+      assert.throws(()=>validateCommandPayload({...base,type,payload:missing}),DomainError,`${type} missing ${key}`);
+    }
+    assert.throws(()=>validateCommandPayload({...base,type,payload:{...payload,unknownIntent:true}}),DomainError);
+  }
+  for(const invalid of [{sku:'NEW'},{baseUnit:'kg'},{currency:'USD'},{sellingPriceMinor:'1234'},{barcode:123},{reorderLevel:'1e3'},{name:'Tea\nname'},{category:'Pantry\n'}]){
+    assert.throws(()=>validateCommandPayload({...base,type:'catalog.product.update',payload:{...payloads['catalog.product.update'],...invalid}}),DomainError,JSON.stringify(invalid));
+  }
+  validateCommandPayload({...base,type:'catalog.product.update',payload:{...payloads['catalog.product.update'],barcode:'0000123'}});
+  validateCommandPayload({...base,type:'catalog.product.update',payload:{...payloads['catalog.product.update'],category:'',barcode:null}});
+  for(const type of ['catalog.category.create','catalog.category.update'])assert.throws(()=>validateCommandPayload({...base,type,payload:{...payloads[type],name:' '}}),DomainError);
+});

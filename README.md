@@ -17,6 +17,13 @@ Open the Vite URL printed in the terminal. `npm run typecheck` checks both the U
 
 The repository includes a partial Fastify/PostgreSQL API for authenticated sessions, catalog and inventory reads, item setup, reviewed receiving, outlet-wide stock counts, moving weighted-average inventory value, operator shifts and till movements, cash sales/refunds with server-backed receipt lookup, customer credit accounts with receivable posting and cash repayment allocation, tenant-wide trial balance and partial operating reports, and the initial hotel room/reservation/stay workflow. The [Backend integration register](docs/24-BACKEND-INTEGRATION.md) maps each connected screen to its client calls, routes, commands, persistence effects, and unsupported boundaries. Start PostgreSQL, run `npm run db:migrate`, and bootstrap an operator before `npm run api:dev`; the UI dev server proxies `/api/v1` to the API. CI provisions PostgreSQL for migration and API acceptance checks.
 
+Stock now provides **Manage items and categories** for authorized catalog users:
+versioned metadata edits, archive/restore and reviewed category rename/merge/archive.
+[Catalog maintenance evidence](docs/55-CATALOG-MAINTENANCE.md) records migration 023,
+shared CSV validation, stock/count safeguards and recovery checks. This local
+continuation has not been deployed; service item types and count conflict recovery
+remain in the [execution register](docs/48-CODEBASE-TRUTH-EXECUTION.md).
+
 ## Current UI
 
 - **Server-connected:** Today shift state; cash, cashier-confirmed manual M-Pesa or full approved customer-account POS charges; fixed currency amount discounts once per whole item line; sales history/cash refunds with immutable receipt details; item setup, delivery receiving and reviewed full outlet stock counts; optional confirmed stock-shortfall sales with provisional-cost reconciliation; shift cash-up and immutable Z reports; cash customer collections/statements; and the room/reservation/check-in/cash-checkout/housekeeping foundation.

@@ -7,6 +7,10 @@ import { requireCommandAuthority } from './commandAuthorization.js';
 import { readBusinessProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
+import { resolveCatalogCategory } from './catalogMaintenance.js';
+import { normalizeCatalogSku, normalizeCatalogName, normalizeCatalogBaseUnit, normalizeCatalogCategoryName, normalizeCatalogBarcode,
+  normalizeCatalogQuantity as quantity, catalogMinorFromDecimal as minor, catalogTaxFromPercent as percentage } from './catalogValidation.js';
+export { normalizeCatalogMetadata as validateCatalogMetadata } from './catalogValidation.js';
 
 export const PRODUCT_IMPORT_FIELDS = ['sku','name','baseUnit','sellingPrice','costPrice','taxRatePercent','currency','barcode','category','reorderLevel','openingQuantity','openingUnitCost'] as const;
 type Field = typeof PRODUCT_IMPORT_FIELDS[number];
@@ -35,43 +39,11 @@ const scale=1_000_000n;
 const maxMinor=BigInt(Number.MAX_SAFE_INTEGER);
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const skuKey=(value:string)=>value.trim().toUpperCase();
-const scientific=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function requireProductImportAccess(session:ApiSession) {
   requireCommandAuthority(session,'catalog.import.validate');
 }
-function quantity(value:string):string {
-  if(!/^\d{1,14}(?:\.\d{1,6})?$/.test(value)) throw new Error('Use a non-negative base-unit decimal quantity with at most six decimal places.');
-  const [whole,fraction='']=value.split('.');
-  const decimals=fraction.replace(/0+$/,'');
-  return BigInt(whole).toString()+(decimals?'.'+decimals:'');
-}
 function micros(value:string):bigint { const [whole,fraction='']=value.split('.');return BigInt(whole)*scale+BigInt(fraction.padEnd(6,'0')); }
-function minor(value:string,currency:string):number {
-  const digits=new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits ?? 2;
-  if(!/^\d+(?:\.\d+)?$/.test(value)) throw new Error('Use a non-negative decimal price; scientific notation and thousands separators are not accepted.');
-  const [whole,fraction='']=value.split('.');
-  if(fraction.length>digits) throw new Error(`Use at most ${digits} decimal places for ${currency}.`);
-  const amount=BigInt(whole)*10n**BigInt(digits)+BigInt(fraction.padEnd(digits,'0')||'0');
-  if(amount>maxMinor)throw new Error('The amount exceeds the supported integer minor-unit range.');
-  return Number(amount);
-}
-function percentage(value:string):number {
-  if(!/^\d{1,3}(?:\.\d{1,2})?$/.test(value))throw new Error('Use a tax percentage from 0 to 100 with at most two decimal places.');
-  const [whole,fraction='']=value.split('.');const bps=BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0'));
-  if(bps>10000n)throw new Error('The tax percentage cannot exceed 100.');
-  return Number(bps);
-}
-export function validateCatalogMetadata(payload:Record<string,unknown>){
-  const category=payload.category===undefined?'':payload.category;
-  const rawBarcode=payload.barcode===undefined||payload.barcode===null?'':payload.barcode;
-  const rawReorder=payload.reorderLevel===undefined?'0':payload.reorderLevel;
-  if(typeof category!=='string'||category.trim().length>80||/[\u0000-\u001f\u007f]/.test(category))throw new DomainError('VALIDATION_FAILED','Category must be text of 80 characters or fewer.');
-  if(typeof rawBarcode!=='string'||(rawBarcode.trim()&&(!/^[A-Za-z0-9._/-]{1,64}$/.test(rawBarcode.trim())||scientific.test(rawBarcode.trim()))))throw new DomainError('VALIDATION_FAILED','Barcode must be an identifier of up to 64 characters, without scientific notation.');
-  if(typeof rawReorder!=='string')throw new DomainError('VALIDATION_FAILED','Reorder level must be a decimal quantity string.');
-  let reorderLevel:string;try{reorderLevel=quantity(rawReorder.trim());}catch(error){throw new DomainError('VALIDATION_FAILED',(error as Error).message);}
-  return {category:category.trim(),barcode:rawBarcode.trim()||null,reorderLevel};
-}
 function issue(row:number,field:string,code:string,rawValue:string,message:string):ImportIssue{return {row,field,code,rawValue,message};}
 function emptyReport(errors:ImportIssue[]):ImportReport{return {rows:[],errors,warnings:[],summary:{rowCount:0,createCount:0,updateCount:0,unchangedCount:0,errorCount:errors.length,warningCount:0,openingQuantityLines:0,openingValueMinor:'0'}};}
 
@@ -103,17 +75,17 @@ export function validateProductCsv(source:string,mapping:ProductImportMapping,mo
     const inputSku=value('sku')??'';const existingMatches=bySku.get(skuKey(inputSku))??[];const existing=existingMatches.length===1?existingMatches[0]:undefined;
     const row:ImportPreviewRow={rowNumber:raw.rowNumber,action:existing?'UNCHANGED':'CREATE',sku:existing?.sku??inputSku,changes:[],defaults:{currency:mapped.has('currency')?'CSV':existing?'EXISTING':'TENANT_DEFAULT',tax:mapped.has('taxRatePercent')?'CSV':existing?'EXISTING':'BUSINESS_DEFAULT'},errors:[],warnings:[]};
     const add=(field:Field,code:string,message:string)=>row.errors.push(issue(raw.rowNumber,field,code,rawValue(field),message));
-    if(!/^[\w.-]{1,64}$/.test(inputSku)||scientific.test(inputSku))add('sku','SKU_INVALID','Use a SKU of 1 to 64 letters, digits, underscore, dot or hyphen; scientific notation is ambiguous.');
+    for(const field of mapped.keys())if(/[\u0000-\u001f\u007f]/.test(rawValue(field)))add(field,'FIELD_INVALID','Control characters are not supported in catalogue fields.');
+    try{normalizeCatalogSku(rawValue('sku'));}catch(error){add('sku','SKU_INVALID',(error as Error).message);}
     if(existingMatches.length>1)add('sku','SKU_AMBIGUOUS','Multiple existing items match this SKU ignoring case. Resolve their identities before importing.');
     if(existing&&!existing.active)add('sku','ITEM_ARCHIVED','This SKU belongs to an archived item. Import cannot reactivate or replace its history.');
     if(existing&&mode==='CREATE_ONLY')add('sku','SKU_EXISTS','This SKU already exists. Select reviewed upsert mode for metadata changes.');
     if(existing){row.productId=existing.id;row.expectedProductVersion=Number(existing.version);}
-    const required=(field:Field,fallback:string|undefined,max:number,pattern?:RegExp)=>{
-      const text=value(field)??fallback;
-      if(text===undefined||!text||text.length>max||(pattern&&!pattern.test(text)))add(field,'FIELD_INVALID',`Provide ${field} with 1 to ${max} valid characters.`);
-      return text??'';
+    const required=(field:Field,fallback:string|undefined,normalize:(input:unknown)=>string)=>{
+      const input=mapped.has(field)?rawValue(field):fallback;
+      try{return normalize(input);}catch(error){add(field,'FIELD_INVALID',(error as Error).message);return typeof input==='string'?input.trim():'';}
     };
-    const name=required('name',existing?.name,160);const baseUnit=required('baseUnit',existing?.base_unit,24,/^[\w.-]+$/);
+    const name=required('name',existing?.name,normalizeCatalogName);const baseUnit=required('baseUnit',existing?.base_unit,normalizeCatalogBaseUnit);
     if(existing&&baseUnit!==existing.base_unit)add('baseUnit','UNIT_IMMUTABLE','Existing base units cannot be changed by import.');
     const currency=(value('currency')??existing?.currency??config.currency).toUpperCase();
     if(currency!==config.currency)add('currency','CURRENCY_MISMATCH','Currency must match the tenant currency; existing monetary history cannot be converted.');
@@ -128,10 +100,10 @@ export function validateProductCsv(source:string,mapping:ProductImportMapping,mo
     const costPriceMinor=moneyField('costPrice',existing?Number(existing.cost_price_minor):undefined);
     let taxRateBps=existing?.tax_rate_bps??config.taxRateBps;
     if(mapped.has('taxRatePercent'))try{taxRateBps=percentage(value('taxRatePercent')??'');}catch(error){add('taxRatePercent','TAX_INVALID',(error as Error).message);}
-    const category=value('category')??existing?.category??'';
-    if(category.length>80)add('category','CATEGORY_INVALID','Category must be 80 characters or fewer.');
-    const barcode=(value('barcode')??existing?.barcode??'')||null;
-    if(barcode&&(!/^[A-Za-z0-9._/-]{1,64}$/.test(barcode)||scientific.test(barcode)))add('barcode','BARCODE_INVALID','Barcode must remain a 1 to 64 character identifier. Scientific notation is ambiguous; restore the original digits.');
+    let category=value('category')??existing?.category??'';
+    try{category=normalizeCatalogCategoryName(category,true);}catch(error){add('category','CATEGORY_INVALID',(error as Error).message);}
+    let barcode=(value('barcode')??existing?.barcode??'')||null;
+    try{barcode=normalizeCatalogBarcode(barcode);}catch(error){add('barcode','BARCODE_INVALID',(error as Error).message);}
     if(barcode&&(byBarcode.get(barcode)??[]).some(item=>item.id!==existing?.id))add('barcode','BARCODE_EXISTS','This barcode belongs to another existing item at this outlet.');
     let reorderLevel='0';try{reorderLevel=quantity(value('reorderLevel')??(existing?quantity(existing.reorder_level):'0'));}catch(error){add('reorderLevel','QUANTITY_INVALID',(error as Error).message);}
     let openingQuantity='0';try{openingQuantity=quantity(value('openingQuantity')||'0');}catch(error){add('openingQuantity','QUANTITY_INVALID',(error as Error).message);}
@@ -209,7 +181,7 @@ export async function executeProductImportCommand(client:PoolClient,session:ApiS
   try{return await executeImport(client,session,envelope);}
   catch(error){
     const databaseError=error as {code?:string;constraint?:string};
-    if(envelope.type==='catalog.import.apply'&&databaseError.code==='23505'&&['products_tenant_id_outlet_id_sku_key','products_outlet_barcode_unique'].includes(databaseError.constraint??'')){
+    if(envelope.type==='catalog.import.apply'&&databaseError.code==='23505'&&['products_tenant_id_outlet_id_sku_key','products_outlet_normalized_sku_unique','products_outlet_barcode_unique'].includes(databaseError.constraint??'')){
       throw new DomainError('IMPORT_STALE','Another catalogue command claimed a SKU or barcode after validation. Revalidate the complete batch.',409,{reason:'catalog'});
     }
     throw error;
@@ -246,11 +218,13 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
     const value=row.normalized!;let productId=row.productId;
     if(row.action==='CREATE'){
       productId=randomUUID();
-      await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id]);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id,category_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,categoryId]);
       await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,$4::numeric,$5)',[session.tenantId,session.outletId,productId,value.openingQuantity,value.openingValueMinor]);
       if(micros(value.openingQuantity)>0n)await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'OPENING_IMPORT',$6::numeric,$7,$8,$9,$10)`,[randomUUID(),session.tenantId,session.outletId,productId,envelope.commandId,value.openingQuantity,value.openingUnitCostMinor,value.openingValueMinor,batch.id,`Import ${batch.id}`]);
     }else if(row.action==='UPDATE'){
-      const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion]);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,category_id=$13,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion,categoryId]);
       if(!result.rowCount)throw new DomainError('IMPORT_STALE','An item changed during import. Revalidate all rows.',409,{reason:'product'});
     }
     appliedRows.push({rowNumber:row.rowNumber,productId:productId!,action:row.action});

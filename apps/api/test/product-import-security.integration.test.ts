@@ -232,9 +232,12 @@ if (!databaseUrl) {
         const journal = await db.pool.query(`SELECT l.account_code,sum(l.debit_minor)::text debit,sum(l.credit_minor)::text credit
           FROM finance.journal_entries e JOIN finance.journal_lines l ON l.tenant_id=e.tenant_id AND l.journal_entry_id=e.id WHERE e.tenant_id=$1 AND e.source_id=$2 GROUP BY l.account_code`, [owner.tenantId, preview.batch.id]);
         assert.deepEqual(journal.rows.map(line => [line.account_code, line.debit, line.credit]).sort(), [['INVENTORY', '263', '0'], ['OPENING_BALANCE_CLEARING', '0', '263']]);
-        const evidence = await db.pool.query(`SELECT (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2) audit,
-          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2) outbox`, [owner.tenantId, command.commandId]);
-        assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1 });
+        const evidence = await db.pool.query(`SELECT
+          (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') audit,
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') outbox,
+          (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_audit,
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_outbox`, [owner.tenantId, command.commandId]);
+        assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1, category_audit: 1, category_outbox: 1 });
         const after = await authority(owner);
         const newIdRepeat = await submit(app, owner, applyEnvelope(owner, preview.batch));
         assert.ok(['CONFIRMED', 'CONFLICT', 'REJECTED'].includes(newIdRepeat.json().status)); assert.deepEqual(await authority(owner), after, 'a new apply ID cannot duplicate the batch');
@@ -335,8 +338,11 @@ if (!databaseUrl) {
         assert.ok(validationMs < 55_000, 'validation must leave headroom within the 60-second proxy timeout');
         assert.ok(applyMs < 55_000, 'apply must leave headroom within the 60-second proxy timeout');
         const totals = await authority(owner); assert.equal(totals.products, 1000); assert.equal(totals.movements, 1); assert.equal(totals.value, '13'); assert.equal(totals.journals, 1);
-        const evidence = await db.pool.query(`SELECT (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2) audit,
-          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2) outbox`, [owner.tenantId, command.commandId]); assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1 });
+        const evidence = await db.pool.query(`SELECT
+          (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') audit,
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') outbox,
+          (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_audit,
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_outbox`, [owner.tenantId, command.commandId]); assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1, category_audit: 1, category_outbox: 1 });
         assert.deepEqual((await submit(app, owner, command)).json(), result.json()); assert.deepEqual(await authority(owner), totals);
       } finally { await app.close(); }
     });

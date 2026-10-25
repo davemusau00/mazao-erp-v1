@@ -28,11 +28,46 @@ const reasonSchema: ContractSchema = {
   pattern: '^[^\\S\\u0000-\\u001f\\u007f]*[^\\s\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]{0,498}[^\\s\\u0000-\\u001f\\u007f])?[^\\S\\u0000-\\u001f\\u007f]*$',
 };
 const strictObject = (properties: Record<string, ContractSchema>, required = Object.keys(properties)): ContractSchema => ({ type: 'object', properties, required, additionalProperties: false });
+function normalizedTextSchema(max: number, allowEmpty = false): ContractSchema {
+  const spaces = '[^\\S\\u0000-\\u001f\\u007f]*';
+  const content = `[^\\s\\u0000-\\u001f\\u007f](?:[^\\u0000-\\u001f\\u007f]{0,${max-2}}[^\\s\\u0000-\\u001f\\u007f])?`;
+  return {type:'string',pattern:`^${spaces}${allowEmpty?`(?:${content})?`:content}${spaces}$`};
+}
+const catalogueNameSchema = normalizedTextSchema(160);
+const categoryNameSchema = normalizedTextSchema(80);
+const categoryLabelSchema = normalizedTextSchema(80, true);
+const reorderSchema: ContractSchema = {type:'string',pattern:'^[^\\S\\u0000-\\u001f\\u007f]*\\d{1,14}(?:\\.\\d{1,6})?[^\\S\\u0000-\\u001f\\u007f]*$'};
+const barcodeSchema: ContractSchema = {type:['string','null'],pattern:'^[^\\S\\u0000-\\u001f\\u007f]*(?:[A-Za-z0-9._/-]{1,64})?[^\\S\\u0000-\\u001f\\u007f]*$'};
 
 // Each migrated schema is used at execution. Remaining entries deliberately
 // describe only the object boundary; their referenced domain validator remains
 // authoritative until that command receives a reviewed schema migration.
 const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  'catalog.product.update': {
+    payload: strictObject({productId:uuidSchema,name:catalogueNameSchema,sellingPriceMinor:minorSchema,costPriceMinor:minorSchema,
+      taxRateBps:{type:'integer',minimum:0,maximum:10_000},category:categoryLabelSchema,barcode:barcodeSchema,reorderLevel:reorderSchema,reason:reasonSchema}),
+    output: strictObject({productId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'catalog.product.set_active': {
+    payload: strictObject({productId:uuidSchema,active:{type:'boolean'},reason:reasonSchema}),
+    output: strictObject({productId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'catalog.category.create': {
+    payload: strictObject({name:categoryNameSchema}),
+    output: strictObject({categoryId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'catalog.category.update': {
+    payload: strictObject({categoryId:uuidSchema,name:categoryNameSchema,reason:reasonSchema}),
+    output: strictObject({categoryId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'catalog.category.set_active': {
+    payload: strictObject({categoryId:uuidSchema,active:{type:'boolean'},reason:reasonSchema}),
+    output: strictObject({categoryId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'catalog.category.merge': {
+    payload: strictObject({sourceCategoryId:uuidSchema,targetCategoryId:uuidSchema,reason:reasonSchema}),
+    output: strictObject({sourceCategoryId:uuidSchema,targetCategoryId:uuidSchema,sourceVersion:versionSchema,targetVersion:versionSchema,updatedProducts:minorSchema}),
+  },
   'shift.open': {
     payload: strictObject({ openingFloatMinor: minorSchema }),
     output: strictObject({ shiftId: uuidSchema, version: versionSchema, openingFloatMinor: minorSchema }),
@@ -79,6 +114,12 @@ function contract(name: string, permissions: readonly ApiPermission[], capabilit
  * in the domain handler and cannot be granted by this baseline. */
 export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'catalog.product.create': contract('catalog.product.create', ['catalog.manage'], ['inventory'], 'commands.ts#createProduct', ['catalogue']),
+  'catalog.product.update': contract('catalog.product.update', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
+  'catalog.product.set_active': contract('catalog.product.set_active', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
+  'catalog.category.create': contract('catalog.category.create', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
+  'catalog.category.update': contract('catalog.category.update', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
+  'catalog.category.set_active': contract('catalog.category.set_active', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
+  'catalog.category.merge': contract('catalog.category.merge', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
   'catalog.import.validate': contract('catalog.import.validate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
   'catalog.import.revalidate': contract('catalog.import.revalidate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
   'catalog.import.apply': contract('catalog.import.apply', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['catalogue', 'stock', 'journal']),

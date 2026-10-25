@@ -2,7 +2,7 @@
 
 Execution started 20 October 2026 (Africa/Nairobi). The user requires every fix and filled gap to be documented. Each subsequent implementation must update this register and its focused evidence document before closure.
 
-This is an execution register for [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md), not a full-v1 completion claim. S00 is the current work package. S01–S11 retain their original acceptance gates and dependencies.
+This is an execution register for [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md), not a full-v1 completion claim. The S00 local checkpoint is preserved and S01 catalog maintenance is in progress. S01–S11 retain their original acceptance gates and dependencies.
 
 ## Integration and release identity (S00-01 / G02)
 
@@ -25,6 +25,28 @@ Read-only PR reconciliation confirmed #13, #14, #15 and #16 are still open again
 | S00-04 / G04,G05 | Keyset continuation, full-data search and matching totals for movements, count/import/close history, shift cash movements and eligible exception evidence | Details and validation below; UI and combined regression verification in progress |
 | S00-05 / G04 | Customer/staff/assignment/session/reservation server navigation, full-tenant customer totals and server-backed pickers | [Directory continuation](54-DIRECTORY-CONTINUATION.md) and [staff/session history](53-STAFF-SESSION-HISTORY.md); real database acceptance passed, combined browser validation in progress |
 | S00-06 / G17 | Manage/Purchasing route to implemented Money workflows; availability labels describe their actual limits | [Feature and history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [completion register](27-V1-COMPLETION-REGISTER.md) |
+| S01-01 / G08 | Versioned product metadata/lifecycle and category master with exact-label rename/merge/archive, shared CSV validation and scoped reads | [Catalog maintenance](55-CATALOG-MAINTENANCE.md); implementation and focused checks underway, database/browser acceptance pending |
+
+## 25 October continuation checkpoint
+
+Verified a clean S00 checkpoint at `9df7ca32e4cb90428c90ea82e4a45cece28a664e`
+on `feat/codebase-truth-s00`; its commit records the preceding local source,
+tests and evidence. A fresh fetch still identifies canonical main as `6119ee2`.
+Created `feat/codebase-truth-s01` from that checkpoint for the next vertical
+slice. No remote merge, deployment or production database operation occurred.
+
+S01-01 adds additive migration 023 and the catalog domain/UI work described in
+docs/55. Full UI/API typecheck passes after initial integration. Stock/service/
+prepared classification (S01-02), count conflict recovery and local drafts remain
+pending; product maintenance alone does not close S01 or the R1 gate.
+
+The first combined S01 API regression completed **178 passed, 2 failed, 0
+skipped (180 tests)** in 106.21 seconds. The only failed assertion and its parent
+test were the new upgrade fixture's assumed ordering of `Milk` and `milk` under
+the database collation. Both exact identities were preserved. The fixture is
+being corrected to compare exact labels without imposing that ordering, then
+the upgrade checks must rerun. All command/financial/inventory suites, the new
+nine-case catalog suite and corrected import audit checks passed in this run.
 
 ## Complete history and eligible evidence (S00-04)
 
@@ -77,6 +99,14 @@ An independent policy comparison against the original `HEAD` authorization sourc
 An intervening focused rerun encountered `ECONNREFUSED` after Docker Desktop stopped. Restarted the local daemon and only the task-owned test PostgreSQL container; verified `pg_isready`, then reran the history suite successfully. The interrupted run was not counted as a pass. No unrelated container was explicitly started, stopped or removed.
 
 These are disposable read fixtures plus real setup/exception-sale commands. They do not replace the separate stock/finance posting invariant suites, browser checks, exact-head CI, performance budgets or physical/production acceptance. Combined regression and UI evidence must be appended when observed.
+
+## 25 October 2026 browser follow-up
+
+Against the unchanged S00 static build dated 20 October, reran the corrected Firefox cashier account case: **1 passed**, using `npx playwright test e2e/account-access.spec.ts --browser=firefox --grep 'cashier can reach' --output=dist-artifacts/playwright-s00-firefox-cashier-2026-10-25`. The earlier 25/26 Firefox result remains historical evidence; this is a focused acceptance of its fractional geometry assertion correction.
+
+The existing matrix command `npx playwright test --config=playwright.browser-matrix.config.ts --output=dist-artifacts/playwright-s00-browser-matrix-2026-10-25` completed **35 passed, 1 failed** across Chromium desktop/mobile and Firefox desktop/mobile viewport. The Firefox desktop invalid-discount case timed out during sign-in bootstrap before Sell became available; its trace contained only the HTML response and no `/auth/me` request. The other three projects passed that case. Without changing source, fixture or static build, reran that exact Firefox desktop case with `--project=firefox-desktop --grep 'invalid line discount' --output=dist-artifacts/playwright-s00-matrix-firefox-discount-rerun-2026-10-25`: **1 passed** in 12.5 seconds. The failed matrix run is retained and is not described as an uninterrupted 36/36 pass. These intercepted checks do not add production or installed-PWA evidence.
+
+The task-owned PostgreSQL container was found stopped after Docker Desktop restarted. Started only `mazao-truth-s00-postgres`; it completed crash recovery from the interrupted 20 October process, then `pg_isready -U postgres -d mazao_truth` reported accepting connections. No database reset, cleanup or unrelated container mutation was performed.
 
 ## Remaining delivery gates
 

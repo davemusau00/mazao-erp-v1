@@ -4,7 +4,9 @@ import type { ApiPermission, ApiSession, CommandEnvelope } from './contracts.js'
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { stableStringify } from './security.js';
 import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationSnapshot } from './configuration.js';
-import { executeProductImportCommand, validateCatalogMetadata } from './productImport.js';
+import { executeProductImportCommand } from './productImport.js';
+import { normalizeCatalogProductCreate } from './catalogValidation.js';
+import { executeCatalogMaintenanceCommand, lockCatalogOutlet, assertNoOpenCatalogCount, resolveCatalogCategory, catalogIdentityError } from './catalogMaintenance.js';
 import { executeStaffCommand } from './staff.js';
 import { revalidateOperator } from './identityAuthority.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
@@ -167,6 +169,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   requireCommandAuthority(session, envelope.type);
   validateCommandPayload(envelope);
   await guardFinancialCommand(client, session, envelope);
+  if(envelope.type==='catalog.product.create'||envelope.type==='catalog.import.apply'||envelope.type.startsWith('inventory.count.'))await lockCatalogOutlet(client,session);
   switch (envelope.type) {
     case 'finance.account.label': return executeAccountCatalogCommand(client, session, envelope);
     case 'finance.expense.record':
@@ -197,6 +200,12 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
     case 'configuration.stock_exception_policy.update':
     case 'inventory.sale_shortfall.resolve': return executeStockExceptionCommand(client, session, envelope);
+    case 'catalog.product.update':
+    case 'catalog.product.set_active':
+    case 'catalog.category.create':
+    case 'catalog.category.update':
+    case 'catalog.category.set_active':
+    case 'catalog.category.merge': return executeCatalogMaintenanceCommand(client,session,envelope);
     case 'catalog.product.create': return createProduct(client, session, envelope);
     case 'inventory.receive': return receiveInventory(client, session, envelope);
     case 'inventory.count.open': return openStockCount(client, session, envelope);
@@ -333,35 +342,21 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
 }
 
 async function createProduct(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  const { sku, name, baseUnit, currency, sellingPriceMinor, costPriceMinor } = envelope.payload;
-  if (typeof sku !== 'string' || !/^[\w.-]{1,64}$/.test(sku) || typeof name !== 'string' || !name.trim() || name.length > 160 || typeof baseUnit !== 'string' || !/^[\w.-]{1,24}$/.test(baseUnit)) {
-    throw new DomainError('VALIDATION_FAILED', 'SKU, item name, and base unit are required and must be valid.');
-  }
-  const sell = asMinor(sellingPriceMinor, 'sellingPriceMinor');
-  const cost = asMinor(costPriceMinor, 'costPriceMinor');
-  const currencyResult = await client.query<{ currency: string; business_profile: unknown }>('SELECT currency,business_profile FROM core.tenants WHERE id=$1', [session.tenantId]);
-  const taxRateBps = envelope.payload.taxRateBps === undefined ? readBusinessProfile(currencyResult.rows[0].business_profile).taxPolicy.defaultRateBps : envelope.payload.taxRateBps;
-  if (!Number.isInteger(taxRateBps) || Number(taxRateBps) < 0 || Number(taxRateBps) > 10_000) throw new DomainError('VALIDATION_FAILED', 'taxRateBps must be from 0 through 10000.');
-  if (currency !== currencyResult.rows[0]?.currency) throw new DomainError('VALIDATION_FAILED', 'Product currency must match the tenant currency.');
-  const metadata=validateCatalogMetadata(envelope.payload);
-  const duplicate=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND upper(trim(sku))=upper($3) LIMIT 1',[session.tenantId,session.outletId,sku.trim()]);
-  if(duplicate.rowCount)throw new DomainError('VALIDATION_FAILED','That SKU already exists at this outlet, ignoring case.');
-  const productId = randomUUID();
+  await assertNoOpenCatalogCount(client,session);
+  const currencyResult=await client.query<{currency:string;business_profile:unknown}>('SELECT currency,business_profile FROM core.tenants WHERE id=$1',[session.tenantId]);
+  const normalized=normalizeCatalogProductCreate(envelope.payload,{currency:currencyResult.rows[0].currency,taxRateBps:readBusinessProfile(currencyResult.rows[0].business_profile).taxPolicy.defaultRateBps});
+  const {sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel}=normalized;
+  const duplicate=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND upper(btrim(sku))=upper($3) LIMIT 1',[session.tenantId,session.outletId,sku]);
+  if(duplicate.rowCount)throw new DomainError('CATALOG_IDENTITY_CONFLICT','That SKU is reserved by an existing product at this outlet.',409,{productId:duplicate.rows[0].id});
+  const categoryId=await resolveCatalogCategory(client,session,category,envelope.commandId),productId=randomUUID();
   try {
-    await client.query(
-      `INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric)`,
-      [productId, session.tenantId, session.outletId, sku.trim(), name.trim(), baseUnit, currency, sell, cost, taxRateBps,metadata.category,metadata.barcode,metadata.reorderLevel],
-    );
-  } catch (error) {
-    if ((error as { code?: string }).code === '23505') throw new DomainError('VALIDATION_FAILED', 'That SKU or barcode already exists at this outlet.');
-    throw error;
-  }
-  await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,0)', [session.tenantId, session.outletId, productId]);
-  const result = { productId, sku: sku.trim() };
-  await audit(client, session, envelope.commandId, envelope.type, result);
-  await outbox(client, session, envelope.commandId, envelope.type, result);
-  return result;
+    await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,category_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14)`,[productId,session.tenantId,session.outletId,sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel,categoryId]);
+  }catch(error){catalogIdentityError(error);}
+  await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,0)',[session.tenantId,session.outletId,productId]);
+  const result={productId,sku};
+  await audit(client,session,envelope.commandId,envelope.type,{...result,metadata:normalized,categoryId});
+  await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }
 
 async function receiveInventory(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
@@ -1061,6 +1056,7 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
     const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;cogs_minor:string;sku_snapshot:string;discount_minor:string;unrecorded_quantity:string}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,cogs_minor,sku_snapshot,discount_minor,unrecorded_quantity::text unrecorded_quantity FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
     if(!lineResult.rowCount)throw new DomainError('NOT_FOUND','A selected item does not belong to this sale.',404);
     const line=lineResult.rows[0];const originalQty=databaseQuantityMicros(line.quantity);
+    if(requestedLine.restock){const active=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND active FOR UPDATE',[session.tenantId,session.outletId,line.product_id]);if(!active.rowCount)throw new DomainError('PRODUCT_ARCHIVED','Restore the original stocked product before restocking its returned quantity.',409);}
     if(requestedLine.restock&&databaseQuantityMicros(line.unrecorded_quantity)>0n)throw new DomainError('SHORTFALL_RESTOCK_REQUIRES_REVIEW','This item was sold while its stock records needed review. A manager must verify the returned stock before it can be added back to inventory.',409);
     const prior=await client.query<{quantity:string;subtotal_minor:string;tax_minor:string;cogs_minor:string;discount_minor:string}>('SELECT COALESCE(SUM(quantity),0)::text quantity,COALESCE(SUM(subtotal_minor),0)::text subtotal_minor,COALESCE(SUM(tax_minor),0)::text tax_minor,COALESCE(SUM(cogs_minor),0)::text cogs_minor,COALESCE(SUM(discount_minor),0)::text discount_minor FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_line_id=$3',[session.tenantId,session.outletId,requestedLine.orderLineId]);
     const p=prior.rows[0];const priorQty=databaseQuantityMicros(p.quantity);if(priorQty+requestedLine.quantity>originalQty)throw new DomainError('ALREADY_REFUNDED','Requested quantity exceeds the unrefunded amount.',409,{orderLineId:requestedLine.orderLineId,remainingQuantity:quantityText(originalQty-priorQty)});

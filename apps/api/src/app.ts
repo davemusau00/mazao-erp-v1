@@ -6,6 +6,7 @@ import { pool, inTransaction } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
 import { parseCommandEnvelope, parseLoginInput, validateRequestIdentifiers } from './publicInputs.js';
+import { listCatalogCategories, readIncludeArchived } from './catalogMaintenance.js';
 import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
@@ -237,11 +238,13 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const permissions=ROLE_PERMISSIONS[operator.role];
     if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.category,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
+    const includeArchived=readIncludeArchived(request.query as Record<string,unknown>,operator);
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.category,p.category_id,p.active,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND (p.active OR $4::boolean) ORDER BY p.name,p.id`,[operator.tenantId,operator.outletId,canReadCost,includeArchived]);
+    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,categoryId:r.category_id,active:r.active,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
   });
+  app.get('/api/v1/catalog/categories',async request=>listCatalogCategories(request.operator!,request.query as Record<string,unknown>));
   app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/movements',async request=>listInventoryMovements(request.operator!,request.query));
   app.get<{Querystring:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:string;after?:string}}>(
     '/api/v1/inventory/shortfalls', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfalls(request.operator!, request.query);});

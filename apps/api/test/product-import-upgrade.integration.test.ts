@@ -68,7 +68,7 @@ if(!sourceUrl){
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.credential_operations')).rows[0].total,0,'upgrade leaves pre-existing credential commands unchanged without inventing metadata');
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,22,'the complete additive upgrade reaches the current migration');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,23,'the complete additive upgrade reaches the current migration');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

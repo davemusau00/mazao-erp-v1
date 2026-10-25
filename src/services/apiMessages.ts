@@ -9,6 +9,14 @@ const messages: Record<string, string> = {
   NO_ACTIVE_ASSIGNMENT: 'Your account needs an active workspace assignment. Ask your administrator for help.',
   VALIDATION_FAILED: 'Check the amounts and required details, then try again.',
   VERSION_CONFLICT: 'This information changed on another device. Refresh and review the latest details.',
+  PRODUCT_ARCHIVE_STOCK_REMAINING: 'This item still has recorded quantity or value. Sell or reconcile its stock before archiving.',
+  PRODUCT_ARCHIVE_UNRESOLVED_SHORTFALL: 'Resolve this item’s stock exceptions before archiving.',
+  CATEGORY_IN_USE: 'Move the active items to another category before archiving this category.',
+  CATEGORY_MERGED: 'This category was merged. Use its destination category.',
+  CATEGORY_ARCHIVED: 'Restore the category or choose an active category before continuing.',
+  CATEGORY_NAME_CONFLICT: 'That exact category name already exists. Choose its existing record or another name.',
+  CATALOG_IDENTITY_CONFLICT: 'That SKU or barcode belongs to another item. Review the existing item.',
+  OPEN_COUNT_CONFLICT: 'Finish or cancel the open outlet count before changing its catalog baseline.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
@@ -76,13 +84,46 @@ export function presentOutcome<T extends { status?: unknown; code?: unknown; mes
 }
 
 /** An incomplete acknowledgement must never cause retained financial evidence to be deleted. */
-export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string): boolean {
+export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string,unknown>): boolean {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
   const outcome = result as Record<string, unknown>;
   if (outcome.commandId !== commandId || !['CONFIRMED', 'REJECTED', 'CONFLICT'].includes(String(outcome.status))) return false;
-  if (outcome.status !== 'CONFIRMED') return typeof outcome.code === 'string';
+  if (outcome.status !== 'CONFIRMED') return typeof outcome.code === 'string'
+    && outcome.code.trim().length > 0 && outcome.code.trim() !== 'IDEMPOTENCY_MISMATCH';
   if (!outcome.value || typeof outcome.value !== 'object' || Array.isArray(outcome.value)) return false;
   const value = outcome.value as Record<string, unknown>;
+  const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
+  const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if (commandType === 'catalog.product.create') {
+    return typeof value.productId === 'string' && value.productId.trim().length > 0
+      && typeof value.sku === 'string' && value.sku.trim().length > 0
+      && (commandPayload?.sku === undefined || typeof commandPayload.sku === 'string' && value.sku === commandPayload.sku.trim());
+  }
+  if (commandType === 'catalog.product.update' || commandType === 'catalog.product.set_active') {
+    return identifier('productId') && version('version') && typeof value.active === 'boolean'
+      && (commandType !== 'catalog.product.set_active' || commandPayload?.active === undefined || value.active === commandPayload.active);
+  }
+  if (['catalog.category.create','catalog.category.update','catalog.category.set_active'].includes(commandType ?? '')) {
+    return identifier('categoryId') && version('version') && typeof value.active === 'boolean'
+      && (commandType !== 'catalog.category.set_active' || commandPayload?.active === undefined || value.active === commandPayload.active);
+  }
+  if (commandType === 'catalog.category.merge') {
+    return identifier('sourceCategoryId') && identifier('targetCategoryId') && value.sourceCategoryId !== value.targetCategoryId
+      && version('sourceVersion') && version('targetVersion') && typeof value.updatedProducts === 'number'
+      && Number.isSafeInteger(value.updatedProducts) && value.updatedProducts >= 0;
+  }
   const idField = commandType === 'sales.order.settle' ? 'saleId' : commandType === 'sales.order.refund' ? 'refundId' : undefined;
   return !idField || typeof value[idField] === 'string' && value[idField] !== '';
+}
+
+/** Status transport may omit the nested ID, but must never contradict it. */
+export function isTerminalCommandStatus(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string, unknown>): result is {
+  commandId: string; status: string; response: Record<string, unknown>;
+} {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  const status = result as Record<string, unknown>;
+  if (status.commandId !== commandId || !status.response || typeof status.response !== 'object' || Array.isArray(status.response)) return false;
+  const response = status.response as Record<string, unknown>;
+  if (response.status !== status.status || Object.hasOwn(response, 'commandId') && response.commandId !== commandId) return false;
+  return isTerminalOutcome({ ...response, commandId }, commandId, commandType, commandPayload);
 }

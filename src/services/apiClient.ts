@@ -2,7 +2,7 @@ import {historyUrl,type HistoryOptions,type HistoryPage} from '../types/history'
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
-import { apiErrorMessage, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
+import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
 import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 export type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 import type { SaleHistory, SaleHistoryQuery } from '../types/sales';
@@ -42,7 +42,10 @@ export interface BackendConfiguration {
 }
 export type BackendBusinessConfigurationInput=Omit<BackendBusinessConfiguration,'id'|'version'>;
 export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'>;
-export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number;productVersion?:number;barcode?:string|null;category?:string;reorderLevel?:string }
+export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number;productVersion?:number;barcode?:string|null;category?:string;categoryId?:string|null;reorderLevel?:string;active?:boolean }
+export interface BackendCatalogCategory {id:string;name:string;active:boolean;version:number;mergedInto?:string|null;productCount:number;activeProductCount:number}
+export interface BackendCatalogReadOptions {includeArchived?:boolean}
+export interface BackendCatalogProductUpdate {productId:string;name:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;category:string;barcode:string|null;reorderLevel:string;reason:string}
 export type ProductImportField='sku'|'name'|'baseUnit'|'sellingPrice'|'costPrice'|'taxRatePercent'|'currency'|'barcode'|'category'|'reorderLevel'|'openingQuantity'|'openingUnitCost';
 export type ProductImportMapping=Partial<Record<ProductImportField,string|null>>;
 export type ProductImportMode='CREATE_ONLY'|'UPSERT';
@@ -371,7 +374,18 @@ class ApiClient {
     const session=this.session;if(!session)throw new Error('Sign in before changing outlet settings.');
     return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'configuration.outlet.update',occurredAt:new Date().toISOString(),expectedVersions:{['outlet:'+session.outlet.id]:version},payload:input});
   }
-  listCatalog(signal?:AbortSignal){return this.requestArray<{items:BackendProduct[]}>('/catalog/items','items',signal)}
+  listCatalog(signal?:AbortSignal,options:BackendCatalogReadOptions={}){return this.requestArray<{items:BackendProduct[]}>('/catalog/items'+(options.includeArchived?'?includeArchived=true':''),'items',signal)}
+  listCatalogCategories(signal?:AbortSignal,options:BackendCatalogReadOptions={}){return this.requestArray<{categories:BackendCatalogCategory[]}>('/catalog/categories'+(options.includeArchived?'?includeArchived=true':''),'categories',signal)}
+  private catalogCommand(type:string,payload:Record<string,unknown>,expectedVersions:Record<string,number>,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before changing the catalogue.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type,occurredAt:new Date().toISOString(),expectedVersions,payload});
+  }
+  updateCatalogProduct(input:BackendCatalogProductUpdate,version:number,commandId:string){return this.catalogCommand('catalog.product.update',{...input},{['product:'+input.productId]:version},commandId)}
+  setCatalogProductActive(productId:string,active:boolean,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.product.set_active',{productId,active,reason},{['product:'+productId]:version},commandId)}
+  createCatalogCategory(name:string,commandId:string){return this.catalogCommand('catalog.category.create',{name},{},commandId)}
+  updateCatalogCategory(categoryId:string,name:string,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.category.update',{categoryId,name,reason},{['category:'+categoryId]:version},commandId)}
+  setCatalogCategoryActive(categoryId:string,active:boolean,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.category.set_active',{categoryId,active,reason},{['category:'+categoryId]:version},commandId)}
+  mergeCatalogCategories(sourceCategoryId:string,targetCategoryId:string,reason:string,sourceVersion:number,targetVersion:number,commandId:string){return this.catalogCommand('catalog.category.merge',{sourceCategoryId,targetCategoryId,reason},{['category:'+sourceCategoryId]:sourceVersion,['category:'+targetCategoryId]:targetVersion},commandId)}
   listProductImports(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{batches:ProductImportBatchSummary[];page?:HistoryPage}>(historyUrl('/catalog/imports',options),'batches',signal)}
   getProductImport(batchId:string,signal?:AbortSignal){return this.requestRecord<{batch:ProductImportBatch}>('/catalog/imports/'+encodeURIComponent(batchId),'batch',signal)}
   async getProductImportErrorsCsv(batchId:string):Promise<string>{
@@ -430,7 +444,7 @@ class ApiClient {
     try{await commandJournal.save(command,'sending',actorId);}
     catch{throw Object.assign(new Error('This action was not sent because recovery details could not be saved on this device. Enable browser storage and try again.'),{code:'COMMAND_NOT_SENT'});}
     await this.emitRecovery();
-    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(!isTerminalOutcome(result,command.commandId,command.type))throw new ApiClientError(unconfirmedActionMessage('/commands'),'OUTCOME_UNKNOWN');await commandJournal.remove(command.commandId);await this.emitRecovery();return presentOutcome(result)}
+    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(!isTerminalOutcome(result,command.commandId,command.type,command.payload))throw new ApiClientError(unconfirmedActionMessage('/commands'),'OUTCOME_UNKNOWN');await commandJournal.remove(command.commandId);await this.emitRecovery();return presentOutcome(result)}
     catch(error){await commandJournal.save(command,'outcome_unknown',actorId);await this.emitRecovery();throw error}
   }
   async submitPasswordOperation(operation:SecretOperationRecovery,newPassword:string,currentPassword?:string):Promise<BackendCommandResult>{
@@ -493,7 +507,12 @@ class ApiClient {
   async listImportValidationRecovery():Promise<ImportValidationRecovery[]>{const session=this.session;try{return session?await importValidationJournal.list(session.tenant.id,session.deviceId,session.user.id):[];}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
   async discardUnconfirmedValidation(commandId:string){await importValidationJournal.remove(commandId);await this.emitImportRecovery();}
   private async emitImportRecovery(){const records=await this.listImportValidationRecovery();this.importRecoveryListeners.forEach(listener=>listener(records));}
-  async checkCommandStatus(commandId:string){const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));const stored=(await this.listRecoverableCommands(this.session?.tenant.id)).find(record=>record.command.commandId===commandId);if(result.commandId!==commandId||!isRecord(result.response)||result.response.status!==result.status||!isTerminalOutcome({...result.response,commandId:result.commandId},commandId,stored?.command.type))throw new ApiClientError(unconfirmedActionMessage('/commands'),'INVALID_SERVER_RESPONSE');await commandJournal.remove(commandId);await this.emitRecovery();return {...result,response:presentOutcome(result.response)}}
+  async checkCommandStatus(commandId:string){
+    const result=await this.request<unknown>('/commands/'+encodeURIComponent(commandId));
+    const stored=(await this.listRecoverableCommands(this.session?.tenant.id)).find(record=>record.command.commandId===commandId);
+    if(!isTerminalCommandStatus(result,commandId,stored?.command.type,stored?.command.payload))throw new ApiClientError(unconfirmedActionMessage('/commands'),'INVALID_SERVER_RESPONSE');
+    await commandJournal.remove(commandId);await this.emitRecovery();return {...result,response:presentOutcome(result.response)};
+  }
   async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{try{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}
   private async emitRecovery(){const records=await commandJournal.list(this.session?.tenant.id);this.recoveryListeners.forEach(listener=>listener(records))}
 }

@@ -60,4 +60,6 @@ Final fresh-build `e2e/account-access.spec.ts` acceptance: **10 passed** in Chro
 
 The Firefox mobile account check exposed bounding-box serialization of the existing 44px close control as `43.99999237060547`. The test normalizes dimensions to 0.001 CSS pixels before applying the same 44px minimum. The runtime minimum and keyboard/focus behavior are unchanged; this corrects a numeric assertion without weakening the target-size requirement. Firefox rerun acceptance is recorded with the final browser evidence.
 
+On **25 October 2026, Africa/Nairobi**, the corrected cashier account case was rerun against the unchanged S00 static build dated 20 October: **1 passed** in Firefox. Command: `npx playwright test e2e/account-access.spec.ts --browser=firefox --grep 'cashier can reach' --output=dist-artifacts/playwright-s00-firefox-cashier-2026-10-25`. This closes the specific numeric-assertion failure; it does not reclassify the earlier 25/26 Firefox run as a full pass.
+
 These checks do not establish hosted CI, deployed schema/API identity, installed-PWA upgrade, physical hardware or production acceptance.

@@ -2,8 +2,9 @@ import { DomainError } from './contracts.js';
 
 /** The deliberately small JSON Schema vocabulary used by the first migrated
  * contracts. No coercion, default insertion, or removal of unknown properties. */
+type ContractType = 'object' | 'string' | 'integer' | 'boolean' | 'null';
 export interface ContractSchema {
-  type: 'object' | 'string' | 'integer' | 'boolean';
+  type: ContractType | readonly ContractType[];
   properties?: Readonly<Record<string, ContractSchema>>;
   required?: readonly string[];
   additionalProperties?: boolean | ContractSchema;
@@ -36,7 +37,15 @@ function validDateTime(value: string) {
 
 export function assertContract(value: unknown, schema: ContractSchema, field = 'Request'): void {
   const invalid = () => { throw new DomainError('VALIDATION_FAILED', `${field} is invalid.`); };
+  if (Array.isArray(schema.type)) {
+    for (const type of schema.type) {
+      try { assertContract(value, { ...schema, type }, field); return; }
+      catch (error) { if (!(error instanceof DomainError) || error.code !== 'VALIDATION_FAILED') throw error; }
+    }
+    return invalid();
+  }
   if (schema.const !== undefined && value !== schema.const) invalid();
+  if (schema.type === 'null') { if (value !== null) invalid(); return; }
   if (schema.type === 'object') {
     if (!isRecord(value)) return invalid();
     for (const key of schema.required ?? []) if (!Object.hasOwn(value, key)) invalid();

@@ -6,6 +6,16 @@ This register describes the actual authenticated API boundary. An unsubmitted dr
 
 The 20 October S00 continuation is recorded in [the execution register](48-CODEBASE-TRUTH-EXECUTION.md): strict public inputs and an incremental command catalogue; additive migration 022 for metadata-only credential fencing; and scoped search/continuation for previously capped histories, evidence, directories, sessions and reservations. Existing arrays remain available with page metadata. [Credential fencing](50-CREDENTIAL-OPERATION-FENCING.md), [history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [directory contracts](54-DIRECTORY-CONTINUATION.md) describe the exact changed boundaries and local evidence. This source work has not been deployed.
 
+The 25 October S01-01 continuation adds versioned product update/archive/restore,
+an outlet category master and rename/merge/archive, explicit authorized archived
+reads, shared direct/CSV validation and additive migration 023. Stock exposes
+**Manage items and categories** to permitted users; maintenance retains original
+command IDs for unknown-outcome recovery. [Catalog maintenance](55-CATALOG-MAINTENANCE.md)
+records contracts, stock/count/history safeguards and observed acceptance. Older
+tables below describe their historical baseline where this continuation extends
+them. Item types and count rebase/draft improvements remain pending. No production
+deployment of this continuation has occurred.
+
 ## Runtime and first operator
 
 The API is a Fastify modular monolith at `apps/api/src/server.ts`; PostgreSQL is required through `DATABASE_URL`. The Vite development server proxies `/api/v1` to `http://127.0.0.1:4101`. Production needs TLS termination and an explicit API route. Do not expose the development bind address publicly.
