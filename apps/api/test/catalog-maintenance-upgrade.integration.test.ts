@@ -48,7 +48,12 @@ else{
     async function snapshot(client:Client){
       const tables=['catalog.products','inventory.balances','inventory.movements','commerce.orders','commerce.order_lines','commerce.payments','commerce.shifts','finance.journal_entries','finance.journal_lines','system.commands'];
       const result:Record<string,unknown>={};
-      for(const table of tables){const expression=table==='catalog.products'?"to_jsonb(x)-'category_id'":'to_jsonb(x)';result[table]=(await client.query(`SELECT ${expression} evidence FROM ${table} x ORDER BY (${expression})::text`)).rows;}
+      for(const table of tables){
+        // Compare every original column; later additive columns have separate
+        // migration-specific assertions in item-kinds-upgrade.integration.
+        const expression=table==='catalog.products'?"to_jsonb(x)-'category_id'-'item_kind'":table==='commerce.order_lines'?"to_jsonb(x)-'item_kind_snapshot'":table==='system.commands'?"to_jsonb(x)-'authority_version'-'required_capabilities'":'to_jsonb(x)';
+        result[table]=(await client.query(`SELECT ${expression} evidence FROM ${table} x ORDER BY (${expression})::text`)).rows;
+      }
       return result;
     }
     await t.test('populated upgrade and rerun preserve paid snapshots/stock/journals and exact category case',async()=>fixture(async(client,migrate)=>{

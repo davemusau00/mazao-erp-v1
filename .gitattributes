@@ -1,3 +1,5 @@
 # New migration checksums must use the same bytes on Windows and Linux.
 # Existing applied migration files keep their current checkout policy.
 apps/api/migrations/023_catalog_maintenance.sql text eol=lf
+apps/api/migrations/024_catalog_item_kinds.sql text eol=lf
+apps/api/migrations/025_command_capability_evidence.sql text eol=lf

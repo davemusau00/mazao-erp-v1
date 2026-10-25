@@ -8,6 +8,7 @@ export function operationLabel(type: string): string {
     'inventory.count.save': 'Save stock count', 'inventory.count.update': 'Save stock count',
     'inventory.count.post': 'Approve stock count', 'inventory.count.cancel': 'Cancel stock count',
     'catalog.product.create': 'Create item', 'catalog.product.update': 'Update item',
+    'catalog.product.set_active': 'Change item availability', 'catalog.product.change_kind': 'Change item type',
     'catalog.product.archive': 'Archive item', 'catalog.product.restore': 'Restore item',
     'catalog.import.validate': 'Check product import', 'catalog.import.revalidate': 'Recheck product import',
     'catalog.import.apply': 'Apply product import', 'configuration.business.update': 'Business settings',

@@ -6,11 +6,12 @@ import type { AccountingArea } from '../types/accounting';
 export function workspaceInitialReads(tab: ActiveTab, session: BackendSession, accountingArea?: AccountingArea): string[] {
   const permissions = new Set(session.user.permissions);
   switch (tab) {
-    case 'today': return permissions.has('shift.open') || permissions.has('shift.close') ? ['/shifts/current'] : [];
+    case 'today': return session.tenant.capabilities.includes('commerce') && (permissions.has('shift.open') || permissions.has('shift.close')) ? ['/shifts/current'] : [];
     case 'sell': return ['/catalog/items', '/shifts/current'];
     case 'sales': return ['/sales/orders'];
     case 'hotel': return ['/hospitality/rooms', '/hospitality/reservations', '/hospitality/stays'];
     case 'reservations': return ['/hospitality/rooms', '/hospitality/reservations', '/hospitality/stays'];
+    case 'catalog': return ['/catalog/items', '/catalog/categories'];
     case 'stock': return ['/catalog/items', '/inventory/movements'];
     case 'stock-count': return ['/catalog/items', '/inventory/counts/current', '/inventory/counts'];
     case 'stock-exceptions': return ['/inventory/shortfalls', '/reports/stock-exceptions'];

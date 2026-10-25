@@ -16,6 +16,9 @@ const messages: Record<string, string> = {
   CATEGORY_ARCHIVED: 'Restore the category or choose an active category before continuing.',
   CATEGORY_NAME_CONFLICT: 'That exact category name already exists. Choose its existing record or another name.',
   CATALOG_IDENTITY_CONFLICT: 'That SKU or barcode belongs to another item. Review the existing item.',
+  ITEM_KIND_STOCK_REMAINING: 'Correct the recorded quantity and stock value before changing this item type.',
+  ITEM_KIND_UNRESOLVED_SHORTFALL: 'Resolve this item’s stock exceptions before changing its type.',
+  NOT_STOCKED_ITEM: 'Choose a stocked good for receiving physical inventory.',
   OPEN_COUNT_CONFLICT: 'Finish or cancel the open outlet count before changing its catalog baseline.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
@@ -98,6 +101,12 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
     return typeof value.productId === 'string' && value.productId.trim().length > 0
       && typeof value.sku === 'string' && value.sku.trim().length > 0
       && (commandPayload?.sku === undefined || typeof commandPayload.sku === 'string' && value.sku === commandPayload.sku.trim());
+  }
+  if (commandType === 'catalog.product.change_kind') {
+    return identifier('productId') && version('version')
+      && ['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(value.itemKind))
+      && (commandPayload?.itemKind === undefined || value.itemKind === commandPayload.itemKind)
+      && value.stockTracked === (value.itemKind === 'STOCKED_GOOD');
   }
   if (commandType === 'catalog.product.update' || commandType === 'catalog.product.set_active') {
     return identifier('productId') && version('version') && typeof value.active === 'boolean'

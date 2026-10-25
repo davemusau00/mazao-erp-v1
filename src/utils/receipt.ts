@@ -1,10 +1,11 @@
 import { formatDecimalQuantity, formatMinorMoneyText } from './money.js';
+import { catalogItemKind, catalogItemKindLabel, type CatalogItemKind } from '../types/catalog.js';
 
 /** The immutable fields needed to present a sale receipt; no transport or browser dependencies. */
 export interface ReceiptPresentation {
   receiptId: string; tenantName: string; outletName: string; currency: string; createdAt: string; timeZone: string; operatorName: string;
   receiptProfile?: Partial<{ legalName: string; registrationNumber: string; taxRegistrationNumber: string; address: string; phone: string; email: string; website: string; receiptHeader: string; receiptFooter: string; taxLabel: string }>;
-  lines: Array<{ name: string; quantity: string; unrecordedQuantity?:string; unitPriceMinor: string; subtotalMinor: string; originalSubtotalMinor?: string; discountMinor?: string; discountReason?: string | null }>;
+  lines: Array<{ name: string; quantity: string; itemKind?:CatalogItemKind;unrecordedQuantity?:string; unitPriceMinor: string; subtotalMinor: string; originalSubtotalMinor?: string; discountMinor?: string; discountReason?: string | null }>;
   payments: Array<{ method: string; amountMinor: string; currency: string; reference?: string | null }>;
   originalSubtotalMinor?: string; discountMinor?: string; subtotalMinor: string; taxMinor: string; totalMinor: string; amountPaidMinor: string;
   customerAccountCharge: { customerName: string; amountDueMinor: string } | null; cashTenderedMinor: string | null; changeMinor: string | null;
@@ -37,6 +38,7 @@ export function textReceipt(receipt: ReceiptPresentation) {
     `Cashier: ${receipt.operatorName}`,
     '',
     ...receipt.lines.flatMap(line => [
+      ...(catalogItemKind(line) !== 'STOCKED_GOOD' ? [catalogItemKindLabel(catalogItemKind(line))] : []),
       `${line.name} | ${displayQuantity(line.quantity)} x ` +
       `${money(line.unitPriceMinor, receipt.currency)} | ` +
       `${money(line.subtotalMinor, receipt.currency)}`,

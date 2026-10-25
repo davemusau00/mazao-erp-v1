@@ -216,8 +216,7 @@ export function validateOutletInput(payload: Record<string, unknown>) {
 }
 export function validateCapabilities(value: unknown): string[] {
   if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names. Restaurant service is not connected.');
-  if (value.includes('commerce') && !value.includes('inventory')) throw new DomainError('VALIDATION_FAILED', 'Commerce requires inventory.');
-  if (value.includes('retail') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
+  if (value.includes('retail') && (!value.includes('commerce')||!value.includes('inventory'))) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
   if (value.includes('hospitality') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Hospitality checkout requires commerce.');
   return [...value].sort();
 }
@@ -291,19 +290,20 @@ export async function getConfiguration(session: ApiSession): Promise<{ configura
     const outlet: OutletConfiguration = { id: row.outlet_id, name: row.outlet_name, timeZone: row.outlet_time_zone, version: Number(row.outlet_version), ...readOutletProfile(row.outlet_profile) };
     const capabilitiesResult = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1 ORDER BY capability', [session.tenantId]);
     const capabilities = capabilitiesResult.rows.map(item => item.capability);
-    const counts = await client.query<{ products: number; stocked: number; staff: number; devices: number }>(`SELECT
-      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active) products,
-      (SELECT count(*)::int FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND quantity>0) stocked,
+    const counts = await client.query<{ products: number; services:number;stocked: number; staff: number; devices: number }>(`SELECT
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND (item_kind='SERVICE' OR (item_kind='STOCKED_GOOD' AND $3::boolean))) products,
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND item_kind='SERVICE') services,
+      (SELECT count(*)::int FROM inventory.balances b JOIN catalog.products p ON p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.id=b.product_id WHERE b.tenant_id=$1 AND b.outlet_id=$2 AND p.active AND p.item_kind='STOCKED_GOOD' AND b.quantity>0 AND $3::boolean) stocked,
       (SELECT count(*)::int FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.active AND u.active) staff,
-      (SELECT count(*)::int FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) devices`, [session.tenantId, session.outletId]);
+      (SELECT count(*)::int FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) devices`, [session.tenantId, session.outletId,capabilities.includes('inventory')]);
     const totals = counts.rows[0];
     const checks = [
       { key: 'business', label: 'Business identity', complete: !!business.name && !!business.currency && !!business.timeZone, detail: `${business.name} · ${business.currency} · ${business.timeZone}` },
       { key: 'outlet', label: 'Outlet identity', complete: !!outlet.name && !!outlet.timeZone, detail: `${outlet.name} · ${outlet.timeZone}` },
       { key: 'tax', label: 'Tax policy reviewed', complete: business.taxPolicy.reviewed, detail: 'The default rate applies to new item setup; posted lines retain their tax snapshots.' },
-      { key: 'commerce', label: 'Selling capability enabled', complete: capabilities.includes('commerce') && capabilities.includes('inventory'), detail: 'Cash checkout needs commerce and inventory.' },
+      { key: 'commerce', label: 'Selling capability enabled', complete: capabilities.includes('commerce'), detail: 'Service checkout needs commerce; stocked goods also require inventory.' },
       { key: 'catalog', label: 'Items available', complete: totals.products > 0, detail: `${totals.products} active catalogue items` },
-      { key: 'stock', label: 'Stock received', complete: totals.stocked > 0, detail: `${totals.stocked} items with stock available` },
+      { key: 'stock', label: 'Stock or service available', complete: totals.stocked > 0||totals.services>0, detail: `${totals.stocked} goods with stock available · ${totals.services} services ready without physical stock` },
       { key: 'staff', label: 'Active operator and device', complete: totals.staff > 0 && totals.devices > 0, detail: `${totals.staff} active staff · ${totals.devices} active outlet devices` },
     ];
     const configuration: ConfigurationRead = { business, outlet, capabilities, supportedCapabilities: SUPPORTED_CAPABILITIES, currencyLocked: await currencyLocked(client, session.tenantId), readiness: { readyForFirstSale: checks.every(check => check.complete), checks } };

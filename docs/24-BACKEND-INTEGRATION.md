@@ -13,8 +13,36 @@ reads, shared direct/CSV validation and additive migration 023. Stock exposes
 command IDs for unknown-outcome recovery. [Catalog maintenance](55-CATALOG-MAINTENANCE.md)
 records contracts, stock/count/history safeguards and observed acceptance. Older
 tables below describe their historical baseline where this continuation extends
-them. Item types and count rebase/draft improvements remain pending. No production
+them. Count rebase/draft improvements remain pending. No production
 deployment of this continuation has occurred.
+
+The S01-02 continuation adds migrations 024 (explicit item kinds and original
+sale-kind snapshots) and 025 (trusted command capability evidence). **Items and
+services** is independent of Stock and requires `catalog.manage` with commerce
+or inventory. `GET /catalog/items` includes `itemKind`, `stockTracked` and the
+actual nullable `balanceVersion`; quantity, carrying value and physical version
+are null for nonstock items or when inventory is disabled. Cost authorization
+is unchanged. New services/prepared items have no physical balance.
+
+Creation and CSV derive capabilities from the requested and reviewed kinds.
+`catalog.product.change_kind` requires a nonempty reason, expected product
+version and actual balance version if one exists. It refuses nonzero quantity
+or value, unresolved stock exceptions and an open count; reviewed correction
+must happen first. Settlement requires commerce plus inventory only for stocked
+lines. Services retain ordinary tax/tender/account rules with zero inventory
+cost and movements. Prepared payment is unavailable. Refunds derive authority
+and disposition from the saved sale kind, so historical stocked refunds still
+require inventory after current reclassification. Nonstock receiving/restocking
+is rejected atomically. Counts include stocked goods alone.
+
+Original command requirements are persisted before business posting and survive
+a rejected posting savepoint. Status/replay recheck current actor, outlet,
+permissions and these original requirements instead of replanning against a
+changed product. Legacy writer rows retain conservative original requirements;
+invalid new evidence fails closed. [Item kinds and service sales](56-ITEM-KINDS-SERVICE-SALES.md)
+records CSV history scopes, financial admission ordering, migration/rollback
+limits, observed local checks and remaining combined acceptance. These details
+supersede the inventory-only catalog/sale baseline in older tables below.
 
 ## Runtime and first operator
 

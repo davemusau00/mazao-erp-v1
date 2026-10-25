@@ -1,3 +1,4 @@
+import { catalogItemKind, catalogItemKindLabel } from '../../types/catalog';
 import React from 'react';
 import { AlertCircle, CheckCircle2, Download, Printer, RefreshCw, X } from 'lucide-react';
 import type { BackendSaleReceipt } from '../../services/apiClient';
@@ -61,7 +62,7 @@ export function BackendReceiptModal({ receipt, loading, error, onRetry, onClose 
           <div className="space-y-2">
             {receipt.lines.map(line => (
               <div key={line.lineId} className="border-b border-dotted border-zinc-300 py-1.5">
-                <div className="break-words font-semibold">{line.name}</div>
+                <div className="break-words font-semibold">{line.name}</div>{catalogItemKind(line)!=='STOCKED_GOOD'&&<div className="text-[9px]">{catalogItemKindLabel(catalogItemKind(line))}</div>}
                 <div className="mt-0.5 flex justify-between gap-2 tabular-nums">
                   <span>{formatDecimalQuantity(line.quantity)}{' × '}{money(line.unitPriceMinor, receipt.currency)}</span>
                   <span className="shrink-0 text-right font-medium">{money(line.subtotalMinor, receipt.currency)}</span>

@@ -7,6 +7,10 @@ This slice extends the authenticated PostgreSQL catalogue. Product identity
 and carrying value remain separate from editable product metadata. Maintenance
 commands are online only and require `catalog.manage` with inventory enabled.
 Domain, migration and browser evidence is recorded below as it is verified.
+Generated browser output uses isolated directories; `test-results-*/` is now
+ignored alongside `test-results/` to keep future traces and last-run files out
+of source changes. The already committed integration last-run file is preserved
+and is not used as acceptance evidence.
 
 ## Shared validation and command contracts
 
@@ -71,6 +75,40 @@ it. Missing or mismatched confirmations remain unknown and cannot remove the
 original recovery record. Business error codes retain structured details while
 operator-facing copy explains identity conflicts, open counts, stock/exception
 archive blocks and category state/conflicts.
+
+The final independent review found three acknowledgement gaps. Status recovery
+previously replaced a contradictory nested command ID with its outer ID before
+checking it; empty rejection codes and `IDEMPOTENCY_MISMATCH` could clear the
+original journal; legacy item creation accepted an empty confirmation value.
+The shared status guard now checks the untrusted outer object before reading its
+fields, requires matching outer/nested status and original IDs, and permits an
+omitted nested ID for existing status-response compatibility. Empty/whitespace
+codes and trimmed `IDEMPOTENCY_MISMATCH` remain unknown in both submission and
+status recovery. They describe no terminal result for the original operation.
+Item creation requires a nonempty product ID and SKU matching the original
+payload after its normal trim; opaque legacy fixture IDs remain accepted.
+
+Focused review-fix verification:
+
+```text
+node --import tsx --test apps/api/test/api-messages.test.ts
+7 passed; 0 failed; 0 skipped.
+
+npm run typecheck
+Passed for UI and API.
+```
+
+The pure checks cover malformed status envelopes, contradictory nested IDs,
+incomplete/mismatched product results, missing rejection codes, padded
+idempotency mismatch and valid normalized creation. The dedicated browser
+`e2e/catalog-recovery-response.spec.ts` retains the exact original IndexedDB
+envelope through malformed status responses and restart, prevents replacement
+submission, and clears it only for a matching terminal result. Its four browser
+cases also cover direct ambiguous rejections and incomplete/mismatched creation
+acknowledgements. The fresh-build Chromium run of the nine catalog cases and
+these four recovery cases passed **13/13**, with zero failures, in 40.2 seconds.
+This supplements the earlier nine-case catalog evidence and proves retention in
+the real browser IndexedDB journal, rather than only in the pure helper.
 
 ## Domain and migration boundary
 
@@ -240,6 +278,17 @@ combined API regression, browser evidence, exact-commit hosted CI and operationa
 release gates remain separate from these focused results. No migration was
 applied outside disposable local databases and no deployment occurred.
 
+The subsequent combined API run passed **181/181, 0 failed, 0 skipped** in
+179.66 seconds with the same disposable server and `--test-concurrency=2`.
+All corrected import and upgrade checks passed, including the 1,000-row import
+and full financial/inventory regression. Full intercepted Chromium acceptance
+passed **89/89** in 3.7 minutes. The existing real API/PostgreSQL browser suite
+passed **17/17** in 1.6 minutes against `mazao_test` after applying migration 023;
+the dedicated new real maintenance journey is recorded below. Artifact paths:
+`dist-artifacts/playwright-s01-browser` and
+`dist-artifacts/playwright-s01-integration`. These runs precede the final client
+recovery/reason review follow-up; fresh verification of those changes follows.
+
 ## Reachable maintenance UI and recovery
 
 Stock now exposes **Manage items and categories** to operators with
@@ -333,5 +382,63 @@ canonical contract accepts one non-whitespace character through 500 characters.
 The form now requires a nonempty trimmed reason, matching the server boundary.
 The existing archive/restore browser case checks that whitespace submits no
 command and a one-character reason reaches the original versioned command.
-This small follow-up awaits a fresh build and focused rerun after the separately
-running combined regressions release the frozen artifact.
+Archived unmerged categories can now be renamed directly, preserving their
+inactive state until an explicit restore. The category lifecycle test renames
+at archived version 3 and restores at version 4; merged categories remain
+unavailable for rename or restore.
+
+## Fresh-build review verification
+
+```text
+npm run typecheck
+Passed for UI and API.
+
+npm run build
+Passed. Main JavaScript: 502.43 kB (136.64 kB gzip).
+Lazy maintenance JavaScript: 20.29 kB (6.40 kB gzip).
+PWA: 19 precache entries, 826.05 KiB.
+
+npx playwright test e2e/catalog-maintenance.spec.ts e2e/catalog-recovery-response.spec.ts --output=test-results-catalog-maintenance-review-chromium --reporter=list
+13 passed; 0 failed; 40.2 seconds.
+
+npx playwright test e2e/catalog-maintenance.spec.ts --browser=firefox --output=test-results-catalog-maintenance-review-firefox --reporter=list
+9 passed; 0 failed; 56.2 seconds.
+```
+
+This artifact includes the reason/category UI corrections and the shared
+acknowledgement hardening. Chromium covers all nine maintenance cases and four
+malformed-response recovery cases. Firefox independently covers all nine
+maintenance cases, including both target viewports, original-ID recovery,
+one-character reasons, archived category rename and permission-restricted
+navigation. Neither run failed or retried a test. The combined real-API and
+full Chromium regressions against this artifact are recorded separately.
+
+The rebuilt artifact subsequently passed the full real API/PostgreSQL browser
+suite: **18/18**, 0 failures, in 1.6 minutes. Command:
+`npx playwright test --config playwright.integration.config.ts --output dist-artifacts/playwright-s01-integration-final`
+with the named disposable `mazao_test` database. This run includes the maintenance
+journey and every existing sign-in, configuration, item setup, receiving, taxed
+sale, count, import, customer, staff and hotel integration case. The shared
+acknowledgement hardening therefore retains actual server compatibility as well
+as rejecting malformed intercepted responses. The final seven-case helper suite
+was rerun and passed. Full Chromium acceptance of the same artifact follows.
+
+Final full Chromium rerun of the reviewed artifact:
+`npx playwright test --output dist-artifacts/playwright-s01-browser-reviewed`:
+**93 passed, 0 failed**, 3.9 minutes, without test retries. This includes all
+existing intercepted workflows, nine maintenance cases and four new malformed
+acknowledgement recovery cases. The earlier 89-case run preceded the final
+recovery and archived-category UI follow-ups; this 93-case run covers them.
+No API/domain/migration source changed after the 181-case API regression. Its
+client-only follow-up is covered by the final seven helper tests, 93 Chromium,
+18 real integration and nine focused Firefox cases. No second full API rerun is
+implied by those distinct results.
+
+S01-01 is locally verified. The shared checkpoint is `24c1bd5`; final review
+documentation, archived-category rename and the additional recovery browser
+file remain reviewable changes above it. Exact-head hosted CI has not run for
+this branch, and no production deployment, installed-PWA upgrade, physical
+hardware, performance acceptance or API rollback to the preceding schema
+contract is claimed. The subsequent S01-02 implementation and its separate
+acceptance are recorded in [item kinds and service sales](56-ITEM-KINDS-SERVICE-SALES.md).
+S01-03–07 and the wider CODEBASE-TRUTH roadmap remain open.

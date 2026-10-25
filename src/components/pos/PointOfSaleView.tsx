@@ -1,3 +1,4 @@
+import { catalogItemKind, isStockTracked } from '../../types/catalog';
 import React, { useEffect, useRef, useState } from 'react';
 import { Banknote, Barcode, Minus, Plus, RefreshCw, Search, ShoppingCart, Smartphone, Trash2, Users } from 'lucide-react';
 import { apiClient, type BackendCommand, type BackendCustomerAccount, type BackendProduct, type BackendShift, type BackendStockSalePolicy } from '../../services/apiClient';
@@ -61,6 +62,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   const refreshController = useRef<AbortController | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const canChargeAccount = session.user.permissions.includes('customers.charge');
+  const inventoryEnabled = session.tenant.capabilities.includes('inventory');
   const canDiscount = session.user.permissions.includes('commerce.discount');
   const locked = busy || !!unknownId;
   const discountFor = (line: BasketLine): bigint | null => {
@@ -82,7 +84,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
       }).finally(() => { if (current()&&customerRequest===customerGeneration.current) setCustomersBusy(false); });
     }
     try {
-      const [catalog, currentShift, policy] = await Promise.all([apiClient.listCatalog(controller.signal), apiClient.getCurrentShift(controller.signal), apiClient.getStockSalePolicy(controller.signal)]);
+      const [catalog, currentShift, policy] = await Promise.all([apiClient.listCatalog(controller.signal), apiClient.getCurrentShift(controller.signal), inventoryEnabled ? apiClient.getStockSalePolicy(controller.signal) : Promise.resolve({ policy: null })]);
       if (current()) { setProducts(catalog.items); setShift(currentShift.shift); setStockPolicy(policy.policy); setLoaded(true); }
     } catch (failure) {
       if (current()) setError(failure instanceof Error ? failure.message : 'The items and shift could not be loaded. Try again.');
@@ -136,11 +138,11 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   const validBasket = basket.length > 0 && basket.every(line => {
     const micros = quantityMicros(line.quantity), discount = discountFor(line);
     const product = productById.get(line.productId);
-    return !!product && micros !== null && micros > 0n && discount !== null && discount <= lineMinor(product.sellingPriceMinor, line.quantity)
+    return !!product && catalogItemKind(product) !== 'PREPARED' && (!isStockTracked(product) || inventoryEnabled) && micros !== null && micros > 0n && discount !== null && discount <= lineMinor(product.sellingPriceMinor, line.quantity)
       && (discount === 0n || (canDiscount && !!line.discountReason.trim()));
   });
   const shortfallLines = basket.flatMap(line => {
-    const product=productById.get(line.productId),requested=quantityMicros(line.quantity),recorded=product?quantityMicros(product.quantity):null;
+    const product=productById.get(line.productId),requested=quantityMicros(line.quantity),recorded=product && isStockTracked(product) && product.quantity !== null ? quantityMicros(product.quantity) : null;
     return !product||requested===null||recorded===null||requested<=recorded?[]:[{product,shortfall:requested-recorded}];
   });
   const stockExceptionsReady = shortfallLines.length===0 || (stockPolicy?.enabled===true && shortfallLines.every(({product,shortfall})=>{
@@ -170,12 +172,14 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
   const filteredCustomers = customers.filter(customer => `${customer.name} ${customer.phone} ${customer.email ?? ''}`.toLocaleLowerCase().includes(customerQuery.toLocaleLowerCase()));
   const addProduct = (product: BackendProduct) => {
     if (locked || !loaded) return;
+    if (catalogItemKind(product) === 'PREPARED') { setNotice('Prepared items cannot be sold until recipe consumption is available.'); return; }
+    if (isStockTracked(product) && !inventoryEnabled) { setNotice('Enable inventory before selling stocked goods. Services can be sold without inventory.'); return; }
     setBasket(previous => {
       const existing = previous.find(line => line.productId === product.id);
       return existing ? previous.map(line => line.productId === product.id ? { ...line, quantity: sumDecimalStrings([line.quantity, '1']) } : line) : [...previous, { productId: product.id, quantity: '1', discount: '', discountReason: '' }];
     });
     setStockAcknowledgements(previous=>({...previous,[product.id]:{...(previous[product.id]??{reasonCode:'',reasonNote:'',confirmedQuantity:null}),confirmedQuantity:null}}));
-    if (quantityMicros(product.quantity) === 0n) setNotice(stockPolicy?.enabled ? `${product.name} has no recorded stock. Physically verify its availability before confirming a sale.` : `${product.name} has no stock available. Review stock before taking payment.`);
+    if (isStockTracked(product) && product.quantity !== null && quantityMicros(product.quantity) === 0n) setNotice(stockPolicy?.enabled ? `${product.name} has no recorded stock. Physically verify its availability before confirming a sale.` : `${product.name} has no stock available. Review stock before taking payment.`);
   };
   const scan = (event: React.FormEvent) => {
     event.preventDefault();
@@ -234,7 +238,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
       {!loading && loaded && !shift && <p className="rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-200">Open a shift in Shifts before taking payment.</p>}
       <form onSubmit={scan} className="relative"><Search className="absolute left-3 top-3.5 text-zinc-500" size={18} /><label className="sr-only" htmlFor="pos-search">Search items or scan SKU</label><input id="pos-search" ref={searchInput} disabled={locked || !loaded} value={query} onChange={event => setQuery(event.target.value)} placeholder="Search items or scan SKU, then Enter" className="min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 pl-10 pr-12 text-sm" /><button type="submit" aria-label="Add scanned item" disabled={locked || !loaded || !query.trim()} className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center text-blue-300"><Barcode size={19} /></button></form>
       {loading && <p role="status" className="py-3 text-sm text-zinc-400">{products.length ? 'Refreshing items and shift… Previously loaded items remain visible.' : 'Loading items and shift…'}</p>}
-      {!loading && filteredProducts.length === 0 ? <div className="rounded-xl border border-zinc-800 p-8 text-center"><ShoppingCart className="mx-auto text-zinc-500" /><p className="mt-3 text-sm text-zinc-400">{products.length ? 'No items match this search.' : 'No items in this outlet. Create items and receive stock in Stock.'}</p></div> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">{filteredProducts.map(product => <button key={product.id} type="button" disabled={locked || !loaded} onClick={() => addProduct(product)} className="min-h-32 rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-left disabled:opacity-50 hover:border-blue-600"><strong className="block text-sm">{product.name}</strong><span className="mt-1 block text-xs text-zinc-500">{product.sku}</span><span className="mt-3 block font-mono text-sm text-blue-300">{formatMinorMoneyText(BigInt(product.sellingPriceMinor), currency)}</span><span className="mt-1 block text-xs text-zinc-400">{formatDecimalQuantity(product.quantity)} {product.unit} on hand</span></button>)}</div>}
+      {!loading && filteredProducts.length === 0 ? <div className="rounded-xl border border-zinc-800 p-8 text-center"><ShoppingCart className="mx-auto text-zinc-500" /><p className="mt-3 text-sm text-zinc-400">{products.length ? 'No items match this search.' : 'No items in this outlet. Create services or stocked goods in Items and services.'}</p></div> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">{filteredProducts.map(product => <button key={product.id} type="button" disabled={locked || !loaded || catalogItemKind(product) === 'PREPARED' || (isStockTracked(product) && !inventoryEnabled)} onClick={() => addProduct(product)} className="min-h-32 rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-left disabled:opacity-50 hover:border-blue-600"><strong className="block text-sm">{product.name}</strong><span className="mt-1 block text-xs text-zinc-500">{product.sku}</span><span className="mt-3 block font-mono text-sm text-blue-300">{formatMinorMoneyText(BigInt(product.sellingPriceMinor), currency)}</span><span className="mt-1 block text-xs text-zinc-400">{catalogItemKind(product) === 'PREPARED' ? 'Unavailable: recipe consumption required' : isStockTracked(product) ? inventoryEnabled ? `${formatDecimalQuantity(product.quantity ?? '')} ${product.unit} on hand` : 'Inventory required before sale' : 'Service - no stock tracking'}</span></button>)}</div>}
     </section>
     <section className="h-fit min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 lg:sticky lg:top-0" aria-label="Basket">
       <header className="flex items-center justify-between"><h2 className="text-lg font-semibold">Basket</h2><button type="button" disabled={locked || !basket.length} onClick={() => {setBasket([]);setStockAcknowledgements({});}} className="flex min-h-11 items-center gap-2 px-2 text-xs text-zinc-400"><Trash2 size={16} />Clear</button></header>
@@ -244,7 +248,7 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
         return <article key={line.productId} className="border-b border-zinc-800 pb-3"><div className="flex justify-between gap-2"><strong className="text-sm">{product?.name ?? 'Unavailable item'}</strong><button type="button" disabled={locked} aria-label={`Remove ${product?.name ?? 'item'}`} onClick={() => {setBasket(previous => previous.filter(entry => entry.productId !== line.productId));setStockAcknowledgements(previous=>{const next={...previous};delete next[line.productId];return next;});}} className="flex h-11 w-11 shrink-0 items-center justify-center text-zinc-400"><Trash2 size={15} /></button></div>
           <div className="flex items-center gap-2"><button type="button" disabled={locked || (quantityMicros(line.quantity) ?? 0n) <= quantityScale} onClick={() => editLine(line.productId, { quantity: subtractDecimalStrings(line.quantity, '1') })} aria-label={`Decrease ${product?.name ?? 'item'} quantity`} className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-700"><Minus size={16} /></button><label className="min-w-0 flex-1"><span className="sr-only">Quantity for {product?.name ?? 'item'}</span><input disabled={locked} inputMode="decimal" value={line.quantity} onChange={event => editLine(line.productId, { quantity: event.target.value })} className="min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 text-center text-sm" /></label><button type="button" disabled={locked} onClick={() => editLine(line.productId, { quantity: sumDecimalStrings([line.quantity, '1']) })} aria-label={`Increase ${product?.name ?? 'item'} quantity`} className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-700"><Plus size={16} /></button></div>
           {canDiscount && <details className="mt-2 text-xs text-zinc-300"><summary className="cursor-pointer py-2">Item discount{discount && discount > 0n ? ` · ${formatMinorMoneyText(discount, currency)}` : ''}</summary><label className="mt-2 block">Discount for these items ({currency})<input disabled={locked} inputMode="decimal" value={line.discount} onChange={event => editLine(line.productId, { discount: event.target.value })} aria-label={`Discount amount for ${product?.name ?? 'item'}`} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm" /></label><p className="mt-1 text-zinc-500">Applied once to all {formatDecimalQuantity(line.quantity)} items on this line. Maximum {formatMinorMoneyText(original, currency)} before tax.</p><label className="mt-2 block">Discount reason<input disabled={locked} value={line.discountReason} maxLength={240} onChange={event => editLine(line.productId, { discountReason: event.target.value })} aria-label={`Discount reason for ${product?.name ?? 'item'}`} className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm" /></label></details>}
-          <p className="mt-2 text-right font-mono text-sm">{discount && discount > 0n && <del className="mr-2 text-zinc-500">{formatMinorMoneyText(original, currency)}</del>}{formatMinorMoneyText(original - (discount ?? 0n), currency)}</p>
+          <p className="mt-2 text-right font-mono text-sm">{discount !== null && discount > 0n && <del className="mr-2 text-zinc-500">{formatMinorMoneyText(original, currency)}</del>}{formatMinorMoneyText(original - (discount ?? 0n), currency)}</p>
           {invalidDiscount && <p className="mt-1 text-xs text-rose-300">Enter a valid amount within the line value and give a reason for the discount.</p>}
           {(!product || !quantityMicros(line.quantity)) && <p className="text-xs text-rose-300">Enter a positive quantity with up to six decimal places for an available item.</p>}
         </article>;

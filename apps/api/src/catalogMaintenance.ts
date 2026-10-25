@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { inReadSnapshot } from './db.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { normalizeCatalogCategoryName, normalizeCatalogProductUpdate, normalizeCatalogReason } from './catalogValidation.js';
+import { isStockTracked, normalizeItemKind, requireCatalogCapability, requireItemKindCapability, type ItemKind } from './itemKinds.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function id(value:unknown,label:string):string {
@@ -19,7 +20,7 @@ function matchVersion(current:unknown,value:number) {
 }
 function manage(session:ApiSession) {
   if(!ROLE_PERMISSIONS[session.role].includes('catalog.manage'))throw new DomainError('FORBIDDEN','Your role cannot manage catalog records.',403);
-  if(!session.capabilities.includes('inventory'))throw new DomainError('CAPABILITY_DISABLED','Inventory is not enabled for this business.',403);
+  requireCatalogCapability(session);
 }
 export async function catalogEvidence(client:PoolClient,session:ApiSession,commandId:string,type:string,value:unknown) {
   const payload=JSON.stringify(value);
@@ -31,12 +32,13 @@ export async function catalogEvidence(client:PoolClient,session:ApiSession,comma
  * Lock ordering: revalidated authority -> outlet -> category/product -> balance.
  * No user interaction or external side effect happens while this lock is held.
  */
-export async function lockCatalogOutlet(client:PoolClient,session:ApiSession) {
+export async function lockCatalogOutlet(client:PoolClient,session:ApiSession,mode:'shared'|'exclusive'='exclusive') {
   const row=await client.query('SELECT id FROM core.outlets WHERE tenant_id=$1 AND id=$2 AND active FOR SHARE',[session.tenantId,session.outletId]);
   if(!row.rowCount)throw new DomainError('NOT_FOUND','Active outlet was not found.',404);
   // Authority already takes a shared outlet lock. An advisory admission lock
   // avoids competing shared-to-exclusive upgrades while serializing this domain.
-  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('catalog:'||$1::text||':'||$2::text,0))",[session.tenantId,session.outletId]);
+  const lock=mode==='shared'?'pg_advisory_xact_lock_shared':'pg_advisory_xact_lock';
+  await client.query(`SELECT ${lock}(hashtextextended('catalog:'||$1::text||':'||$2::text,0))`,[session.tenantId,session.outletId]);
 }
 export async function assertNoOpenCatalogCount(client:PoolClient,session:ApiSession) {
   const count=await client.query("SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status='OPEN' LIMIT 1",[session.tenantId,session.outletId]);
@@ -69,10 +71,11 @@ export function catalogIdentityError(error:unknown):never {
 async function updateProduct(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
   const productId=id(envelope.payload.productId,'product'),version=expected(envelope,`product:${productId}`);
   const metadata=normalizeCatalogProductUpdate(envelope.payload),reason=normalizeCatalogReason(envelope.payload.reason);
-  const found=await client.query('SELECT id,name,selling_price_minor::text,cost_price_minor::text,tax_rate_bps,category,category_id,barcode,reorder_level::text,version,active FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 FOR UPDATE',[session.tenantId,session.outletId,productId]);
+  const found=await client.query('SELECT id,name,selling_price_minor::text,cost_price_minor::text,tax_rate_bps,category,category_id,barcode,reorder_level::text,version,active,item_kind FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 FOR UPDATE',[session.tenantId,session.outletId,productId]);
   if(!found.rowCount)throw new DomainError('NOT_FOUND','Product was not found at this outlet.',404);
   const before=found.rows[0];matchVersion(before.version,version);
-  if(BigInt(before.cost_price_minor)!==BigInt(metadata.costPriceMinor))await assertNoOpenCatalogCount(client,session);
+  requireItemKindCapability(session,before.item_kind);
+  if(isStockTracked(before.item_kind)&&BigInt(before.cost_price_minor)!==BigInt(metadata.costPriceMinor))await assertNoOpenCatalogCount(client,session);
   const categoryId=await resolveCatalogCategory(client,session,metadata.category,envelope.commandId,!before.active&&metadata.category===before.category?before.category_id:null);
   await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,category_id=$11,version=version+1
     WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3`,[session.tenantId,session.outletId,productId,metadata.name,metadata.sellingPriceMinor,metadata.costPriceMinor,metadata.taxRateBps,metadata.category,metadata.barcode,metadata.reorderLevel,categoryId]);
@@ -85,14 +88,17 @@ async function setProductActive(client:PoolClient,session:ApiSession,envelope:Co
   const productId=id(envelope.payload.productId,'product'),version=expected(envelope,`product:${productId}`),active=envelope.payload.active;
   const reason=normalizeCatalogReason(envelope.payload.reason);
   if(typeof active!=='boolean')throw new DomainError('VALIDATION_FAILED','Choose archive or restore explicitly.');
-  await assertNoOpenCatalogCount(client,session);
-  const found=await client.query(`SELECT p.id,p.version,p.active,p.category_id,b.quantity::text,b.inventory_value_minor::text
-    FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-    WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.id=$3 FOR UPDATE OF p,b`,[session.tenantId,session.outletId,productId]);
+  const found=await client.query(`SELECT id,version,active,category_id,item_kind FROM catalog.products
+    WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 FOR UPDATE`,[session.tenantId,session.outletId,productId]);
   if(!found.rowCount)throw new DomainError('NOT_FOUND','Product was not found at this outlet.',404);
   const before=found.rows[0];matchVersion(before.version,version);
+  requireItemKindCapability(session,before.item_kind);
+  if(isStockTracked(before.item_kind))await assertNoOpenCatalogCount(client,session);
+  const balances=await client.query('SELECT quantity::text,inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 FOR UPDATE',[session.tenantId,session.outletId,productId]);
+  if(isStockTracked(before.item_kind)&&!balances.rowCount)throw new DomainError('INVENTORY_STATE_INVALID','The stocked item has no inventory balance. Ask an administrator to review its inventory evidence.',409);
+  const balance=balances.rows[0];
   if(!active) {
-    if(!/^0(?:\.0+)?$/.test(before.quantity)||BigInt(before.inventory_value_minor)!==0n)throw new DomainError('PRODUCT_ARCHIVE_STOCK_REMAINING','Archive requires zero recorded quantity and zero inventory value. Review stock through supported inventory commands first.',409,{quantity:before.quantity,inventoryValueMinor:before.inventory_value_minor});
+    if(balance&&(!/^0(?:\.0+)?$/.test(balance.quantity)||BigInt(balance.inventory_value_minor)!==0n))throw new DomainError('PRODUCT_ARCHIVE_STOCK_REMAINING','Archive requires zero recorded quantity and zero inventory value. Review stock through supported inventory commands first.',409,{quantity:balance.quantity,inventoryValueMinor:balance.inventory_value_minor});
     const open=await client.query('SELECT id FROM inventory.sale_shortfalls WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 AND resolved_quantity<quantity LIMIT 1',[session.tenantId,session.outletId,productId]);
     if(open.rowCount)throw new DomainError('PRODUCT_ARCHIVE_UNRESOLVED_SHORTFALL','Resolve the recorded stock exception before archiving this product.',409,{shortfallId:open.rows[0].id});
   } else if(before.category_id) {
@@ -103,6 +109,31 @@ async function setProductActive(client:PoolClient,session:ApiSession,envelope:Co
   if(changed)await client.query('UPDATE catalog.products SET active=$4,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3',[session.tenantId,session.outletId,productId,active]);
   const value={productId,version:newVersion,active};
   await catalogEvidence(client,session,envelope.commandId,envelope.type,{...value,reason,beforeActive:before.active,changed});
+  return value;
+}
+
+async function changeProductKind(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
+  const productId=id(envelope.payload.productId,'product'),version=expected(envelope,`product:${productId}`);
+  const itemKind=normalizeItemKind(envelope.payload.itemKind),reason=normalizeCatalogReason(envelope.payload.reason);
+  const found=await client.query<{item_kind:ItemKind;version:string}>('SELECT item_kind,version FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 FOR UPDATE',[session.tenantId,session.outletId,productId]);
+  if(!found.rowCount)throw new DomainError('NOT_FOUND','Item was not found at this outlet.',404);
+  const before=found.rows[0];matchVersion(before.version,version);
+  requireItemKindCapability(session,before.item_kind);requireItemKindCapability(session,itemKind);
+  if(itemKind===before.item_kind)throw new DomainError('VALIDATION_FAILED','Choose a different item type for this reviewed change.');
+  await assertNoOpenCatalogCount(client,session);
+  const balances=await client.query('SELECT quantity::text,inventory_value_minor::text,version FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 FOR UPDATE',[session.tenantId,session.outletId,productId]);
+  const balance=balances.rows[0];
+  if(balance) {
+    matchVersion(balance.version,expected(envelope,`balance:${productId}`));
+    if(!/^0(?:\.0+)?$/.test(balance.quantity)||BigInt(balance.inventory_value_minor)!==0n)throw new DomainError('ITEM_KIND_STOCK_REMAINING','Review and correct the recorded quantity and carrying value through inventory before changing this item type.',409,{quantity:balance.quantity,inventoryValueMinor:balance.inventory_value_minor});
+  } else if(isStockTracked(before.item_kind))throw new DomainError('INVENTORY_STATE_INVALID','The stocked item has no inventory balance. Review its inventory evidence before reclassification.',409);
+  else if(Object.hasOwn(envelope.expectedVersions,`balance:${productId}`))throw new DomainError('VERSION_CONFLICT','The inventory balance does not match the reviewed state. Refresh this item.',409,{currentBalanceVersion:null});
+  const shortfall=await client.query('SELECT id FROM inventory.sale_shortfalls WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 AND resolved_quantity<quantity LIMIT 1',[session.tenantId,session.outletId,productId]);
+  if(shortfall.rowCount)throw new DomainError('ITEM_KIND_UNRESOLVED_SHORTFALL','Resolve this item\'s stock exceptions before changing its type.',409,{shortfallId:shortfall.rows[0].id});
+  await client.query('UPDATE catalog.products SET item_kind=$4,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3',[session.tenantId,session.outletId,productId,itemKind]);
+  if(isStockTracked(itemKind)&&!balance)await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,0,0)',[session.tenantId,session.outletId,productId]);
+  const value={productId,itemKind,version:version+1,stockTracked:isStockTracked(itemKind)};
+  await catalogEvidence(client,session,envelope.commandId,envelope.type,{...value,reason,beforeKind:before.item_kind,reviewedBalanceVersion:balance?Number(balance.version):null,reviewedQuantity:balance?.quantity??null,reviewedInventoryValueMinor:balance?.inventory_value_minor??null});
   return value;
 }
 
@@ -122,6 +153,10 @@ async function categoryCommand(client:PoolClient,session:ApiSession,envelope:Com
   }
   const categoryId=id(p.categoryId??p.sourceCategoryId,'category'),version=expected(envelope,`category:${categoryId}`),reason=normalizeCatalogReason(p.reason);
   const before=await category(client,session,categoryId);matchVersion(before.version,version);
+  const affected=[categoryId];
+  if(envelope.type==='catalog.category.merge')affected.push(id(p.targetCategoryId,'target category'));
+  const kinds=await client.query('SELECT DISTINCT item_kind FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND category_id=ANY($3::uuid[])',[session.tenantId,session.outletId,affected]);
+  for(const row of kinds.rows)requireItemKindCapability(session,row.item_kind);
   if(envelope.type==='catalog.category.update') {
     if(before.merged_into)throw new DomainError('CATEGORY_MERGED','A merged category retains its historical identity. Edit the target category instead.',409);
     const name=normalizeCatalogCategoryName(p.name);
@@ -166,6 +201,7 @@ export async function executeCatalogMaintenanceCommand(client:PoolClient,session
   try {
     if(envelope.type==='catalog.product.update')return await updateProduct(client,session,envelope);
     if(envelope.type==='catalog.product.set_active')return await setProductActive(client,session,envelope);
+    if(envelope.type==='catalog.product.change_kind')return await changeProductKind(client,session,envelope);
     return await categoryCommand(client,session,envelope);
   }catch(error){catalogIdentityError(error);}
 }

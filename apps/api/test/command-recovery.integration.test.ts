@@ -203,5 +203,119 @@ if (!databaseUrl) {
       denied(await submit(app, owner, { ...envelope, type: 'auth.session.revoke' }), 403, 'FORBIDDEN');
       assert.deepEqual(await controls(owner.tenantId), baseline);
     });
+
+    await t.test('trusted requirements survive business rejection and later classification changes', async t => {
+      const { app, owner } = await fixture(t);
+      const stocked = productCommand(owner), stockedResult = confirmed(await submit(app, owner, stocked));
+      const service = command(owner, 'catalog.product.create', { ...productCommand(owner).payload, itemKind: 'SERVICE', costPriceMinor: 0 });
+      const serviceResult = confirmed(await submit(app, owner, service));
+      const rejected = command(owner, 'catalog.product.set_active', { productId: stockedResult.value.productId, active: false, reason: 'Stale expected version' }, { [`product:${stockedResult.value.productId}`]: 999 });
+      assert.equal((await submit(app, owner, rejected)).json().status, 'CONFLICT');
+      const descriptor = async (commandId: string) => (await db.pool.query('SELECT authority_version,required_capabilities,status FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, commandId])).rows[0];
+      assert.deepEqual(await descriptor(stocked.commandId), { authority_version: 1, required_capabilities: ['inventory'], status: 'CONFIRMED' });
+      assert.deepEqual(await descriptor(rejected.commandId), { authority_version: 1, required_capabilities: ['inventory'], status: 'CONFLICT' });
+      assert.deepEqual(await descriptor(service.commandId), { authority_version: 1, required_capabilities: ['commerce'], status: 'CONFIRMED' });
+      confirmed(await submit(app, owner, command(owner, 'catalog.product.change_kind', { productId: stockedResult.value.productId, itemKind: 'SERVICE', reason: 'Change future sales classification' }, { [`product:${stockedResult.value.productId}`]: 1, [`balance:${stockedResult.value.productId}`]: 1 })));
+      confirmed(await submit(app, owner, command(owner, 'catalog.product.change_kind', { productId: serviceResult.value.productId, itemKind: 'STOCKED_GOOD', reason: 'Change future stock classification' }, { [`product:${serviceResult.value.productId}`]: 1 })));
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]);
+      const baseline = await controls(owner.tenantId);
+      for (const envelope of [stocked, rejected]) {
+        denied(await status(app, owner, envelope.commandId), 403, 'CAPABILITY_DISABLED');
+        denied(await submit(app, owner, { ...envelope, type: 'catalog.product.create', payload: { ...service.payload } }), 403, 'CAPABILITY_DISABLED');
+      }
+      assert.deepEqual(confirmed(await submit(app, owner, service)), serviceResult, 'recovery uses original service requirements, not its new stocked classification');
+      const recovered = (await status(app, owner, service.commandId)).json();
+      assert.deepEqual(recovered.response, { status: 'CONFIRMED', value: serviceResult.value });
+      assert.ok(!Object.hasOwn(recovered, 'required_capabilities') && !Object.hasOwn(recovered, 'authority_version'));
+      assert.deepEqual(await controls(owner.tenantId), baseline);
+    });
+
+    await t.test('legacy and rolling-upgrade writers retain inventory while malformed descriptors fail closed', async t => {
+      const { app, owner } = await fixture(t);
+      const legacy = productCommand(owner);
+      const response = { status: 'CONFIRMED', value: { productId: randomUUID(), version: 1 } };
+      // Intentionally omit both new columns, exactly as an old API writer does
+      // after migration. Empty SQL defaults cannot grant service-only recovery.
+      await db.pool.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status,response)
+        VALUES($1,$2,$3,$4,$5,$6,'CONFIRMED',$7::jsonb)`, [owner.tenantId, legacy.commandId, owner.userId, owner.deviceId, legacy.type, hashCommand(legacy), JSON.stringify(response)]);
+      assert.deepEqual(confirmed(await submit(app, owner, legacy)), { commandId: legacy.commandId, ...response });
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]);
+      denied(await status(app, owner, legacy.commandId), 403, 'CAPABILITY_DISABLED');
+      denied(await submit(app, owner, { ...legacy, payload: { ...legacy.payload, itemKind: 'SERVICE' } }), 403, 'CAPABILITY_DISABLED');
+      await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'inventory')", [owner.tenantId]);
+      for (const [version, requirements] of [[2, ['inventory']], [1, []], [1, ['hospitality']], [1, ['inventory', 'inventory']], [1, ['unknown-capability']]] as const) {
+        await db.pool.query('UPDATE system.commands SET authority_version=$3,required_capabilities=$4::text[] WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, legacy.commandId, version, requirements]);
+        denied(await status(app, owner, legacy.commandId), 403, 'FORBIDDEN');
+        denied(await submit(app, owner, legacy), 403, 'FORBIDDEN');
+      }
+      await db.pool.query("UPDATE system.commands SET authority_version=0,required_capabilities='{}' WHERE tenant_id=$1 AND command_id=$2", [owner.tenantId, legacy.commandId]);
+      assert.deepEqual(confirmed(await submit(app, owner, legacy)), { commandId: legacy.commandId, ...response });
+    });
+
+    await t.test('failed planning keeps conservative requirements and never creates business effects', async t => {
+      const { app, owner } = await fixture(t);
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]);
+      const envelope = command(owner, 'catalog.product.set_active', { productId: randomUUID(), active: false, reason: 'Missing scoped item' }, {});
+      const result = await submit(app, owner, envelope);
+      assert.equal(result.statusCode, 200, result.body);
+      assert.equal(result.json().status, 'REJECTED');
+      assert.equal(result.json().code, 'NOT_FOUND');
+      const stored = (await db.pool.query('SELECT authority_version,required_capabilities,status FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, envelope.commandId])).rows[0];
+      assert.deepEqual(stored, { authority_version: 1, required_capabilities: ['inventory'], status: 'REJECTED' });
+      const baseline = await controls(owner.tenantId);
+      denied(await status(app, owner, envelope.commandId), 403, 'CAPABILITY_DISABLED');
+      denied(await submit(app, owner, envelope), 403, 'CAPABILITY_DISABLED');
+      assert.deepEqual(await controls(owner.tenantId), baseline);
+    });
+
+    await t.test('category authority includes archived stocked references and freezes empty-category capability choice', async t => {
+      const { app, owner } = await fixture(t);
+      const category = confirmed(await submit(app, owner, command(owner, 'catalog.category.create', { name: 'Mixed recovery category' }))).value;
+      const stock = confirmed(await submit(app, owner, command(owner, 'catalog.product.create', { ...productCommand(owner).payload, category: 'Mixed recovery category' }))).value;
+      confirmed(await submit(app, owner, command(owner, 'catalog.product.create', { ...productCommand(owner).payload, itemKind: 'SERVICE', costPriceMinor: 0, category: 'Mixed recovery category' })));
+      confirmed(await submit(app, owner, command(owner, 'catalog.product.set_active', { productId: stock.productId, active: false, reason: 'Archive zero-stock test identity' }, { [`product:${stock.productId}`]: 1 })));
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]);
+      const rename = command(owner, 'catalog.category.update', { categoryId: category.categoryId, name: 'Mixed renamed', reason: 'Review every linked identity' }, { [`category:${category.categoryId}`]: 1 });
+      const rejected = await submit(app, owner, rename);
+      assert.equal(rejected.json().status, 'REJECTED', rejected.body);
+      assert.equal(rejected.json().code, 'CAPABILITY_DISABLED', rejected.body);
+      const descriptor = (await db.pool.query('SELECT required_capabilities FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, rename.commandId])).rows[0];
+      assert.deepEqual(descriptor.required_capabilities, ['commerce', 'inventory']);
+      const names = await db.pool.query('SELECT name FROM catalog.categories WHERE id=$1', [category.categoryId]);
+      assert.equal(names.rows[0].name, 'Mixed recovery category', 'archive cannot hide a stocked reference from category planning');
+      await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'inventory')", [owner.tenantId]);
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='commerce'", [owner.tenantId]);
+      const empty = command(owner, 'catalog.category.create', { name: 'Inventory-only empty category' });
+      const accepted = confirmed(await submit(app, owner, empty));
+      assert.deepEqual((await db.pool.query('SELECT required_capabilities FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, empty.commandId])).rows[0].required_capabilities, ['inventory']);
+      assert.deepEqual(confirmed(await submit(app, owner, empty)), accepted);
+      denied(await status(app, owner, rename.commandId), 403, 'CAPABILITY_DISABLED');
+    });
+
+    await t.test('sale and nonrestocking refund retain original stocked snapshot authority after reclassification', async t => {
+      const { app, owner } = await fixture(t);
+      const product = confirmed(await submit(app, owner, productCommand(owner))).value;
+      confirmed(await submit(app, owner, command(owner, 'inventory.receive', { lines: [{ productId: product.productId, quantity: '1', unitCostMinor: 400 }] })));
+      const shift = confirmed(await submit(app, owner, command(owner, 'shift.open', { openingFloatMinor: 0 }))).value;
+      const sale = command(owner, 'sales.order.settle', { shiftId: shift.shiftId, lines: [{ productId: product.productId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 1000, currency: 'KES' }] }, { [`shift:${shift.shiftId}`]: 1 });
+      const saleResult = confirmed(await submit(app, owner, sale));
+      const line = (await db.pool.query('SELECT id,item_kind_snapshot FROM commerce.order_lines WHERE tenant_id=$1 AND order_id=$2', [owner.tenantId, saleResult.value.saleId])).rows[0];
+      assert.equal(line.item_kind_snapshot, 'STOCKED_GOOD');
+      const balance = (await db.pool.query('SELECT version FROM inventory.balances WHERE tenant_id=$1 AND product_id=$2', [owner.tenantId, product.productId])).rows[0];
+      confirmed(await submit(app, owner, command(owner, 'catalog.product.change_kind', { productId: product.productId, itemKind: 'SERVICE', reason: 'Future identity classification only' }, { [`product:${product.productId}`]: 1, [`balance:${product.productId}`]: Number(balance.version) })));
+      const refund = command(owner, 'sales.order.refund', { orderId: saleResult.value.saleId, shiftId: shift.shiftId, reason: 'Original goods refund without restocking', lines: [{ orderLineId: line.id, quantity: '1', restock: false }] }, { [`shift:${shift.shiftId}`]: 2 });
+      const refundResult = confirmed(await submit(app, owner, refund));
+      for (const envelope of [sale, refund]) assert.deepEqual((await db.pool.query('SELECT required_capabilities FROM system.commands WHERE tenant_id=$1 AND command_id=$2', [owner.tenantId, envelope.commandId])).rows[0].required_capabilities, ['commerce', 'inventory']);
+      await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]);
+      const baseline = await controls(owner.tenantId);
+      for (const envelope of [sale, refund]) {
+        denied(await status(app, owner, envelope.commandId), 403, 'CAPABILITY_DISABLED');
+        denied(await submit(app, owner, envelope), 403, 'CAPABILITY_DISABLED');
+      }
+      await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'inventory')", [owner.tenantId]);
+      assert.deepEqual(confirmed(await submit(app, owner, sale)), saleResult);
+      assert.deepEqual(confirmed(await submit(app, owner, refund)), refundResult);
+      assert.deepEqual(await controls(owner.tenantId), baseline);
+    });
   });
 }

@@ -11,6 +11,7 @@ export interface WorkspaceFeature {
   description: string;
   group: 'work' | 'money' | 'manage' | 'support';
   capability?: string;
+  anyCapabilities?: string[];
   anyPermissions?: string[];
   discoverability: Discoverability;
   availability: FeatureAvailability;
@@ -22,6 +23,7 @@ export const workspaceFeatures: WorkspaceFeature[] = [
   { id: 'sales', label: 'Sales history', description: 'Find receipts and returns', group: 'work', anyPermissions: ['commerce.sell', 'commerce.refund', 'finance.view'], discoverability: 'authorized', availability: 'connected' },
   { id: 'service', label: 'Tables & kitchen', description: 'Restaurant orders and kitchen preparation are unavailable', group: 'work', capability: 'hospitality', discoverability: 'all', availability: 'not_connected' },
   { id: 'stock', label: 'Stock', description: 'Items, movements and counts', group: 'work', capability: 'inventory', anyPermissions: ['catalog.manage', 'inventory.receive'], discoverability: 'authorized', availability: 'connected' },
+  { id: 'catalog', label: 'Items and services', description: 'Maintain items, service prices and categories', group: 'work', anyCapabilities: ['commerce', 'inventory'], anyPermissions: ['catalog.manage'], discoverability: 'authorized', availability: 'connected' },
   { id: 'stock-count', label: 'Count stock', description: 'Scan and review a count', group: 'work', capability: 'inventory', anyPermissions: ['inventory.count', 'inventory.count.approve'], discoverability: 'authorized', availability: 'connected' },
   { id: 'stock-exceptions', label: 'Stock exceptions', description: 'Review confirmed sales with unrecorded stock', group: 'work', capability: 'inventory', anyPermissions: ['inventory.shortfall.view'], discoverability: 'authorized', availability: 'connected' },
   { id: 'purchasing', label: 'Purchasing', description: 'Receive deliveries; supplier bills in Money', group: 'work', capability: 'inventory', anyPermissions: ['inventory.receive'], discoverability: 'authorized', availability: 'partial' },
@@ -44,6 +46,7 @@ export interface ManagementFeature {
   status: string;
   availability: FeatureAvailability;
   capability?: string;
+  anyCapabilities?: string[];
   requiredPermissions?: string[];
   discoverability: Discoverability;
   route?: WorkspaceId;
@@ -57,7 +60,7 @@ export const managementFeatures: ManagementFeature[] = [
   { id: 'staff', title: 'Staff', description: 'Staff accounts and business access', status: 'Available', availability: 'connected', requiredPermissions: ['staff.view'], discoverability: 'authorized', section: 'staff', explanation: 'Set up staff accounts, choose available roles and review sign-ins. Individual role permissions cannot be edited here.' },
   { id: 'permissions', title: 'Roles and permissions', description: 'Staff role access', status: 'Unavailable', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'authorized', explanation: 'Review available roles under Staff. Individual role permissions cannot be edited here.' },
   { id: 'devices', title: 'Workspace assignments', description: 'Assign staff to outlets', status: 'Available', availability: 'connected', requiredPermissions: ['devices.view'], discoverability: 'authorized', section: 'devices', explanation: 'Assign staff to outlets and review access changes. Printer setup is unavailable here.' },
-  { id: 'imports', title: 'Data import', description: 'Review and import stock CSV files', status: 'Available', availability: 'connected', capability: 'inventory', requiredPermissions: ['catalog.manage'], discoverability: 'authorized', route: 'stock', explanation: 'Review product CSV imports from Stock. Spreadsheet workbooks, packages and variants are unavailable.' },
+  { id: 'imports', title: 'Data import', description: 'Review and import item or service CSV files', status: 'Available', availability: 'connected', anyCapabilities: ['commerce', 'inventory'], requiredPermissions: ['catalog.manage'], discoverability: 'authorized', route: 'catalog', explanation: 'Review CSV imports from Items and services. Services require sales access; stocked goods and opening stock require inventory. Spreadsheet workbooks, packages and variants are unavailable.' },
   { id: 'assets', title: 'Assets and maintenance', description: 'Equipment, custody and repairs', status: 'Unavailable', availability: 'not_connected', requiredPermissions: ['config.view', 'config.manage'], discoverability: 'admin', explanation: 'Equipment records and maintenance tracking are unavailable.' },
   { id: 'suppliers', title: 'Supplier accounts and payables', description: 'Bills and recorded bank or M-Pesa payments in Money', status: 'Limited', availability: 'partial', requiredPermissions: ['finance.view'], discoverability: 'authorized', route: 'money', accountingArea: 'suppliers', explanation: 'Create suppliers, record unpaid expense bills or the full value of one stock delivery, and record partial payments already made. Purchase orders, supplier credits and partial delivery matching are unavailable.' },
   { id: 'expenses', title: 'Expenses', description: 'Record paid bank or M-Pesa expenses in Money', status: 'Limited', availability: 'partial', requiredPermissions: ['finance.view'], discoverability: 'authorized', route: 'money', accountingArea: 'expenses', explanation: 'Record already-paid operating, rent and utilities expenses, with linked category corrections and reversals. Stock purchases and cash till movements use separate workflows; this does not send money.' },
@@ -70,9 +73,10 @@ export const managementFeatures: ManagementFeature[] = [
   { id: 'stockExceptions', title: 'Stock exception sales', description: 'Allow confirmed sales against a recorded stock shortfall', status: 'Available', availability: 'connected', capability: 'inventory', requiredPermissions: ['inventory.shortfall.configure'], discoverability: 'authorized', section: 'stockExceptions', explanation: 'Set the current outlet policy for confirmed sales when recorded stock is short.' },
 ];
 
-export function featureState(session: BackendSession, feature: Pick<WorkspaceFeature, 'capability' | 'anyPermissions' | 'availability'>): FeatureAvailability {
+export function featureState(session: BackendSession, feature: Pick<WorkspaceFeature, 'capability' | 'anyCapabilities' | 'anyPermissions' | 'availability'>): FeatureAvailability {
   if (feature.anyPermissions?.length && !feature.anyPermissions.some(permission => session.user.permissions.includes(permission))) return 'insufficient_permission';
   if (feature.capability && !session.tenant.capabilities.includes(feature.capability)) return 'not_enabled';
+  if (feature.anyCapabilities?.length && !feature.anyCapabilities.some(capability => session.tenant.capabilities.includes(capability))) return 'not_enabled';
   return feature.availability;
 }
 
@@ -85,5 +89,6 @@ export function canDiscover(discoverability: Discoverability, session: BackendSe
 export function managementFeatureState(session: BackendSession, feature: ManagementFeature): FeatureAvailability {
   if (feature.requiredPermissions?.length && !feature.requiredPermissions.some(permission => session.user.permissions.includes(permission))) return 'insufficient_permission';
   if (feature.capability && !session.tenant.capabilities.includes(feature.capability)) return 'not_enabled';
+  if (feature.anyCapabilities?.length && !feature.anyCapabilities.some(capability => session.tenant.capabilities.includes(capability))) return 'not_enabled';
   return feature.availability;
 }

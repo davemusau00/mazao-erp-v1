@@ -167,6 +167,18 @@ if (!databaseUrl) {
           const rejected = await submit(owner,envelope); assert.equal(rejected.code,'PERIOD_CLOSED',`${type}: ${JSON.stringify(rejected)}`);
           assert.deepEqual(await submit(owner,envelope),rejected,'closed-period rejection remains an exact recoverable outcome');
         }
+        assert.equal((await submit(owner,command(owner,'shift.open',{openingFloatMinor:-1}))).code,'VALIDATION_FAILED','existing strict static schema validation keeps precedence over closed-period admission');
+        assert.equal((await submit(owner,command(owner,'catalog.import.apply',{batchId:'invalid-uuid',reviewed:true,acknowledgedWarnings:true}))).code,'VALIDATION_FAILED','compatibility admission must not query an invalid batch UUID');
+        for(const orderId of ['invalid-uuid',42,[],{}])assert.equal((await submit(owner,command(owner,'sales.order.refund',{orderId}))).code,'VALIDATION_FAILED','compatibility admission must not query a malformed supplied refund UUID');
+        const service=await confirmed(owner,'catalog.product.create',{sku:'CLOSED-PERIOD-SERVICE',name:'Closed period service',itemKind:'SERVICE',baseUnit:'each',currency:'KES',sellingPriceMinor:1000,costPriceMinor:0,taxRateBps:0});
+        await db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'",[scope.tenantId]);
+        try {
+          const envelope=command(owner,'sales.order.settle',{shiftId:shift.id,lines:[{productId:service.productId,quantity:'1'}],tenders:[{method:'CASH',amountMinor:1000,currency:'KES'}]},{[`shift:${shift.id}`]:shift.version});
+          const rejected=await submit(owner,envelope);assert.equal(rejected.code,'PERIOD_CLOSED');
+          assert.deepEqual((await db.pool.query('SELECT required_capabilities FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[scope.tenantId,envelope.commandId])).rows[0].required_capabilities,['commerce']);
+          assert.equal((await read(owner,`/commands/${envelope.commandId}`)).response.code,'PERIOD_CLOSED','valid service rejection remains recoverable without inventory');
+          assert.deepEqual(await submit(owner,envelope),rejected);
+        } finally {await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'inventory')",[scope.tenantId]);}
         await assert.rejects(db.pool.query("INSERT INTO finance.journal_entries(id,tenant_id,source_type,source_id,currency,created_by,effective_date) VALUES($1,$2,'UNAUTHORIZED_DATE_BYPASS',$3,'KES',$4,$5::date)",[randomUUID(),scope.tenantId,randomUUID(),owner.userId,today]),{code:'55000'});
         const unbalanced = await db.pool.query(`SELECT j.id FROM finance.journal_entries j LEFT JOIN finance.journal_lines l ON l.tenant_id=j.tenant_id AND l.journal_entry_id=j.id WHERE j.tenant_id=$1 GROUP BY j.id HAVING coalesce(sum(l.debit_minor),0)=0 OR coalesce(sum(l.debit_minor),0)<>coalesce(sum(l.credit_minor),0)`,[scope.tenantId]); assert.equal(unbalanced.rowCount,0);
         assert.equal((await read(owner,'/finance/records/periods')).records[0].status,'CLOSED');

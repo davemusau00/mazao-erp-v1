@@ -22,10 +22,11 @@ Read-only PR reconciliation confirmed #13, #14, #15 and #16 are still open again
 | S00-01 / G02 | Reconciled local evidence and audited main on an implementation branch; preserved source and release records | Baseline verified above; governance changes, duplicate PR disposition and actual live identity remain open |
 | S00-02 / G03,G28 | Strict public login/envelope parsing and incremental schema/policy/dispatch catalogue | [Public inputs and command contracts](49-PUBLIC-INPUTS-COMMAND-CONTRACTS.md); legacy per-command schema migration remains explicit |
 | S00-03 / G01 | Metadata-only credential reconciliation fences a never-received original ID; delayed originals cannot change credentials after fencing | [Credential operation fencing](50-CREDENTIAL-OPERATION-FENCING.md); migration 022 and client retention rules |
-| S00-04 / G04,G05 | Keyset continuation, full-data search and matching totals for movements, count/import/close history, shift cash movements and eligible exception evidence | Details and validation below; UI and combined regression verification in progress |
-| S00-05 / G04 | Customer/staff/assignment/session/reservation server navigation, full-tenant customer totals and server-backed pickers | [Directory continuation](54-DIRECTORY-CONTINUATION.md) and [staff/session history](53-STAFF-SESSION-HISTORY.md); real database acceptance passed, combined browser validation in progress |
+| S00-04 / G04,G05 | Keyset continuation, full-data search and matching totals for movements, count/import/close history, shift cash movements and eligible exception evidence | Local database and browser regressions passed; details and limitations below, exact-head hosted/release gates remain |
+| S00-05 / G04 | Customer/staff/assignment/session/reservation server navigation, full-tenant customer totals and server-backed pickers | [Directory continuation](54-DIRECTORY-CONTINUATION.md) and [staff/session history](53-STAFF-SESSION-HISTORY.md); local database and combined browser acceptance passed |
 | S00-06 / G17 | Manage/Purchasing route to implemented Money workflows; availability labels describe their actual limits | [Feature and history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [completion register](27-V1-COMPLETION-REGISTER.md) |
-| S01-01 / G08 | Versioned product metadata/lifecycle and category master with exact-label rename/merge/archive, shared CSV validation and scoped reads | [Catalog maintenance](55-CATALOG-MAINTENANCE.md); implementation and focused checks underway, database/browser acceptance pending |
+| S01-01 / G08 | Versioned product metadata/lifecycle and category master with exact-label rename/merge/archive, shared CSV validation and scoped reads | [Catalog maintenance](55-CATALOG-MAINTENANCE.md); locally verified database/fresh-upgrade-rerun/browser/recovery behavior; exact-head hosted CI and release gates pending |
+| S01-02 / G08 | Explicit stocked/service/prepared kinds, service-only commerce, reviewed kind changes, original sale-kind snapshots and persisted command capability requirements | [Item kinds and service sales](56-ITEM-KINDS-SERVICE-SALES.md); focused domain/CSV/recovery/upgrade checks passed, combined API and browser verification in progress |
 
 ## 25 October continuation checkpoint
 
@@ -47,6 +48,58 @@ the database collation. Both exact identities were preserved. The fixture is
 being corrected to compare exact labels without imposing that ordering, then
 the upgrade checks must rerun. All command/financial/inventory suites, the new
 nine-case catalog suite and corrected import audit checks passed in this run.
+
+After the fixture corrections, the full isolated API regression passed **181/181,
+0 failed, 0 skipped**, with `--test-concurrency=2` in 179.66 seconds. Full
+intercepted Chromium acceptance passed **89/89** in 3.7 minutes. The existing
+real API/PostgreSQL browser suite passed **17/17** in 1.6 minutes, and a new
+focused real catalog maintenance journey passed **1/1**, checking current master
+versions and unchanged posted receipts/stock/journals. Focused upgrade and
+preflight checks passed **5/5**. These local runs precede the final shared-client
+acknowledgement review follow-up described in docs/55; its verification is
+recorded separately. They do not establish exact-head hosted CI or release
+acceptance.
+
+While final review was in progress, the shared checkout acquired commit
+`24c1bd5949f22cc71829b468f569cb3921960d9c` on
+`feat/codebase-truth-s01`, tracking its matching origin branch. This agent did
+not create or push that commit. The checkpoint is preserved; subsequent review
+tests/documentation and the archived-category rename affordance remain follow-up
+work. Read-only GitHub inspection found no PR for this branch, so no exact-head
+hosted acceptance is claimed. Its tracked generated browser last-run file is
+preserved rather than treated as release evidence.
+
+Review identified that generic command recovery overwrote a nested response
+command ID before validating it, and generic confirmations accepted an empty
+create result. The shared-client follow-up retains the original journal for
+mismatched IDs, incomplete creation evidence, empty rejection codes and
+idempotency mismatch. The catalog UI is also being aligned with the canonical
+nonempty reason rule. These fixes require fresh-build focused browser evidence
+before S01-01 is treated as locally verified.
+
+Final review verification passed against the rebuilt artifact: **93/93 Chromium
+tests** in 3.9 minutes, **18/18 real API/PostgreSQL browser tests** in 1.6 minutes,
+**9/9 focused Firefox catalog tests**, and **7/7 terminal-response helper tests**.
+The focused Chromium catalog/recovery batch also passed 13/13. Both UI/API
+typecheck and production PWA build passed; the 502.43 kB main chunk retains its
+existing size warning, so no performance budget is claimed. The 181-case API
+regression preceded the final client-only acknowledgement follow-up; its new
+helper tests and the final browser runs validate that follow-up without claiming
+another full API rerun. No API/domain/migration source changed after that API
+run. Full artifact paths and all first-attempt failures/corrections are in
+docs/55. S01-01 is locally verified, with final review follow-ups left reviewable
+in the worktree above checkpoint `24c1bd5`.
+
+The following continuation implements S01-02: explicit stocked/service/prepared
+classifications, service settlement without fictitious stock or inventory COGS,
+reviewed reclassification of legacy goods, and trusted persisted capability
+requirements for recovery. Migration 024 preserves legacy goods and snapshots;
+025 preserves recovery requirements independently of later classification.
+Focused tests pass: 7 direct trading/correction checks, 7 CSV checks, 13 command
+recovery checks, 9 populated/new/legacy upgrade checks and 32 shared pure checks.
+Combined API and fresh-build browser acceptance remain in progress; docs/56
+records exact evidence and limits. Count conflict recovery, local draft
+persistence, count review/valuation and scoped counts remain S01-03–07.
 
 ## Complete history and eligible evidence (S00-04)
 
@@ -110,4 +163,4 @@ The task-owned PostgreSQL container was found stopped after Docker Desktop resta
 
 ## Remaining delivery gates
 
-R1 is not yet accepted. S00 governance/live identity and combined regression remain open; S01 catalog/type/count recovery semantics are still required. R2 and R3 remain open in full, including business-policy choices, offline/device authority, physical profiles, independent recovery context, and all A–H exact-artifact gates. No completion percentage is inferred from files or tests.
+R1 is not yet accepted. S00 governance/live identity and exact-head hosted/release acceptance remain open; S01 item types and count recovery/review semantics are still required after the locally verified S01-01 slice. R2 and R3 remain open in full, including business-policy choices, offline/device authority, physical profiles, independent recovery context, and all A–H exact-artifact gates. No completion percentage is inferred from files or tests.

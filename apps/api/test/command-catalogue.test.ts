@@ -120,7 +120,7 @@ test('catalogue maintenance schemas require complete reviewed metadata and rejec
   };
   for(const [type,payload] of Object.entries(payloads)){
     const entry=COMMAND_CATALOGUE[type];assert.equal(entry.validation,'SCHEMA_AND_DOMAIN');
-    assert.deepEqual(entry.permissions,['catalog.manage']);assert.deepEqual(entry.capabilities,['inventory']);assert.equal(entry.offlineMode,'ONLINE_ONLY');
+    assert.deepEqual(entry.permissions,['catalog.manage']);assert.deepEqual(entry.capabilities,[]);assert.equal(entry.offlineMode,'ONLINE_ONLY');
     validateCommandPayload({...base,type,payload});
     for(const key of Object.keys(payload)){
       const missing={...payload};delete missing[key];
@@ -134,4 +134,18 @@ test('catalogue maintenance schemas require complete reviewed metadata and rejec
   validateCommandPayload({...base,type:'catalog.product.update',payload:{...payloads['catalog.product.update'],barcode:'0000123'}});
   validateCommandPayload({...base,type:'catalog.product.update',payload:{...payloads['catalog.product.update'],category:'',barcode:null}});
   for(const type of ['catalog.category.create','catalog.category.update'])assert.throws(()=>validateCommandPayload({...base,type,payload:{...payloads[type],name:' '}}),DomainError);
+});
+
+test('reviewed kind changes have strict contracts and capability baselines defer item-specific authority',()=>{
+  const productId=randomUUID(),base={protocolVersion:1 as const,commandId:randomUUID(),deviceId:randomUUID(),occurredAt:'2026-10-25T11:00:00Z',expectedVersions:{[`product:${productId}`]:1}};
+  const type='catalog.product.change_kind',payload={productId,itemKind:'SERVICE',reason:'Reviewed zero-stock change'};
+  validateCommandPayload({...base,type,payload});
+  for(const invalid of [{itemKind:'service'},{itemKind:null},{itemKind:' SERVICE '},{active:true},{reason:''}])assert.throws(()=>validateCommandPayload({...base,type,payload:{...payload,...invalid}}),DomainError);
+  for(const key of Object.keys(payload)){const missing:Record<string,unknown>={...payload};delete missing[key];assert.throws(()=>validateCommandPayload({...base,type,payload:missing}),DomainError);}
+  assertContract({productId,itemKind:'SERVICE',version:2,stockTracked:false},COMMAND_CATALOGUE[type].outputSchema);
+  assert.throws(()=>assertContract({productId,itemKind:'UNKNOWN',version:2,stockTracked:false},COMMAND_CATALOGUE[type].outputSchema),DomainError);
+  assert.deepEqual(COMMAND_CATALOGUE[type].permissions,['catalog.manage']);
+  assert.deepEqual(COMMAND_CATALOGUE[type].capabilities,[]);
+  for(const [name,entry] of Object.entries(COMMAND_CATALOGUE))if(name.startsWith('catalog.'))assert.deepEqual(entry.capabilities,[],name);
+  for(const name of ['sales.order.settle','sales.order.refund'])assert.deepEqual(COMMAND_CATALOGUE[name].capabilities,['commerce']);
 });

@@ -7,6 +7,7 @@ import { executeConfigurationCommand, readBusinessProfile, receiptConfigurationS
 import { executeProductImportCommand } from './productImport.js';
 import { normalizeCatalogProductCreate } from './catalogValidation.js';
 import { executeCatalogMaintenanceCommand, lockCatalogOutlet, assertNoOpenCatalogCount, resolveCatalogCategory, catalogIdentityError } from './catalogMaintenance.js';
+import { isStockTracked, requireItemKindCapability, type ItemKind } from './itemKinds.js';
 import { executeStaffCommand } from './staff.js';
 import { revalidateOperator } from './identityAuthority.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
@@ -170,6 +171,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   validateCommandPayload(envelope);
   await guardFinancialCommand(client, session, envelope);
   if(envelope.type==='catalog.product.create'||envelope.type==='catalog.import.apply'||envelope.type.startsWith('inventory.count.'))await lockCatalogOutlet(client,session);
+  if(['sales.order.settle','sales.order.refund','inventory.receive','inventory.sale_shortfall.resolve'].includes(envelope.type))await lockCatalogOutlet(client,session,'shared');
   switch (envelope.type) {
     case 'finance.account.label': return executeAccountCatalogCommand(client, session, envelope);
     case 'finance.expense.record':
@@ -202,6 +204,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'inventory.sale_shortfall.resolve': return executeStockExceptionCommand(client, session, envelope);
     case 'catalog.product.update':
     case 'catalog.product.set_active':
+    case 'catalog.product.change_kind':
     case 'catalog.category.create':
     case 'catalog.category.update':
     case 'catalog.category.set_active':
@@ -342,18 +345,19 @@ async function recordCustomerRepayment(client: PoolClient, session: ApiSession, 
 }
 
 async function createProduct(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
-  await assertNoOpenCatalogCount(client,session);
   const currencyResult=await client.query<{currency:string;business_profile:unknown}>('SELECT currency,business_profile FROM core.tenants WHERE id=$1',[session.tenantId]);
   const normalized=normalizeCatalogProductCreate(envelope.payload,{currency:currencyResult.rows[0].currency,taxRateBps:readBusinessProfile(currencyResult.rows[0].business_profile).taxPolicy.defaultRateBps});
-  const {sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel}=normalized;
+  const {sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel,itemKind}=normalized;
+  requireItemKindCapability(session,itemKind);
+  if(isStockTracked(itemKind))await assertNoOpenCatalogCount(client,session);
   const duplicate=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND upper(btrim(sku))=upper($3) LIMIT 1',[session.tenantId,session.outletId,sku]);
   if(duplicate.rowCount)throw new DomainError('CATALOG_IDENTITY_CONFLICT','That SKU is reserved by an existing product at this outlet.',409,{productId:duplicate.rows[0].id});
   const categoryId=await resolveCatalogCategory(client,session,category,envelope.commandId),productId=randomUUID();
   try {
-    await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,category_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14)`,[productId,session.tenantId,session.outletId,sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel,categoryId]);
+    await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,category_id,item_kind)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15)`,[productId,session.tenantId,session.outletId,sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,category,barcode,reorderLevel,categoryId,itemKind]);
   }catch(error){catalogIdentityError(error);}
-  await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,0)',[session.tenantId,session.outletId,productId]);
+  if(isStockTracked(itemKind))await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity) VALUES($1,$2,$3,0)',[session.tenantId,session.outletId,productId]);
   const result={productId,sku};
   await audit(client,session,envelope.commandId,envelope.type,{...result,metadata:normalized,categoryId});
   await outbox(client,session,envelope.commandId,envelope.type,result);return result;
@@ -380,8 +384,9 @@ async function receiveInventory(client: PoolClient, session: ApiSession, envelop
   const currencyResult = await client.query<{ currency: string }>('SELECT currency FROM core.tenants WHERE id=$1', [session.tenantId]);
   let total = 0;
   for (const line of normalized) {
-    const product = await client.query<{ id: string }>('SELECT id FROM catalog.products WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND active FOR UPDATE', [line.productId, session.tenantId, session.outletId]);
+    const product = await client.query<{ id: string;item_kind:ItemKind }>('SELECT id,item_kind FROM catalog.products WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND active FOR UPDATE', [line.productId, session.tenantId, session.outletId]);
     if (!product.rowCount) throw new DomainError('NOT_FOUND', 'A receipt item is unavailable at this outlet.', 404);
+    if(!isStockTracked(product.rows[0].item_kind))throw new DomainError('NOT_STOCKED_ITEM','Receiving requires a stocked good. Services and prepared sale items cannot receive physical stock here.',409,{productId:line.productId});
     await client.query('UPDATE inventory.balances SET quantity=quantity+$4::numeric,inventory_value_minor=inventory_value_minor+$5,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.productId, quantityText(line.quantity), line.extended]);
     await client.query(
       `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,document_reference)
@@ -409,7 +414,7 @@ async function openStockCount(client: PoolClient, session: ApiSession, envelope:
   const snapshots = await client.query<{ product_id: string; sku: string; name: string; base_unit: string; quantity: string; balance_version: string; inventory_value_minor: string; cost_price_minor: string }>(
     `SELECT p.id product_id,p.sku,p.name,p.base_unit,b.quantity::text quantity,b.version::text balance_version,b.inventory_value_minor::text inventory_value_minor,p.cost_price_minor::text cost_price_minor
      FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.id FOR UPDATE OF b`,
+     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active AND p.item_kind='STOCKED_GOOD' ORDER BY p.id FOR UPDATE OF b`,
     [session.tenantId, session.outletId],
   );
   if (!snapshots.rowCount) throw new DomainError('VALIDATION_FAILED', 'Create and receive at least one stock item before opening a count.');
@@ -514,7 +519,7 @@ async function postStockCount(client: PoolClient, session: ApiSession, envelope:
   const unlisted = await client.query<{ id: string }>(
     `SELECT p.id FROM catalog.products p LEFT JOIN inventory.stock_count_lines l
        ON l.tenant_id=p.tenant_id AND l.outlet_id=p.outlet_id AND l.count_id=$3 AND l.product_id=p.id
-     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active AND l.product_id IS NULL LIMIT 1`,
+     WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active AND p.item_kind='STOCKED_GOOD' AND l.product_id IS NULL LIMIT 1`,
     [session.tenantId, session.outletId, countId],
   );
   if (unlisted.rowCount) throw new DomainError('VERSION_CONFLICT', 'The item catalogue changed after this count opened. Reload the count and recount before posting.', 409, { newProductId: unlisted.rows[0].id });
@@ -850,16 +855,23 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
     WHERE t.id=$1 AND o.id=$2`, [session.tenantId, session.outletId]);
   if (!tenant.rowCount) throw new DomainError('NOT_FOUND', 'Tenant outlet is no longer available.', 404);
   const currency = tenant.rows[0].currency;
-  const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string; inventory_value_minor: string; product_version: string }> = [];
+  const productRows: Array<{ id: string; sku: string; name: string; currency: string; selling_price_minor: string; cost_price_minor: string; tax_rate_bps: number; quantity: string|null; inventory_value_minor: string|null; product_version: string;item_kind:ItemKind }> = [];
   for (const line of normalized) {
     const result = await client.query(
-      `SELECT p.id,p.sku,p.name,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,p.version::text product_version,b.quantity,b.inventory_value_minor::text inventory_value_minor
-       FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-       WHERE p.id=$1 AND p.tenant_id=$2 AND p.outlet_id=$3 AND p.active FOR UPDATE OF p,b`,
+      `SELECT p.id,p.sku,p.name,p.currency,p.selling_price_minor,p.cost_price_minor,p.tax_rate_bps,p.version::text product_version,p.item_kind
+       FROM catalog.products p WHERE p.id=$1 AND p.tenant_id=$2 AND p.outlet_id=$3 AND p.active FOR UPDATE OF p`,
       [line.productId, session.tenantId, session.outletId],
     );
     if (!result.rowCount) throw new DomainError('NOT_FOUND', 'A sale item is unavailable at this outlet.', 404);
     const product = result.rows[0] as typeof productRows[number];
+    requireItemKindCapability(session,product.item_kind);
+    if(product.item_kind==='PREPARED')throw new DomainError('RECIPE_CONSUMPTION_UNAVAILABLE','Prepared items cannot be sold until reviewed recipe consumption is available.',409,{productId:product.id});
+    product.quantity=null;product.inventory_value_minor=null;
+    if(isStockTracked(product.item_kind)) {
+      const balance=await client.query('SELECT quantity::text,inventory_value_minor::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3 FOR UPDATE',[session.tenantId,session.outletId,product.id]);
+      if(!balance.rowCount)throw new DomainError('INVENTORY_STATE_INVALID','A stocked item has no inventory balance. Review its inventory evidence before selling.',409,{productId:product.id});
+      product.quantity=balance.rows[0].quantity;product.inventory_value_minor=balance.rows[0].inventory_value_minor;
+    }
     const productVersion = Number(product.product_version);
     const quotedVersion = versionFor(envelope, `product:${product.id}`);
     if (Object.hasOwn(envelope.expectedVersions, `product:${product.id}`) && quotedVersion === undefined) throw new DomainError('VALIDATION_FAILED', 'Quoted product versions must be positive safe integers.');
@@ -873,15 +885,16 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   }
   const computed = normalized.map((line, index) => {
     const product = productRows[index];
-    const availableQuantity = databaseQuantityMicros(product.quantity);
-    const recordedQuantity = availableQuantity < line.quantity ? availableQuantity : line.quantity;
-    const shortfallQuantity = line.quantity - recordedQuantity;
+    const stocked=isStockTracked(product.item_kind);
+    const availableQuantity = stocked?databaseQuantityMicros(product.quantity!):0n;
+    const recordedQuantity = stocked?(availableQuantity < line.quantity ? availableQuantity : line.quantity):0n;
+    const shortfallQuantity = stocked?line.quantity - recordedQuantity:0n;
     const quantityTextValue = quantityText(line.quantity);
     const originalSubtotal = amountForQuantity(Number(product.selling_price_minor), line.quantity);
     if (line.discountMinor > originalSubtotal) throw new DomainError('DISCOUNT_EXCEEDS_LINE', `The discount for ${product.name} exceeds its item value.`);
     const subtotal = originalSubtotal - line.discountMinor;
     const tax = taxFor(subtotal, product.tax_rate_bps);
-    const recordedCogsBig = recordedQuantity > 0n ? valueForQuantity(BigInt(product.inventory_value_minor), availableQuantity, recordedQuantity) : 0n;
+    const recordedCogsBig = recordedQuantity > 0n ? valueForQuantity(BigInt(product.inventory_value_minor!), availableQuantity, recordedQuantity) : 0n;
     const provisionalCogsBig = shortfallQuantity > 0n
       ? (BigInt(product.cost_price_minor) * shortfallQuantity + quantityScale / 2n) / quantityScale : 0n;
     const cogsBig = recordedCogsBig + provisionalCogsBig;
@@ -953,12 +966,14 @@ async function settleSale(client: PoolClient, session: ApiSession, envelope: Com
   );
   for (const line of computed) {
     await client.query(
-      `INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,cogs_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor,discount_minor,discount_reason,unrecorded_quantity,provisional_cogs_minor)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10,$11,$12,$13,$14,$15,$16,$17::numeric,$18)`,
-      [line.orderLineId, session.tenantId, session.outletId, orderId, line.product.id, line.product.sku, line.product.name, line.quantityText, Number(line.product.selling_price_minor), Number(line.product.cost_price_minor), line.cogs, line.product.tax_rate_bps, line.subtotal, line.tax, line.discountMinor, line.discountReason, line.shortfallQuantityText, line.provisionalCogs],
+      `INSERT INTO commerce.order_lines(id,tenant_id,outlet_id,order_id,product_id,sku_snapshot,name_snapshot,quantity,unit_price_minor,cost_price_minor,cogs_minor,tax_rate_bps,line_subtotal_minor,line_tax_minor,discount_minor,discount_reason,unrecorded_quantity,provisional_cogs_minor,item_kind_snapshot)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10,$11,$12,$13,$14,$15,$16,$17::numeric,$18,$19)`,
+      [line.orderLineId, session.tenantId, session.outletId, orderId, line.product.id, line.product.sku, line.product.name, line.quantityText, Number(line.product.selling_price_minor), isStockTracked(line.product.item_kind)?Number(line.product.cost_price_minor):0, line.cogs, line.product.tax_rate_bps, line.subtotal, line.tax, line.discountMinor, line.discountReason, line.shortfallQuantityText, line.provisionalCogs,line.product.item_kind],
     );
-    const nextInventoryValue = BigInt(line.product.inventory_value_minor) - BigInt(line.recordedCogs);
-    await client.query('UPDATE inventory.balances SET quantity=quantity-$4::numeric,inventory_value_minor=$5,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.product.id, line.recordedQuantityText, checkedBigintMinor(nextInventoryValue, `Inventory value for ${line.product.sku}`)]);
+    if(isStockTracked(line.product.item_kind)) {
+      const nextInventoryValue = BigInt(line.product.inventory_value_minor!) - BigInt(line.recordedCogs);
+      await client.query('UPDATE inventory.balances SET quantity=quantity-$4::numeric,inventory_value_minor=$5,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$3', [session.tenantId, session.outletId, line.product.id, line.recordedQuantityText, checkedBigintMinor(nextInventoryValue, `Inventory value for ${line.product.sku}`)]);
+    }
     if (line.recordedQuantity > 0n) {
       await client.query(
         `INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id)
@@ -1053,10 +1068,12 @@ async function refundSale(client:PoolClient,session:ApiSession,envelope:CommandE
   if(order.rows[0].currency!==tenantCurrency.rows[0].currency)throw new DomainError('VALIDATION_FAILED','Sale currency differs from the active tenant currency.');
   const refundId=randomUUID();let subtotal=0,tax=0,cogs=0,restockedCogs=0,total=0,discount=0;const normalized=[] as Array<{orderLineId:string;productId:string;quantity:bigint;restock:boolean;subtotal:number;tax:number;cogs:number;unitCost:number;discount:number}>;
    for(const requestedLine of requested){
-    const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;cogs_minor:string;sku_snapshot:string;discount_minor:string;unrecorded_quantity:string}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,cogs_minor,sku_snapshot,discount_minor,unrecorded_quantity::text unrecorded_quantity FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
+    const lineResult=await client.query<{product_id:string;quantity:string;line_subtotal_minor:string;line_tax_minor:string;cost_price_minor:string;cogs_minor:string;sku_snapshot:string;discount_minor:string;unrecorded_quantity:string;item_kind_snapshot:ItemKind}>(`SELECT product_id,quantity,line_subtotal_minor,line_tax_minor,cost_price_minor,cogs_minor,sku_snapshot,discount_minor,unrecorded_quantity::text unrecorded_quantity,item_kind_snapshot FROM commerce.order_lines WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND order_id=$4 FOR UPDATE`,[requestedLine.orderLineId,session.tenantId,session.outletId,orderId]);
     if(!lineResult.rowCount)throw new DomainError('NOT_FOUND','A selected item does not belong to this sale.',404);
     const line=lineResult.rows[0];const originalQty=databaseQuantityMicros(line.quantity);
-    if(requestedLine.restock){const active=await client.query('SELECT id FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND active FOR UPDATE',[session.tenantId,session.outletId,line.product_id]);if(!active.rowCount)throw new DomainError('PRODUCT_ARCHIVED','Restore the original stocked product before restocking its returned quantity.',409);}
+    requireItemKindCapability(session,line.item_kind_snapshot);
+    if(requestedLine.restock&&!isStockTracked(line.item_kind_snapshot))throw new DomainError('NONSTOCK_RESTOCK_UNAVAILABLE','A service refund cannot restore physical inventory. Choose no stock return.',409);
+    if(requestedLine.restock){const active=await client.query('SELECT id,item_kind FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND active FOR UPDATE',[session.tenantId,session.outletId,line.product_id]);if(!active.rowCount)throw new DomainError('PRODUCT_ARCHIVED','Restore the original stocked product before restocking its returned quantity.',409);if(!isStockTracked(active.rows[0].item_kind))throw new DomainError('ITEM_KIND_CHANGED','This original stocked item has since been reclassified. Review its type before returning physical stock.',409);}
     if(requestedLine.restock&&databaseQuantityMicros(line.unrecorded_quantity)>0n)throw new DomainError('SHORTFALL_RESTOCK_REQUIRES_REVIEW','This item was sold while its stock records needed review. A manager must verify the returned stock before it can be added back to inventory.',409);
     const prior=await client.query<{quantity:string;subtotal_minor:string;tax_minor:string;cogs_minor:string;discount_minor:string}>('SELECT COALESCE(SUM(quantity),0)::text quantity,COALESCE(SUM(subtotal_minor),0)::text subtotal_minor,COALESCE(SUM(tax_minor),0)::text tax_minor,COALESCE(SUM(cogs_minor),0)::text cogs_minor,COALESCE(SUM(discount_minor),0)::text discount_minor FROM commerce.refund_lines WHERE tenant_id=$1 AND outlet_id=$2 AND order_line_id=$3',[session.tenantId,session.outletId,requestedLine.orderLineId]);
     const p=prior.rows[0];const priorQty=databaseQuantityMicros(p.quantity);if(priorQty+requestedLine.quantity>originalQty)throw new DomainError('ALREADY_REFUNDED','Requested quantity exceeds the unrefunded amount.',409,{orderLineId:requestedLine.orderLineId,remainingQuantity:quantityText(originalQty-priorQty)});

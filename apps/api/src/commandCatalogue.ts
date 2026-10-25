@@ -38,11 +38,16 @@ const categoryNameSchema = normalizedTextSchema(80);
 const categoryLabelSchema = normalizedTextSchema(80, true);
 const reorderSchema: ContractSchema = {type:'string',pattern:'^[^\\S\\u0000-\\u001f\\u007f]*\\d{1,14}(?:\\.\\d{1,6})?[^\\S\\u0000-\\u001f\\u007f]*$'};
 const barcodeSchema: ContractSchema = {type:['string','null'],pattern:'^[^\\S\\u0000-\\u001f\\u007f]*(?:[A-Za-z0-9._/-]{1,64})?[^\\S\\u0000-\\u001f\\u007f]*$'};
+const itemKindSchema: ContractSchema = {type:'string',pattern:'^(?:STOCKED_GOOD|SERVICE|PREPARED)$'};
 
 // Each migrated schema is used at execution. Remaining entries deliberately
 // describe only the object boundary; their referenced domain validator remains
 // authoritative until that command receives a reviewed schema migration.
 const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  'catalog.product.change_kind': {
+    payload: strictObject({productId:uuidSchema,itemKind:itemKindSchema,reason:reasonSchema}),
+    output: strictObject({productId:uuidSchema,itemKind:itemKindSchema,version:versionSchema,stockTracked:{type:'boolean'}}),
+  },
   'catalog.product.update': {
     payload: strictObject({productId:uuidSchema,name:catalogueNameSchema,sellingPriceMinor:minorSchema,costPriceMinor:minorSchema,
       taxRateBps:{type:'integer',minimum:0,maximum:10_000},category:categoryLabelSchema,barcode:barcodeSchema,reorderLevel:reorderSchema,reason:reasonSchema}),
@@ -113,16 +118,17 @@ function contract(name: string, permissions: readonly ApiPermission[], capabilit
  * Payload-dependent permissions (discount, credit, exception approval) remain
  * in the domain handler and cannot be granted by this baseline. */
 export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
-  'catalog.product.create': contract('catalog.product.create', ['catalog.manage'], ['inventory'], 'commands.ts#createProduct', ['catalogue']),
-  'catalog.product.update': contract('catalog.product.update', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
-  'catalog.product.set_active': contract('catalog.product.set_active', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
-  'catalog.category.create': contract('catalog.category.create', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
-  'catalog.category.update': contract('catalog.category.update', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
-  'catalog.category.set_active': contract('catalog.category.set_active', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
-  'catalog.category.merge': contract('catalog.category.merge', ['catalog.manage'], ['inventory'], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
-  'catalog.import.validate': contract('catalog.import.validate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
-  'catalog.import.revalidate': contract('catalog.import.revalidate', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['import_draft']),
-  'catalog.import.apply': contract('catalog.import.apply', ['catalog.manage'], ['inventory'], 'productImport.ts#executeProductImportCommand', ['catalogue', 'stock', 'journal']),
+  'catalog.product.create': contract('catalog.product.create', ['catalog.manage'], [], 'commands.ts#createProduct', ['catalogue']),
+  'catalog.product.update': contract('catalog.product.update', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
+  'catalog.product.set_active': contract('catalog.product.set_active', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
+  'catalog.product.change_kind': contract('catalog.product.change_kind', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue','stock_tracking']),
+  'catalog.category.create': contract('catalog.category.create', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
+  'catalog.category.update': contract('catalog.category.update', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
+  'catalog.category.set_active': contract('catalog.category.set_active', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category']),
+  'catalog.category.merge': contract('catalog.category.merge', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['category','catalogue']),
+  'catalog.import.validate': contract('catalog.import.validate', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_draft']),
+  'catalog.import.revalidate': contract('catalog.import.revalidate', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_draft']),
+  'catalog.import.apply': contract('catalog.import.apply', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['catalogue', 'stock', 'journal']),
   'inventory.receive': contract('inventory.receive', ['inventory.receive'], ['inventory'], 'commands.ts#receiveInventory', ['stock', 'journal']),
   'inventory.count.open': contract('inventory.count.open', ['inventory.count'], ['inventory'], 'commands.ts#openStockCount', ['stock_count']),
   'inventory.count.save': contract('inventory.count.save', ['inventory.count'], ['inventory'], 'commands.ts#saveStockCount', ['stock_count']),
@@ -132,8 +138,8 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'shift.open': contract('shift.open', ['shift.open'], ['commerce'], 'commands.ts#openShift', ['shift', 'journal']),
   'shift.cash.movement': contract('shift.cash.movement', ['shift.payout'], ['commerce'], 'commands.ts#recordShiftCashMovement', ['shift', 'journal']),
   'shift.close': contract('shift.close', ['shift.close'], ['commerce'], 'commands.ts#closeShift', ['shift', 'close_report', 'journal']),
-  'sales.order.settle': contract('sales.order.settle', ['commerce.sell'], ['commerce', 'inventory'], 'commands.ts#settleSale', ['sale', 'receipt', 'tender', 'customer_account', 'stock', 'journal']),
-  'sales.order.refund': contract('sales.order.refund', ['commerce.refund'], ['commerce', 'inventory'], 'commands.ts#refundSale', ['refund', 'tender', 'stock', 'journal']),
+  'sales.order.settle': contract('sales.order.settle', ['commerce.sell'], ['commerce'], 'commands.ts#settleSale', ['sale', 'receipt', 'tender', 'customer_account', 'stock', 'journal']),
+  'sales.order.refund': contract('sales.order.refund', ['commerce.refund'], ['commerce'], 'commands.ts#refundSale', ['refund', 'tender', 'stock', 'journal']),
   'finance.expense.record': contract('finance.expense.record', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['expense', 'journal']),
   'finance.account.label': contract('finance.account.label', ['finance.manage'], [], 'accountCatalog.ts#executeAccountCatalogCommand', ['account_label']),
   'finance.expense.reverse': contract('finance.expense.reverse', ['finance.manage'], [], 'accounting.ts#executeAccountingCommand', ['expense', 'journal']),

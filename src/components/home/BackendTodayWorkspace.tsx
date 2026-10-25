@@ -10,12 +10,13 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
   const session = apiClient.getSession()!;
   const permissions = session.user.permissions;
   const has = (...requested: string[]) => requested.some(permission => permissions.includes(permission));
-  const canSell = has('commerce.sell');
-  const canShift = has('shift.open', 'shift.close');
-  const hasStock = has('catalog.manage', 'inventory.receive');
+  const canSell = session.tenant.capabilities.includes('commerce') && has('commerce.sell');
+  const canShift = session.tenant.capabilities.includes('commerce') && has('shift.open', 'shift.close');
+  const hasStock = session.tenant.capabilities.includes('inventory') && has('catalog.manage', 'inventory.receive');
+  const canCatalog = session.tenant.capabilities.some(capability => ['commerce', 'inventory'].includes(capability)) && has('catalog.manage');
   const hasHotel = session.tenant.capabilities.includes('hospitality')
     && has('hotel.frontdesk', 'hotel.manage', 'hotel.housekeeping');
-  const canReceive = has('inventory.receive');
+  const canReceive = session.tenant.capabilities.includes('inventory') && has('inventory.receive');
   const [shift, setShift] = useState<BackendShift | null>(null);
   const [loading, setLoading] = useState(canShift);
   const [error, setError] = useState('');
@@ -46,6 +47,7 @@ export function BackendTodayWorkspace({ onNavigate }: { onNavigate: (tab: Active
   const shortcuts: Shortcut[] = [
     ...(canSell ? [{ id: 'sell' as const, title: 'Start a sale', detail: 'Choose items and take payment.', icon: <ShoppingCart size={18} /> }] : []),
     ...(hasStock ? [{ id: 'stock' as const, title: 'Review stock', detail: 'Check the item catalogue and movement history.', icon: <Package size={18} /> }] : []),
+    ...(canCatalog ? [{ id: 'catalog' as const, title: 'Items and services', detail: 'Maintain item types, prices and categories.', icon: <Package size={18} /> }] : []),
     ...(canReceive ? [{ id: 'purchasing' as const, title: 'Receive delivery', detail: 'Review a delivery before posting stock.', icon: <Truck size={18} /> }] : []),
     ...(hasHotel ? [{ id: 'hotel' as const, title: 'Open hotel tasks', detail: 'Rooms, guest stays and housekeeping.', icon: <Hotel size={18} /> }] : []),
     ...(canShift ? [{ id: 'shifts' as const, title: 'Cash-up and shifts', detail: 'Open your till or complete cash-up.', icon: <Clock3 size={18} /> }] : []),

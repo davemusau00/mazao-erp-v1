@@ -22,6 +22,7 @@ test('direct create and CSV share normalized metadata, leading zeros and tenant 
   assert.deepEqual(normalizeCatalogMetadata({}),{category:'',barcode:null,reorderLevel:'0'});
   const minimal=normalizeCatalogProductCreate(payload(),defaults);
   assert.equal(minimal.taxRateBps,1600);assert.equal(minimal.category,'');assert.equal(minimal.barcode,null);assert.equal(minimal.reorderLevel,'0');
+  assert.equal(minimal.itemKind,'STOCKED_GOOD');
 });
 
 test('direct create rejects malformed text, scientific identifiers and unsafe minor amounts',()=>{
@@ -50,9 +51,14 @@ test('complete updates preserve immutable identities and exact case-sensitive ca
   for(const key of ['name','sellingPriceMinor','costPriceMinor','taxRateBps','category','barcode','reorderLevel']){
     const missing:Record<string,unknown>={...update};delete missing[key];assert.throws(()=>normalizeCatalogProductUpdate(missing),rejected,key);
   }
-  for(const immutable of [{sku:'CHANGED'},{baseUnit:'kg'},{currency:'USD'},{unknownIntent:true}])assert.throws(()=>normalizeCatalogProductUpdate({...update,...immutable}),rejected);
+  for(const immutable of [{sku:'CHANGED'},{baseUnit:'kg'},{currency:'USD'},{itemKind:'SERVICE'},{unknownIntent:true}])assert.throws(()=>normalizeCatalogProductUpdate({...update,...immutable}),rejected);
   assert.equal(normalizeCatalogCategoryName(' Pantry '),'Pantry');assert.equal(normalizeCatalogCategoryName('pantry'),'pantry');
   assert.notEqual(normalizeCatalogCategoryName('Pantry'),normalizeCatalogCategoryName('pantry'));
+});
+
+test('item creation accepts only explicit supported kinds and never changes update kind implicitly',()=>{
+  for(const itemKind of ['STOCKED_GOOD','SERVICE','PREPARED'])assert.equal(normalizeCatalogProductCreate({...payload(),itemKind},defaults).itemKind,itemKind);
+  for(const itemKind of [null,'','service',' SERVICE ',0,true,[],{},'DIGITAL'])assert.throws(()=>normalizeCatalogProductCreate({...payload(),itemKind},defaults),rejected,JSON.stringify(itemKind));
 });
 
 test('decimal quantities and currency prices remain exact at their supported boundaries',()=>{

@@ -71,3 +71,11 @@ test('command status validates the outer envelope and preserves nested command i
   for(const code of ['', ' ', 'IDEMPOTENCY_MISMATCH'])assert.equal(check({commandId:'original',status:'REJECTED',response:{commandId:'original',status:'REJECTED',code}}),false);
   assert.equal(check({commandId:'original',status:'CONFLICT',response:{commandId:'original',status:'CONFLICT',code:'VERSION_CONFLICT'}}),true);
 });
+
+test('kind-change acknowledgements preserve reviewed target kind and stock-tracking meaning',()=>{
+  const check=(value:Record<string,unknown>,itemKind='SERVICE')=>isTerminalOutcome({commandId:'original',status:'CONFIRMED',value},'original','catalog.product.change_kind',{productId:'product-a',itemKind});
+  assert.equal(check({productId:'product-a',itemKind:'SERVICE',version:2,stockTracked:false}),true);
+  assert.equal(check({productId:'product-a',itemKind:'PREPARED',version:2,stockTracked:false},'PREPARED'),true);
+  assert.equal(check({productId:'product-a',itemKind:'STOCKED_GOOD',version:2,stockTracked:true},'STOCKED_GOOD'),true);
+  for(const value of [{},{productId:'product-b',itemKind:'SERVICE',version:2,stockTracked:false},{productId:'product-a',itemKind:'PREPARED',version:2,stockTracked:false},{productId:'product-a',itemKind:'SERVICE',version:2,stockTracked:true},{productId:'product-a',itemKind:'SERVICE',version:0,stockTracked:false},{productId:'product-a',itemKind:'SERVICE',version:2}])assert.equal(check(value),false);
+});

@@ -1,5 +1,6 @@
 import { DomainError } from './contracts.js';
 import { isRecord } from './contractValidation.js';
+import { normalizeItemKind, type ItemKind } from './itemKinds.js';
 
 const controls = /[\u0000-\u001f\u007f]/;
 const scientific = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$/;
@@ -9,7 +10,7 @@ export interface CatalogMetadata { category: string; barcode: string | null; reo
 export interface CatalogProductEdit extends CatalogMetadata {
   name: string; sellingPriceMinor: number; costPriceMinor: number; taxRateBps: number;
 }
-export interface CatalogProductCreate extends CatalogProductEdit { sku: string; baseUnit: string; currency: string }
+export interface CatalogProductCreate extends CatalogProductEdit { sku: string; baseUnit: string; currency: string; itemKind: ItemKind }
 
 function fail(message: string): never { throw new DomainError('VALIDATION_FAILED', message); }
 function text(value: unknown, field: string, max: number, allowEmpty = false): string {
@@ -73,10 +74,11 @@ export function normalizeCatalogMetadata(payload: Record<string, unknown>): Cata
 
 const mutableFields = ['name','sellingPriceMinor','costPriceMinor','taxRateBps','category','barcode','reorderLevel'] as const;
 export function normalizeCatalogProductCreate(payload: Record<string, unknown>, defaults: CatalogProductDefaults): CatalogProductCreate {
-  fields(payload, ['sku','baseUnit','currency',...mutableFields], ['sku','name','baseUnit','currency','sellingPriceMinor','costPriceMinor']);
+  fields(payload, ['sku','baseUnit','currency','itemKind',...mutableFields], ['sku','name','baseUnit','currency','sellingPriceMinor','costPriceMinor']);
   return {
     sku: normalizeCatalogSku(payload.sku), name: normalizeCatalogName(payload.name), baseUnit: normalizeCatalogBaseUnit(payload.baseUnit),
     currency: normalizeCatalogCurrency(payload.currency, defaults.currency),
+    itemKind: normalizeItemKind(payload.itemKind),
     sellingPriceMinor: normalizeCatalogMinor(payload.sellingPriceMinor, 'sellingPriceMinor'), costPriceMinor: normalizeCatalogMinor(payload.costPriceMinor, 'costPriceMinor'),
     taxRateBps: normalizeCatalogTaxRateBps(payload.taxRateBps === undefined ? defaults.taxRateBps : payload.taxRateBps),
     ...normalizeCatalogMetadata(payload),

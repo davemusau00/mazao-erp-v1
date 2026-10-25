@@ -148,14 +148,18 @@ test('category labels remain distinct and create rename archive restore and merg
   dialog = page.getByRole('dialog', { name: 'Rename category', exact: true }); await dialog.getByLabel('Category name').fill('General goods'); await dialog.getByLabel('Reason for change').fill('Reviewed display label'); await dialog.getByRole('button', { name: 'Rename category', exact: true }).click();
   await page.getByRole('button', { name: 'Archive General goods', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Change category availability' }); await dialog.getByLabel('Reason for change').fill('Retire unused category'); await dialog.getByRole('button', { name: 'Archive category', exact: true }).click();
-  await page.getByLabel('Include archived', { exact: true }).check(); await page.getByRole('button', { name: 'Restore General goods', exact: true }).click();
+  await page.getByLabel('Include archived', { exact: true }).check(); await page.getByRole('button', { name: 'Rename General goods', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Rename category', exact: true }); await dialog.getByLabel('Category name').fill('Reviewed goods'); await dialog.getByLabel('Reason for change').fill('R'); await dialog.getByRole('button', { name: 'Rename category', exact: true }).click();
+  await page.getByRole('button', { name: 'Restore Reviewed goods', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Change category availability' }); await dialog.getByLabel('Reason for change').fill('Use category again'); await dialog.getByRole('button', { name: 'Restore category', exact: true }).click();
   await page.getByRole('button', { name: 'Merge food', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Merge categories', exact: true }); await dialog.getByLabel('Destination category').selectOption(foodId); await dialog.getByLabel('Reason for change').fill('Reviewed duplicate case variant'); await dialog.getByRole('button', { name: 'Merge categories', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Restore food', exact: true })).toBeDisabled();
-  expect(posts.map(command => command.type)).toEqual(['catalog.category.create', 'catalog.category.update', 'catalog.category.set_active', 'catalog.category.set_active', 'catalog.category.merge']);
+  expect(posts.map(command => command.type)).toEqual(['catalog.category.create', 'catalog.category.update', 'catalog.category.set_active', 'catalog.category.update', 'catalog.category.set_active', 'catalog.category.merge']);
   expect(posts[1].expectedVersions).toEqual({ [`category:${newCategoryId}`]: 1 });
-  expect(posts[4]).toMatchObject({ payload: { sourceCategoryId: lowerFoodId, targetCategoryId: foodId, reason: 'Reviewed duplicate case variant' }, expectedVersions: { [`category:${lowerFoodId}`]: 6, [`category:${foodId}`]: 4 } });
+  expect(posts[3]).toMatchObject({ payload: { categoryId: newCategoryId, name: 'Reviewed goods', reason: 'R' }, expectedVersions: { [`category:${newCategoryId}`]: 3 } });
+  expect(posts[4].expectedVersions).toEqual({ [`category:${newCategoryId}`]: 4 });
+  expect(posts[5]).toMatchObject({ payload: { sourceCategoryId: lowerFoodId, targetCategoryId: foodId, reason: 'Reviewed duplicate case variant' }, expectedVersions: { [`category:${lowerFoodId}`]: 6, [`category:${foodId}`]: 4 } });
 });
 
 for (const mode of ['lost-after-commit', 'never-arrived'] as const) {

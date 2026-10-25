@@ -1,3 +1,4 @@
+import { isStockTracked } from '../../types/catalog';
 import { useEffect, useRef, useState } from 'react';
 import { CircleAlert, PackageCheck, Plus, RefreshCw, Truck } from 'lucide-react';
 import { apiClient, type BackendCommand, type BackendProduct } from '../../services/apiClient';
@@ -48,7 +49,7 @@ export function ProcurementWorkspace({ initialTab = 'receive', onInitialTabConsu
   const locked = busy || !!unknownId || !recovery.ready;
   const refresh = async () => {
     setLoading(true); setError('');
-    try { setProducts((await apiClient.listCatalog()).items); }
+    try { setProducts((await apiClient.listCatalog()).items.filter(isStockTracked)); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'The outlet catalog could not be loaded.'); }
     finally { setLoading(false); }
   };

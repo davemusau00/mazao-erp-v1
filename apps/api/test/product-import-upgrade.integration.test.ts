@@ -56,7 +56,7 @@ if(!sourceUrl){
         // snapshot separately below.
         const receipts=await fixture!.query("SELECT to_jsonb(o)-'operator_name_snapshot' AS prior_evidence FROM commerce.orders o ORDER BY id");
         const products=await fixture!.query('SELECT id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,active,version FROM catalog.products ORDER BY id');
-        const commands=await fixture!.query('SELECT * FROM system.commands ORDER BY tenant_id,command_id');
+        const commands=await fixture!.query("SELECT to_jsonb(c)-'authority_version'-'required_capabilities' AS prior_evidence FROM system.commands c ORDER BY tenant_id,command_id");
         return {balances:balances.rows,movements:movements.rows,journals:journals.rows,lines:lines.rows,receipts:receipts.rows,products:products.rows,commands:commands.rows};
       };
       const before=await snapshot();
@@ -68,7 +68,7 @@ if(!sourceUrl){
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.credential_operations')).rows[0].total,0,'upgrade leaves pre-existing credential commands unchanged without inventing metadata');
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,23,'the complete additive upgrade reaches the current migration');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,25,'the complete additive upgrade reaches the current migration');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

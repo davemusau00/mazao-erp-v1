@@ -10,6 +10,8 @@ import type { AccountingControls, AccountingRecordKind, AccountingRecordPage } f
 import type { CustomerBalanceReport, CustomerBalanceQuery, InventoryValueReport, InventoryValueQuery } from '../types/controlReports';
 export type { CustomerBalanceReport, CustomerBalanceQuery, InventoryValueReport, InventoryValueQuery } from '../types/controlReports';
 import type { AccountCatalog } from '../types/accountCatalog';
+import type { CatalogItemKind } from '../types/catalog';
+export type { CatalogItemKind } from '../types/catalog';
 
 export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[];credentialVersion?:number};
@@ -42,17 +44,17 @@ export interface BackendConfiguration {
 }
 export type BackendBusinessConfigurationInput=Omit<BackendBusinessConfiguration,'id'|'version'>;
 export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'>;
-export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string;taxRateBps:number;quantity:string;version:number;productVersion?:number;barcode?:string|null;category?:string;categoryId?:string|null;reorderLevel?:string;active?:boolean }
+export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string|null;taxRateBps:number;quantity:string|null;version:number|null;balanceVersion?:number|null;productVersion?:number;barcode?:string|null;category?:string;categoryId?:string|null;reorderLevel?:string;active?:boolean;itemKind?:CatalogItemKind;stockTracked?:boolean }
 export interface BackendCatalogCategory {id:string;name:string;active:boolean;version:number;mergedInto?:string|null;productCount:number;activeProductCount:number}
 export interface BackendCatalogReadOptions {includeArchived?:boolean}
 export interface BackendCatalogProductUpdate {productId:string;name:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;category:string;barcode:string|null;reorderLevel:string;reason:string}
-export type ProductImportField='sku'|'name'|'baseUnit'|'sellingPrice'|'costPrice'|'taxRatePercent'|'currency'|'barcode'|'category'|'reorderLevel'|'openingQuantity'|'openingUnitCost';
+export type ProductImportField='sku'|'name'|'baseUnit'|'sellingPrice'|'costPrice'|'taxRatePercent'|'currency'|'barcode'|'category'|'reorderLevel'|'openingQuantity'|'openingUnitCost'|'itemKind';
 export type ProductImportMapping=Partial<Record<ProductImportField,string|null>>;
 export type ProductImportMode='CREATE_ONLY'|'UPSERT';
 export interface ProductImportIssue { row:number;field:string;code:string;rawValue:string;message:string }
 export interface ProductImportNormalized {
   sku:string;name:string;baseUnit:string;currency:string;sellingPriceMinor:number;costPriceMinor:number;taxRateBps:number;
-  barcode:string|null;category:string;reorderLevel:string;openingQuantity:string;openingUnitCostMinor:number|null;openingValueMinor:string;
+  barcode:string|null;category:string;reorderLevel:string;openingQuantity:string;openingUnitCostMinor:number|null;openingValueMinor:string;itemKind?:CatalogItemKind;
 }
 export interface ProductImportRow {
   rowNumber:number;action:'CREATE'|'UPDATE'|'UNCHANGED'|'INVALID';sku:string;productId?:string;expectedProductVersion?:number;
@@ -120,7 +122,7 @@ export interface BackendSaleReceipt {
   status:'CONFIRMED';fiscalDocumentStatus:'NOT_INTEGRATED';receiptId:string;receiptNumber:string;tenantName:string;outletName:string;timeZone:string;
   receiptProfile?:Partial<{legalName:string;registrationNumber:string;taxRegistrationNumber:string;address:string;phone:string;email:string;website:string;logoUrl:string;receiptQrImage:string;showQrOnReceipt:boolean;receiptHeader:string;receiptFooter:string;taxLabel:string;taxCalculation:'exclusive'}>;
   currency:string;createdAt:string;operatorName:string;saleStatus:string;
-  lines:Array<{lineId:string;sku:string;name:string;quantity:string;unrecordedQuantity?:string;provisionalCogsMinor?:string;unitPriceMinor:string;originalSubtotalMinor?:string;discountMinor?:string;discountReason?:string|null;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
+  lines:Array<{lineId:string;sku:string;name:string;quantity:string;itemKind?:CatalogItemKind;unrecordedQuantity?:string;provisionalCogsMinor?:string;unitPriceMinor:string;originalSubtotalMinor?:string;discountMinor?:string;discountReason?:string|null;taxRateBps:number;subtotalMinor:string;taxMinor:string;totalMinor:string}>;
   payments:Array<{method:string;amountMinor:string;currency:string;status:string;reference?:string|null;confirmation?:string;confirmedBy?:string|null;confirmedAt?:string|null}>;
   originalSubtotalMinor?:string;discountMinor?:string;subtotalMinor:string;taxMinor:string;totalMinor:string;amountPaidMinor:string;customerAccountCharge:{customerId:string;customerName:string;amountDueMinor:string}|null;cashTenderedMinor:string|null;changeMinor:string|null;
 }
@@ -382,6 +384,7 @@ class ApiClient {
   }
   updateCatalogProduct(input:BackendCatalogProductUpdate,version:number,commandId:string){return this.catalogCommand('catalog.product.update',{...input},{['product:'+input.productId]:version},commandId)}
   setCatalogProductActive(productId:string,active:boolean,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.product.set_active',{productId,active,reason},{['product:'+productId]:version},commandId)}
+  changeCatalogProductKind(productId:string,itemKind:CatalogItemKind,reason:string,productVersion:number,balanceVersion:number|null,commandId:string){return this.catalogCommand('catalog.product.change_kind',{productId,itemKind,reason},{['product:'+productId]:productVersion,...(balanceVersion===null?{}:{['balance:'+productId]:balanceVersion})},commandId)}
   createCatalogCategory(name:string,commandId:string){return this.catalogCommand('catalog.category.create',{name},{},commandId)}
   updateCatalogCategory(categoryId:string,name:string,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.category.update',{categoryId,name,reason},{['category:'+categoryId]:version},commandId)}
   setCatalogCategoryActive(categoryId:string,active:boolean,reason:string,version:number,commandId:string){return this.catalogCommand('catalog.category.set_active',{categoryId,active,reason},{['category:'+categoryId]:version},commandId)}

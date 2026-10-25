@@ -7,6 +7,7 @@ import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
 import { parseCommandEnvelope, parseLoginInput, validateRequestIdentifiers } from './publicInputs.js';
 import { listCatalogCategories, readIncludeArchived } from './catalogMaintenance.js';
+import { isStockTracked, requireCatalogCapability } from './itemKinds.js';
 import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
@@ -14,7 +15,7 @@ import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReport
 import { getOperationalAnalytics } from './operationalAnalytics.js';
 import { getItemReport, getItemReportCsv, getItemEvents } from './itemReports.js';
 import { getJournalSource } from './journalSources.js';
-import { getAccountingControls, listAccountingRecords } from './accounting.js';
+import { getAccountingControls, guardFinancialCommand, listAccountingRecords } from './accounting.js';
 import { getCustomerBalanceReport, getInventoryValueReport } from './controlReports.js';
 import { getAccountCatalog } from './accountCatalog.js';
 import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
@@ -32,6 +33,7 @@ import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from
 import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
 import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
+import { initializeCommandRequirements, prepareCommandRequirements } from './commandRequirements.js';
 import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
@@ -234,15 +236,15 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   };
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
-    requireEnabledCapability(operator, 'inventory');
+    requireCatalogCapability(operator);
     const permissions=ROLE_PERMISSIONS[operator.role];
     if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
     const includeArchived=readIncludeArchived(request.query as Record<string,unknown>,operator);
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.category,p.category_id,p.active,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
-      FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.item_kind,p.selling_price_minor,p.category,p.category_id,p.active,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
+      FROM catalog.products p LEFT JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
       WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND (p.active OR $4::boolean) ORDER BY p.name,p.id`,[operator.tenantId,operator.outletId,canReadCost,includeArchived]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,categoryId:r.category_id,active:r.active,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+    return { items:result.rows.map(r=>{const stockTracked=isStockTracked(r.item_kind),canReadStock=stockTracked&&operator.capabilities.includes('inventory');return {id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,itemKind:r.item_kind,stockTracked,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,categoryId:r.category_id,active:r.active,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),balanceVersion:r.version===null?null:Number(r.version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:canReadStock&&r.inventory_value_minor!==null?String(r.inventory_value_minor):null}:{}),taxRateBps:r.tax_rate_bps,quantity:canReadStock&&r.quantity!==null?String(r.quantity):null,version:canReadStock&&r.version!==null?Number(r.version):null};}) };
   });
   app.get('/api/v1/catalog/categories',async request=>listCatalogCategories(request.operator!,request.query as Record<string,unknown>));
   app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/movements',async request=>listInventoryMovements(request.operator!,request.query));
@@ -320,7 +322,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
         COALESCE((SELECT SUM(ol.discount_minor) FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),0)::text discount_minor,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('method',p.method,'amountMinor',p.amount_minor::text,'currency',p.currency,'status',p.status,'reference',p.reference,'confirmation',CASE WHEN p.method='MANUAL_MPESA' THEN 'CASHIER_CONFIRMED' ELSE 'CASH' END,'confirmedBy',p.confirmed_operator_name_snapshot,'confirmedAt',p.manually_confirmed_at) ORDER BY p.created_at,p.id) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),'[]'::jsonb) payments,
-        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'originalSubtotalMinor',(ol.line_subtotal_minor+ol.discount_minor)::text,'discountMinor',ol.discount_minor::text,'discountReason',ol.discount_reason,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'itemKind',ol.item_kind_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'originalSubtotalMinor',(ol.line_subtotal_minor+ol.discount_minor)::text,'discountMinor',ol.discount_minor::text,'discountReason',ol.discount_reason,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
       FROM commerce.orders o
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 AND o.created_at<=$6::timestamptz
@@ -395,7 +397,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
-        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,d.outlet_id
+        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,c.authority_version,c.required_capabilities,d.outlet_id
           FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
           WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[s.tenantId,envelope.commandId]);
         if ((STAFF_COMMANDS as readonly string[]).includes(old.rows[0].command_type)) {
@@ -413,14 +415,41 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
         return {status:old.rows[0].status};
       }
-      await client.query('SAVEPOINT business_command');
+      // This evidence survives ordinary domain rejection. Planning cannot write
+      // business state and shares the serializable transaction/outlet lock.
+      await initializeCommandRequirements(client,s,envelope);
+      let businessSavepoint=false;
+      let fresh:ApiSession|undefined;
       try {
-        const value=await executeCommand(client,s,envelope);
+        fresh=await revalidateOperator(client,s);
+        await prepareCommandRequirements(client,fresh,envelope);
+        await client.query('SAVEPOINT business_command');
+        businessSavepoint=true;
+        const value=await executeCommand(client,fresh,envelope);
         const response={status:'CONFIRMED',value};
         await client.query("UPDATE system.commands SET status='CONFIRMED',response=$3::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2",[s.tenantId,envelope.commandId,JSON.stringify(response)]);
         return response;
       } catch (error) {
-        await client.query('ROLLBACK TO SAVEPOINT business_command');
+        // Dynamic planning may reject incomplete/foreign lines before the
+        // existing domain's period admission. Preserve that admission priority
+        // without replacing role/capability failures or strict static schemas.
+        if(!businessSavepoint&&fresh&&error instanceof DomainError&&['VALIDATION_FAILED','NOT_FOUND'].includes(error.code)&&
+          ['sales.order.settle','sales.order.refund','catalog.import.apply'].includes(envelope.type)) {
+          // Admission queries UUIDs directly. Preserve controlled validation for
+          // an invalid supplied identity; an omitted refund ID keeps its former
+          // closed-period admission behavior (the guard's null lookup is safe).
+          const needsRecordId=envelope.type==='catalog.import.apply'||(envelope.type==='sales.order.refund'&&envelope.payload.orderId!==undefined);
+          const recordId=envelope.type==='catalog.import.apply'?envelope.payload.batchId:envelope.payload.orderId;
+          const validRecordId=!needsRecordId||(typeof recordId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(recordId));
+          if(validRecordId) {
+            try { await guardFinancialCommand(client,fresh,envelope); }
+            catch(admissionError) {
+              if(!(admissionError instanceof DomainError))throw admissionError;
+              error=admissionError;
+            }
+          }
+        }
+        if(businessSavepoint)await client.query('ROLLBACK TO SAVEPOINT business_command');
         if (!(error instanceof DomainError)) throw error;
         const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT'].includes(error.code)?'CONFLICT':'REJECTED';
         const response={status,code:error.code,message:error.message,details:error.details};
@@ -432,12 +461,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
   app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async request => inTransaction(async client => {
     const operator=await revalidateOperator(client,request.operator!);
-    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
+    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,c.authority_version,c.required_capabilities,d.outlet_id
       FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
       WHERE c.tenant_id=$1 AND c.command_id=$2 FOR SHARE OF c,d`,[operator.tenantId,request.params.commandId]);
     if (!r.rowCount) throw new DomainError('NOT_FOUND','Command was not found.',404);
     requireCommandRecoveryAuthority(operator,r.rows[0],'status');
-    const {command_type:_,actor_id:__,outlet_id:___,...status}=r.rows[0];
+    const {command_type:_,actor_id:__,outlet_id:___,authority_version:____,required_capabilities:_____,...status}=r.rows[0];
     return {commandId:request.params.commandId,...status};
   }));
   return app;

@@ -8,11 +8,12 @@ import { readBusinessProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
 import { resolveCatalogCategory } from './catalogMaintenance.js';
+import { normalizeItemKind, isStockTracked, requireCatalogCapability, requireItemKindCapability, type ItemKind } from './itemKinds.js';
 import { normalizeCatalogSku, normalizeCatalogName, normalizeCatalogBaseUnit, normalizeCatalogCategoryName, normalizeCatalogBarcode,
   normalizeCatalogQuantity as quantity, catalogMinorFromDecimal as minor, catalogTaxFromPercent as percentage } from './catalogValidation.js';
 export { normalizeCatalogMetadata as validateCatalogMetadata } from './catalogValidation.js';
 
-export const PRODUCT_IMPORT_FIELDS = ['sku','name','baseUnit','sellingPrice','costPrice','taxRatePercent','currency','barcode','category','reorderLevel','openingQuantity','openingUnitCost'] as const;
+export const PRODUCT_IMPORT_FIELDS = ['sku','name','baseUnit','itemKind','sellingPrice','costPrice','taxRatePercent','currency','barcode','category','reorderLevel','openingQuantity','openingUnitCost'] as const;
 type Field = typeof PRODUCT_IMPORT_FIELDS[number];
 export type ProductImportMapping = Partial<Record<Field, string | null>>;
 export interface ProductImportValidateInput {fileName:string;csv:string;mapping:ProductImportMapping;mode:'CREATE_ONLY'|'UPSERT'}
@@ -20,6 +21,8 @@ export interface ProductImportApplyInput {batchId:string;reviewed:boolean;acknow
 export interface ImportIssue { row: number; field: string; code: string; rawValue: string; message: string }
 export interface ImportNormalized {
   sku: string; name: string; baseUnit: string; currency: string; sellingPriceMinor: number; costPriceMinor: number; taxRateBps: number;
+  /** Older stored validation reports omitted this field and mean STOCKED_GOOD. */
+  itemKind?: ItemKind;
   barcode: string | null; category: string; reorderLevel: string; openingQuantity: string; openingUnitCostMinor: number | null; openingValueMinor: string;
 }
 export interface ImportPreviewRow {
@@ -31,7 +34,7 @@ export interface ImportPreviewRow {
 interface ConfigurationSnapshot { businessVersion: number; currency: string; taxRateBps: number }
 interface ExistingProduct {
   id:string;sku:string;name:string;base_unit:string;currency:string;selling_price_minor:string;cost_price_minor:string;tax_rate_bps:number;
-  barcode:string|null;category:string;reorder_level:string;version:string;active:boolean;
+  barcode:string|null;category:string;reorder_level:string;version:string;active:boolean;item_kind?:ItemKind;
 }
 export interface ImportSummary { rowCount:number;createCount:number;updateCount:number;unchangedCount:number;errorCount:number;warningCount:number;openingQuantityLines:number;openingValueMinor:string }
 export interface ImportReport { rows:ImportPreviewRow[];errors:ImportIssue[];warnings:ImportIssue[];summary:ImportSummary }
@@ -42,10 +45,47 @@ const skuKey=(value:string)=>value.trim().toUpperCase();
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function requireProductImportAccess(session:ApiSession) {
   requireCommandAuthority(session,'catalog.import.validate');
+  requireCatalogCapability(session);
 }
 function micros(value:string):bigint { const [whole,fraction='']=value.split('.');return BigInt(whole)*scale+BigInt(fraction.padEnd(6,'0')); }
 function issue(row:number,field:string,code:string,rawValue:string,message:string):ImportIssue{return {row,field,code,rawValue,message};}
 function emptyReport(errors:ImportIssue[]):ImportReport{return {rows:[],errors,warnings:[],summary:{rowCount:0,createCount:0,updateCount:0,unchangedCount:0,errorCount:errors.length,warningCount:0,openingQuantityLines:0,openingValueMinor:'0'}};}
+
+/** Compare legacy reports without rewriting the stored report or its hash. */
+export function canonicalProductImportReport(report:ImportReport):ImportReport {
+  return {...report,rows:report.rows.map(row=>({...row,...(row.normalized?{normalized:{...row.normalized,itemKind:normalizeItemKind(row.normalized.itemKind)}}:{})}))};
+}
+
+/** Current referenced kinds cannot downgrade the reviewed batch requirements. */
+export function productImportReportRequiredCapabilities(report:ImportReport,products:ReadonlyArray<Pick<ExistingProduct,'id'|'item_kind'>>=[]):string[]{
+  const kinds=report.rows.flatMap(row=>row.normalized?[normalizeItemKind(row.normalized.itemKind)]:[]);
+  const referenced=new Set(report.rows.flatMap(row=>row.productId?[row.productId]:[]));
+  for(const product of products)if(referenced.has(product.id))kinds.push(normalizeItemKind(product.item_kind));
+  return [...new Set(kinds.map(kind=>isStockTracked(kind)?'inventory':'commerce'))].sort();
+}
+
+function requireReportKinds(session:ApiSession,report:ImportReport,products:ReadonlyArray<Pick<ExistingProduct,'id'|'item_kind'>>=[]){
+  for(const capability of productImportReportRequiredCapabilities(report,products))requireItemKindCapability(session,capability==='inventory'?'STOCKED_GOOD':'SERVICE');
+}
+
+function importSourceInput(payload:Record<string,unknown>):ProductImportValidateInput{
+  const {fileName,csv,mapping,mode}=payload;
+  if(typeof fileName!=='string'||!fileName.trim()||fileName.trim().length>160||/[\u0000-\u001f\u007f]/.test(fileName)||typeof csv!=='string'||!mapping||typeof mapping!=='object'||Array.isArray(mapping)||typeof mode!=='string'||!['CREATE_ONLY','UPSERT'].includes(mode))throw new DomainError('VALIDATION_FAILED','Provide a file name, UTF-8 CSV text, supported mapping and import mode.');
+  return {fileName,csv,mapping:mapping as ProductImportMapping,mode:mode as ProductImportValidateInput['mode']};
+}
+
+/** Called under the planner's outlet lock, before the business savepoint. */
+export async function productImportRequiredCapabilities(client:PoolClient,session:ApiSession,envelope:CommandEnvelope):Promise<string[]>{
+  requireProductImportAccess(session);
+  const batch=envelope.type==='catalog.import.validate'?undefined:await findBatch(client,session,envelope.payload.batchId);
+  const input=importSourceInput(batch?{fileName:batch.file_name,csv:batch.raw_source,mapping:batch.column_mapping,mode:batch.import_mode}:envelope.payload);
+  assertImportSourceSafe({...envelope,type:'catalog.import.validate',payload:{...input}});
+  const config=await configuration(client,session),products=await catalogSnapshot(client,session);
+  const report=validateProductCsv(input.csv,input.mapping,input.mode,config,products);
+  const capabilities=new Set(productImportReportRequiredCapabilities(report,products));
+  if(batch)for(const capability of productImportReportRequiredCapabilities(batch.validation_report as ImportReport,products))capabilities.add(capability);
+  return [...capabilities].sort();
+}
 
 /** Validation operates only on supplied snapshots; it cannot write business state. */
 export function validateProductCsv(source:string,mapping:ProductImportMapping,mode:'CREATE_ONLY'|'UPSERT',config:ConfigurationSnapshot,products:ExistingProduct[]):ImportReport {
@@ -86,6 +126,10 @@ export function validateProductCsv(source:string,mapping:ProductImportMapping,mo
       try{return normalize(input);}catch(error){add(field,'FIELD_INVALID',(error as Error).message);return typeof input==='string'?input.trim():'';}
     };
     const name=required('name',existing?.name,normalizeCatalogName);const baseUnit=required('baseUnit',existing?.base_unit,normalizeCatalogBaseUnit);
+    const existingKind=normalizeItemKind(existing?.item_kind);
+    let itemKind=existingKind;
+    try{itemKind=normalizeItemKind(mapped.has('itemKind')?value('itemKind'):existing?.item_kind);}catch(error){add('itemKind','ITEM_KIND_INVALID',(error as Error).message);}
+    if(existing&&itemKind!==existingKind)add('itemKind','ITEM_KIND_CHANGE_REQUIRES_REVIEW','Existing item kinds require the reviewed change-kind command; CSV cannot change stock tracking.');
     if(existing&&baseUnit!==existing.base_unit)add('baseUnit','UNIT_IMMUTABLE','Existing base units cannot be changed by import.');
     const currency=(value('currency')??existing?.currency??config.currency).toUpperCase();
     if(currency!==config.currency)add('currency','CURRENCY_MISMATCH','Currency must match the tenant currency; existing monetary history cannot be converted.');
@@ -110,14 +154,18 @@ export function validateProductCsv(source:string,mapping:ProductImportMapping,mo
     if(existing&&micros(openingQuantity)>0n)add('openingQuantity','OPENING_STOCK_EXISTING','Opening quantity is only for new items. Use receiving or a reviewed count for existing stock.');
     let openingUnitCostMinor:number|null=null;let openingValue=0n;
     if(value('openingUnitCost'))openingUnitCostMinor=moneyField('openingUnitCost',undefined);
+    if(!isStockTracked(itemKind)){
+      if(micros(openingQuantity)>0n)add('openingQuantity','NON_STOCK_OPENING_INVENTORY','Services and prepared items cannot carry opening inventory.');
+      if(value('openingUnitCost'))add('openingUnitCost','NON_STOCK_OPENING_INVENTORY','Services and prepared items cannot carry an explicit opening inventory cost.');
+    }
     if(micros(openingQuantity)>0n){
       if(openingUnitCostMinor===null){add('openingUnitCost','OPENING_COST_REQUIRED','An explicit evidenced unit cost, including an acknowledged zero, is required for opening stock.');openingUnitCostMinor=0;}
       openingValue=(BigInt(openingUnitCostMinor)*micros(openingQuantity)+scale/2n)/scale;
       if(openingValue>maxMinor)add('openingUnitCost','OPENING_VALUE_INVALID','Opening stock value exceeds the supported minor-unit range.');
       if(openingValue===0n)row.warnings.push(issue(raw.rowNumber,'openingUnitCost','ZERO_OPENING_VALUE',rawValue('openingUnitCost'),'Opening stock carries zero minor-unit value. Confirm this explicit cost evidence before importing; a zero-value opening journal will not be posted.'));
     }
-    if(costPriceMinor===0)row.warnings.push(issue(raw.rowNumber,'costPrice','ZERO_REFERENCE_COST',rawValue('costPrice'),'The item reference cost is zero. Future zero-stock count gains cannot obtain an evidenced value from this reference; acknowledge before importing.'));
-    const normalized:ImportNormalized={sku:row.sku,name,baseUnit,currency,sellingPriceMinor,costPriceMinor,taxRateBps,barcode,category,reorderLevel,openingQuantity,openingUnitCostMinor,openingValueMinor:openingValue.toString()};
+    if(isStockTracked(itemKind)&&costPriceMinor===0)row.warnings.push(issue(raw.rowNumber,'costPrice','ZERO_REFERENCE_COST',rawValue('costPrice'),'The item reference cost is zero. Future zero-stock count gains cannot obtain an evidenced value from this reference; acknowledge before importing.'));
+    const normalized:ImportNormalized={sku:row.sku,name,baseUnit,itemKind,currency,sellingPriceMinor,costPriceMinor,taxRateBps,barcode,category,reorderLevel,openingQuantity,openingUnitCostMinor,openingValueMinor:openingValue.toString()};
     row.normalized=normalized;
     const before:Record<string,string|null>=existing?{name:existing.name,sellingPriceMinor:existing.selling_price_minor,costPriceMinor:existing.cost_price_minor,taxRateBps:String(existing.tax_rate_bps),barcode:existing.barcode,category:existing.category,reorderLevel:quantity(existing.reorder_level)}:{};
     for(const field of ['name','sellingPriceMinor','costPriceMinor','taxRateBps','barcode','category','reorderLevel'] as const){
@@ -143,7 +191,7 @@ async function configuration(client:PoolClient,session:ApiSession,lock=false):Pr
   return {businessVersion:Number(result.rows[0].version),currency:result.rows[0].currency,taxRateBps:readBusinessProfile(result.rows[0].business_profile).taxPolicy.defaultRateBps};
 }
 async function catalogSnapshot(client:PoolClient,session:ApiSession,lock=false):Promise<ExistingProduct[]>{
-  const result=await client.query<ExistingProduct>(`SELECT id,sku,name,base_unit,currency,selling_price_minor::text,cost_price_minor::text,tax_rate_bps,barcode,category,reorder_level::text,version::text,active FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 ORDER BY id${lock?' FOR UPDATE':''}`,[session.tenantId,session.outletId]);
+  const result=await client.query<ExistingProduct>(`SELECT id,sku,name,base_unit,item_kind,currency,selling_price_minor::text,cost_price_minor::text,tax_rate_bps,barcode,category,reorder_level::text,version::text,active FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 ORDER BY id${lock?' FOR UPDATE':''}`,[session.tenantId,session.outletId]);
   return result.rows;
 }
 async function evidence(client:PoolClient,session:ApiSession,envelope:CommandEnvelope,value:unknown){
@@ -165,12 +213,12 @@ async function findBatch(client:PoolClient,session:ApiSession,id:unknown,lock=fa
 }
 async function validateBatch(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
   assertImportSourceSafe(envelope);
-  const {fileName,csv,mapping,mode}=envelope.payload;
-  if(typeof fileName!=='string'||!fileName.trim()||fileName.trim().length>160||/[\u0000-\u001f\u007f]/.test(fileName)||typeof csv!=='string'||!mapping||typeof mapping!=='object'||Array.isArray(mapping)||typeof mode!=='string'||!['CREATE_ONLY','UPSERT'].includes(mode))throw new DomainError('VALIDATION_FAILED','Provide a file name, UTF-8 CSV text, supported mapping and import mode.');
+  const {fileName,csv,mapping,mode}=importSourceInput(envelope.payload);
   const sourceBytes=Buffer.byteLength(csv,'utf8');
   if(sourceBytes>CSV_LIMITS.bytes)throw new DomainError('VALIDATION_FAILED','CSV exceeds the 512 KiB upload limit.',400,{code:'CSV_BYTES_LIMIT'});
   const config=await configuration(client,session);
   const report=validateProductCsv(csv,mapping as ProductImportMapping,mode as 'CREATE_ONLY'|'UPSERT',config,await catalogSnapshot(client,session));
+  requireReportKinds(session,report);
   if(report.summary.openingQuantityLines>0&&!ROLE_PERMISSIONS[session.role].includes('inventory.receive'))throw new DomainError('FORBIDDEN','Opening inventory requires stock-receiving permission.',403);
   const id=randomUUID();const sourceHash=hash(csv);const status=report.errors.length?'INVALID':'READY';
   await client.query(`INSERT INTO catalog.product_import_batches(id,tenant_id,outlet_id,created_by,file_name,raw_source,source_sha256,source_bytes,column_mapping,import_mode,status,configuration_snapshot,validation_report,validation_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb,$13::jsonb,$14)`,[id,session.tenantId,session.outletId,session.userId,fileName.trim(),csv,sourceHash,sourceBytes,JSON.stringify(mapping),mode,status,JSON.stringify(config),JSON.stringify(report),hash(stableStringify(report))]);
@@ -196,6 +244,7 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   const expected=batchExpected(envelope,batch.id);
   if(Number(batch.version)!==expected)throw new DomainError('VERSION_CONFLICT','Import batch changed. Reload its server state before proceeding.',409,{currentVersion:Number(batch.version)});
   if(envelope.type==='catalog.import.revalidate'){
+    requireReportKinds(session,batch.validation_report as ImportReport);
     return validateBatch(client,session,{...envelope,payload:{fileName:batch.file_name,csv:batch.raw_source,mapping:batch.column_mapping,mode:batch.import_mode}});
   }
   if(envelope.type!=='catalog.import.apply')throw new DomainError('VALIDATION_FAILED','Unsupported import operation.');
@@ -204,27 +253,34 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   if(batch.status!=='READY')throw new DomainError('IMPORT_INVALID','Correct the source errors and validate a new batch before applying.',409);
   if(envelope.payload.reviewed!==true)throw new DomainError('REVIEW_REQUIRED','Review the predicted changes and opening inventory value before applying.',409);
   const original=batch.validation_report as ImportReport;
+  requireReportKinds(session,original);
   if(original.warnings.length&&envelope.payload.acknowledgedWarnings!==true)throw new DomainError('WARNINGS_NOT_ACKNOWLEDGED','Acknowledge every import warning before applying.',409);
   if(original.summary.openingQuantityLines&&!ROLE_PERMISSIONS[session.role].includes('inventory.receive'))throw new DomainError('FORBIDDEN','Opening inventory requires stock-receiving permission.',403);
-  const activeCount=await client.query('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' LIMIT 1',[session.tenantId,session.outletId]);
-  if(activeCount.rowCount)throw new DomainError('OPEN_COUNT_CONFLICT','Finish or cancel the open outlet stock count before importing catalogue changes.',409,{countId:activeCount.rows[0].id});
+  if(original.rows.some(row=>row.normalized&&isStockTracked(normalizeItemKind(row.normalized.itemKind)))){
+    const activeCount=await client.query('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' LIMIT 1',[session.tenantId,session.outletId]);
+    if(activeCount.rowCount)throw new DomainError('OPEN_COUNT_CONFLICT','Finish or cancel the open outlet stock count before importing catalogue changes.',409,{countId:activeCount.rows[0].id});
+  }
   const config=await configuration(client,session,true);
   if(stableStringify(config)!==stableStringify(batch.configuration_snapshot))throw new DomainError('IMPORT_STALE','Business defaults changed after validation. Revalidate the import.',409,{reason:'business',currentBusinessVersion:config.businessVersion});
   if(hash(batch.raw_source)!==batch.source_sha256||hash(stableStringify(original))!==batch.validation_sha256)throw new DomainError('IMPORT_STALE','Stored import evidence does not match its validation hash. Revalidate the source.',409,{reason:'source'});
-  const current=validateProductCsv(batch.raw_source,batch.column_mapping,batch.import_mode,config,await catalogSnapshot(client,session,true));
-  if(stableStringify(current)!==stableStringify(original))throw new DomainError('IMPORT_STALE','Catalogue identities, metadata or versions changed after validation. Revalidate the import.',409,{reason:'catalog'});
+  const products=await catalogSnapshot(client,session,true);
+  const current=validateProductCsv(batch.raw_source,batch.column_mapping,batch.import_mode,config,products);
+  requireReportKinds(session,current,products);
+  if(stableStringify(canonicalProductImportReport(current))!==stableStringify(canonicalProductImportReport(original)))throw new DomainError('IMPORT_STALE','Catalogue identities, metadata or versions changed after validation. Revalidate the import.',409,{reason:'catalog'});
   const appliedRows:Array<{rowNumber:number;productId:string;action:string}>=[];
   for(const row of original.rows){
-    const value=row.normalized!;let productId=row.productId;
+    const value=row.normalized!,itemKind=normalizeItemKind(value.itemKind);let productId=row.productId;
     if(row.action==='CREATE'){
       productId=randomUUID();
       const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
-      await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id,category_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,categoryId]);
-      await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,$4::numeric,$5)',[session.tenantId,session.outletId,productId,value.openingQuantity,value.openingValueMinor]);
-      if(micros(value.openingQuantity)>0n)await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'OPENING_IMPORT',$6::numeric,$7,$8,$9,$10)`,[randomUUID(),session.tenantId,session.outletId,productId,envelope.commandId,value.openingQuantity,value.openingUnitCostMinor,value.openingValueMinor,batch.id,`Import ${batch.id}`]);
+      await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id,category_id,item_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15,$16)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,categoryId,itemKind]);
+      if(isStockTracked(itemKind)){
+        await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,$4::numeric,$5)',[session.tenantId,session.outletId,productId,value.openingQuantity,value.openingValueMinor]);
+        if(micros(value.openingQuantity)>0n)await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'OPENING_IMPORT',$6::numeric,$7,$8,$9,$10)`,[randomUUID(),session.tenantId,session.outletId,productId,envelope.commandId,value.openingQuantity,value.openingUnitCostMinor,value.openingValueMinor,batch.id,`Import ${batch.id}`]);
+      }
     }else if(row.action==='UPDATE'){
       const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
-      const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,category_id=$13,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion,categoryId]);
+      const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,category_id=$13,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND item_kind=$14 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion,categoryId,itemKind]);
       if(!result.rowCount)throw new DomainError('IMPORT_STALE','An item changed during import. Revalidate all rows.',409,{reason:'product'});
     }
     appliedRows.push({rowNumber:row.rowNumber,productId:productId!,action:row.action});
@@ -248,13 +304,18 @@ export async function listProductImports(session:ApiSession,query:HistoryQuery={
   return inReadSnapshot(async client=>{
   const result=await readHistoryPage(client,session,'catalog.imports',query,`SELECT id,created_at sort_at,concat_ws(' ',file_name,import_mode,status,id::text) search_text,file_name,import_mode,status,version,source_sha256,source_bytes,configuration_snapshot,created_at,created_by,applied_at,
     jsonb_build_object('summary',validation_report->'summary') validation_report FROM catalog.product_import_batches
-    WHERE tenant_id=$1 AND outlet_id=$2`,[session.tenantId,session.outletId]);
+    WHERE tenant_id=$1 AND outlet_id=$2
+      AND ($3::boolean OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(validation_report->'rows') evidence_row
+        WHERE jsonb_typeof(evidence_row->'normalized')='object' AND COALESCE(evidence_row->'normalized'->>'itemKind','STOCKED_GOOD')='STOCKED_GOOD'))
+      AND ($4::boolean OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(validation_report->'rows') evidence_row
+        WHERE jsonb_typeof(evidence_row->'normalized')='object' AND COALESCE(evidence_row->'normalized'->>'itemKind','STOCKED_GOOD') IN ('SERVICE','PREPARED')))`,
+    [session.tenantId,session.outletId,session.capabilities.includes('inventory'),session.capabilities.includes('commerce')]);
   return {batches:result.rows.map(batchMetadata),page:result.page};
   });
 }
 export async function getProductImport(session:ApiSession,id:unknown){
   requireProductImportAccess(session);const client=await pool.connect();
-  try{const row=await findBatch(client,session,id);return {batch:{...batchMetadata(row),...row.validation_report,source:{csv:row.raw_source,mapping:row.column_mapping},appliedResult:row.apply_result}};}finally{client.release();}
+  try{const row=await findBatch(client,session,id);requireReportKinds(session,row.validation_report as ImportReport);return {batch:{...batchMetadata(row),...row.validation_report,source:{csv:row.raw_source,mapping:row.column_mapping},appliedResult:row.apply_result}};}finally{client.release();}
 }
 export async function productImportErrorsCsv(session:ApiSession,id:unknown){
   const {batch}=await getProductImport(session,id);
