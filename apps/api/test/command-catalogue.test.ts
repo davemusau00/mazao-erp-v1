@@ -47,7 +47,7 @@ test('catalogue schemas, domain references and operational boundaries are comple
 });
 
 test('execution and recovery authority agree with the catalogue for every role', () => {
-  const capabilities = ['commerce', 'inventory', 'hospitality'];
+  const capabilities = ['commerce', 'inventory', 'hospitality', 'restaurant'];
   for (const [name, entry] of Object.entries(COMMAND_CATALOGUE)) {
     for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
       const session = { role, capabilities } as ApiSession;

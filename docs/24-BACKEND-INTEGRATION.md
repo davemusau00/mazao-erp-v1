@@ -1,8 +1,21 @@
 # Backend integration register (v1 foundation)
 
-The deployed administration/configuration gaps are recorded in [the server configuration gap report](26-SERVER-CONFIGURATION-GAPS.md). Manage has authoritative business/outlet/tax/receipt/capability settings, outlet creation/editing/safe deactivation and computed setup checks. Staff identities, password setup, and logical workspace assignments are server-backed; see the [staff provisioning guide](31-STAFF-PROVISIONING.md). Authenticated outlet context switching is implemented at source; isolated database and browser acceptance remain open. Physical terminal pairing remains outstanding. The application requires server authentication in every build and has no reachable preview workspaces.
+The deployed administration/configuration gaps are recorded in [the server configuration gap report](26-SERVER-CONFIGURATION-GAPS.md). Manage has authoritative business/outlet/tax/receipt/capability settings, outlet creation/editing/safe deactivation and computed setup checks. Staff identities, password setup, and logical workspace assignments are server-backed; see the [staff provisioning guide](31-STAFF-PROVISIONING.md). Authenticated outlet context switching is implemented; baseline database/browser journeys passed the [29 October exact-head CI checkpoint](61-HOSPITALITY-P0-BASELINE-2026-10-29.md), with broader interruption/physical/release acceptance still open. Physical terminal pairing remains outstanding. The application requires server authentication in every build and has no reachable preview workspaces.
 
 This register describes the actual authenticated API boundary. An unsubmitted draft is not committed state, an outbox row is not remote delivery, and a cash command is not a card or mobile-money provider confirmation. All reachable workspaces use server records; archived prototype code has no runtime authority.
+
+The 29 October hospitality continuation adds source-connected **Restaurant setup**
+under Tables & kitchen: outlet service areas, tables, preparation stations, paged
+menu candidates/routing and version-bound logical station assignments. The five
+strict `restaurant.*` configuration commands use current restaurant/manage
+authority, the existing command ledger and immutable audit/outbox evidence.
+Station assignment additionally requires device-management authority. Migration
+029 is additive. Waiter/cook/bartender roles can review setup only; orders, fire,
+KOT/BOT/print queue, KDS, serving, restaurant settlement and room charges remain
+unavailable. [P0 evidence](61-HOSPITALITY-P0-BASELINE-2026-10-29.md) and
+[restaurant configuration](62-RESTAURANT-CONFIGURATION.md) record exact dependency,
+contracts, migration/recovery limits and acceptance. No production activation is
+implied by the new navigation.
 
 The 20 October S00 continuation is recorded in [the execution register](48-CODEBASE-TRUTH-EXECUTION.md): strict public inputs and an incremental command catalogue; additive migration 022 for metadata-only credential fencing; and scoped search/continuation for previously capped histories, evidence, directories, sessions and reservations. Existing arrays remain available with page metadata. [Credential fencing](50-CREDENTIAL-OPERATION-FENCING.md), [history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [directory contracts](54-DIRECTORY-CONTINUATION.md) describe the exact changed boundaries and local evidence. This source work has not been deployed.
 
