@@ -50,7 +50,7 @@ test('zero-baseline gain shows exact opening-cost estimate and requires acknowle
   const state = await fixture(page);
   await expect(page.getByRole('button', { name: 'Review and post', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Review and post', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Review full stock count' });
+  const dialog = page.getByRole('dialog', { name: 'Review full outlet count' });
   await expect(dialog).toContainText('reference cost captured when this count opened');
   await expect(dialog).toContainText('Unit'); await expect(dialog).toContainText('1.23'); await expect(dialog).toContainText('3.08');
   const post = dialog.getByRole('button', { name: 'Post reviewed count', exact: true });
@@ -69,7 +69,7 @@ test('zero-baseline gain shows exact opening-cost estimate and requires acknowle
 test('zero reference cost is clearly shown and still needs a review reason', async ({ page }) => {
   const state = await fixture(page, '0');
   await page.getByRole('button', { name: 'Review and post', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Review full stock count' });
+  const dialog = page.getByRole('dialog', { name: 'Review full outlet count' });
   await expect(dialog).toContainText('Opening reference cost is zero; policy keeps this gain at zero value after manager review.');
   await expect(dialog.getByRole('button', { name: 'Post reviewed count', exact: true })).toBeDisabled();
   await dialog.getByLabel('Valuation approval reason').fill('Unknown purchase cost; keep zero until supplier documentation arrives');

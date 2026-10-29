@@ -225,6 +225,6 @@ test('cancellation stays unavailable while unsent edits exist, then clears only 
   await expect(check).toBeVisible();
   expect(state.posts.filter(command => command.type === 'inventory.count.cancel')).toHaveLength(1);
   await check.click();
-  await expect(page.getByRole('heading', { name: 'No open outlet count' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No open stock count' })).toBeVisible();
   expect(await localDraftCount(page)).toBe(0);
 });

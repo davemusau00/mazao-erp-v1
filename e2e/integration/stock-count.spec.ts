@@ -98,7 +98,7 @@ for (const scenario of [
     } else {
       await expect(page.getByRole('status').filter({ hasText: 'Count posted: 2 stock adjustments' })).toBeVisible();
     }
-    await expect(page.getByRole('heading', { name: 'No open outlet count' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No open stock count' })).toBeVisible();
     await page.getByRole('button', { name: 'View details', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('Mixed browser count');
     await expect(page.getByRole('dialog')).toContainText('Reviewed physical gain');
