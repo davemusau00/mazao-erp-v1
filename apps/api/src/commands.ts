@@ -203,6 +203,7 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'configuration.outlet.update':
     case 'configuration.outlet.set_active':
     case 'configuration.capabilities.update': return executeConfigurationCommand(client, session, envelope);
+    case 'configuration.go_live.approve': return executeConfigurationCommand(client, session, envelope);
     case 'configuration.stock_exception_policy.update':
     case 'inventory.sale_shortfall.resolve': return executeStockExceptionCommand(client, session, envelope);
     case 'catalog.product.update':

@@ -84,7 +84,7 @@ if(!sourceUrl){
       };
       const before=await originalSnapshot();
       await t.test('upgrade and checksum rerun retain every original field and expose honest legacy coverage',async()=>{
-        migrate();const rerun=migrate();
+        migrate('026_count_recovery');const rerun=migrate('026_count_recovery');
         assert.deepEqual(await originalSnapshot(),before);
         assert.equal((rerun.match(/already applied; checksum matches/g)??[]).length,26);
         assert.equal((await client!.query('SELECT count(*)::int n FROM system.schema_migrations')).rows[0].n,26);

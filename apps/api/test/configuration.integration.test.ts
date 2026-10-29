@@ -148,7 +148,8 @@ if (!databaseUrl) {
       assert.equal(receiptBefore.json().receiptProfile.showQrOnReceipt, true);
       const newerBusiness = await submit(command('configuration.business.update', { ...businessInput, name: 'Later business identity', legalName: 'Later legal identity', receiptFooter: 'Later business footer', logoUrl: '', receiptQrImage: '', showQrOnReceipt: false, taxPolicy: { ...businessInput.taxPolicy, defaultRateBps: 800, label: 'Later tax label' } }, { [`business:${tenantId}`]: 4 }));
       assert.equal(newerBusiness.json().status, 'CONFIRMED', newerBusiness.body);
-      const newerOutlet = await submit(command('configuration.outlet.update', { ...initial.outlet, name: 'Later outlet', receiptFooter: 'Later outlet footer' }, { [`outlet:${outletId}`]: 2 }));
+      const currentOutlet=(await read()).outlet;
+      const newerOutlet = await submit(command('configuration.outlet.update', { ...currentOutlet, name: 'Later outlet', receiptFooter: 'Later outlet footer' }, { [`outlet:${outletId}`]: currentOutlet.version }));
       assert.equal(newerOutlet.json().status, 'CONFIRMED', newerOutlet.body);
       assert.deepEqual((await app.inject({ url: `/api/v1/sales/orders/${orderId}/receipt`, headers })).json(), receiptBefore.json(), 'reprint must preserve all original identities and configuration despite later changes');
       const status = await app.inject({ url: `/api/v1/commands/${newerBusiness.json().commandId}`, headers });

@@ -163,7 +163,8 @@ if (!databaseUrl) {
         } finally { await stale.query('ROLLBACK'); stale.release(); }
         assert.equal((await submit(owner,command(owner,'finance.period.transition',{periodId,status:'OPEN',reason:'Closed periods must remain immutable in scope'},{[`period:${periodId}`]:3}))).code,'INVALID_PERIOD_TRANSITION');
         for (const type of ['inventory.receive','inventory.count.post','shift.open','shift.cash.movement','shift.close','sales.order.settle','sales.order.refund','customers.repayment','hotel.checkout']) {
-          const envelope = command(owner,type,{openingFloatMinor:0}); envelope.occurredAt = `${earlier}T10:00:00.000Z`;
+          const payload=type==='inventory.count.post'?{countId:randomUUID(),valuationReason:'Valid count posting payload for closed-period admission'}:{openingFloatMinor:0};
+          const envelope = command(owner,type,payload); envelope.occurredAt = `${earlier}T10:00:00.000Z`;
           const rejected = await submit(owner,envelope); assert.equal(rejected.code,'PERIOD_CLOSED',`${type}: ${JSON.stringify(rejected)}`);
           assert.deepEqual(await submit(owner,envelope),rejected,'closed-period rejection remains an exact recoverable outcome');
         }
