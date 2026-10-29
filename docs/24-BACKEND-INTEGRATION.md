@@ -10,9 +10,14 @@ menu candidates/routing and version-bound logical station assignments. The five
 strict `restaurant.*` configuration commands use current restaurant/manage
 authority, the existing command ledger and immutable audit/outbox evidence.
 Station assignment additionally requires device-management authority. Migration
-029 is additive. Waiter/cook/bartender roles can review setup only; orders, fire,
-KOT/BOT/print queue, KDS, serving, restaurant settlement and room charges remain
-unavailable. [P0 evidence](61-HOSPITALITY-P0-BASELINE-2026-10-29.md) and
+029 is additive. The dependent P1.2 slice adds shared outlet orders with frozen
+quote/choice snapshots, hold/resume, draft-only cancellation and immutable
+NEW/ADD-ON station ticket batches. Waiters can manage shared orders; kitchen/bar
+roles can read only current assigned-station feeds. Migration 030 adds source
+orders/fire evidence without sales, stock or financial posting. Physical
+KOT/BOT/print queue, live KDS, serving, settlement and room charges remain
+unavailable. [Orders/fire evidence](64-RESTAURANT-ORDERS-FIRE.md),
+[P0 evidence](61-HOSPITALITY-P0-BASELINE-2026-10-29.md) and
 [restaurant configuration](62-RESTAURANT-CONFIGURATION.md) record exact dependency,
 contracts, migration/recovery limits and acceptance. No production activation is
 implied by the new navigation.
@@ -188,7 +193,7 @@ Command replies distinguish `CONFIRMED`, `REJECTED`, `CONFLICT` and an unknown t
 | Purchasing | Reviewed receipt posts to stock and inventory/accrual journal | Supplier master, purchase orders, approvals, invoice matching, AP and landed costs. |
 | Shifts | Open/close, versioned paid-in/payout, source-reconciled cash count, balanced variance journal and immutable outlet/operator cash Z report | Expense/supplier classification for payouts, approval workflow, non-cash tender coverage and complete sales/tax Z reporting. |
 | Hotel reservations, room lifecycle and cash checkout | Server room/reservation/stay/folio foundation with signed-in UI; PostgreSQL acceptance covers the documented flow | Browser acceptance, deposits, ancillary charges, actual-night policy, early/late departure, multiple tenders, room move, maintenance, housekeeping inspection and occupancy reports. |
-| Restaurant tables, kitchen/bar tickets and settlement | Unimplemented server workflow; unavailable | Persistent table/order/ticket commands, station routing, modifiers, inventory consumption and settlement. |
+| Restaurant tables, orders and station tickets | P1.1 configuration and P1.2 shared source orders, frozen quote/choice snapshots, holds, draft-only cancellation and immutable NEW/ADD-ON station tickets; assigned-station read authority | Physical ticket printing/queue, live KDS acknowledgement/preparing/ready/served, fired cancellation/voids, transfer/split, ingredient consumption and source-linked cashier/folio settlement. See docs/64 for current acceptance. |
 | Customer accounts and repayments | Server-backed tenant accounts, approved-limit credit sales, cash repayment allocation and statement; no local financial projection is used | Supplier AP, aging, credit-sale reversal, provider collections and full subledger reconciliation. |
 | Accounting and reports | Server-backed tenant-wide trial balance and explicitly partial operating summary with source counts, journal-balance checks, freshness, unmapped/omitted coverage and account drill-through; customer AR journals are included | Full statement mapping, period state/close and adjustment controls, supplier AP, operating expenses, payroll/accruals, depreciation, provider settlement, stock valuation and complete source reconciliation including the customer AR control account. |
 | Business configuration | Connected owner/admin settings; manager reads | Staff/device administration, additional outlets, granular approvals and full operational policy remain outstanding. |

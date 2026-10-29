@@ -2,7 +2,7 @@ import type { CommandEnvelope } from './contracts.js';
 import { assertContract, type ContractSchema, uuidSchema, versionsSchema } from './contractValidation.js';
 import { DomainError } from './contracts.js';
 
-export const UUID_ROUTE_PARAMETERS = ['userId','assetId','batchId','shortfallId','countId','eventId','shiftId','orderId','customerId','journalEntryId','commandId'] as const;
+export const UUID_ROUTE_PARAMETERS = ['userId','assetId','batchId','shortfallId','countId','eventId','shiftId','orderId','stationId','customerId','journalEntryId','commandId'] as const;
 
 export function validateRequestIdentifiers(params: unknown, query: unknown): void {
   // Router parameter/query containers may use Fastify's internal prototypes;

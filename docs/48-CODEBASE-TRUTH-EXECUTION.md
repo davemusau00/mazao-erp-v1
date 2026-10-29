@@ -4,6 +4,27 @@ Execution started 20 October 2026 (Africa/Nairobi). The user requires every fix 
 
 This is an execution register for [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md), not a full-v1 completion claim. The S00 local checkpoint is preserved and S01 catalog maintenance is in progress. S01–S11 retain their original acceptance gates and dependencies.
 
+## 30 October P1.2 durable orders and fire continuation
+
+`feat/hospitality-orders-fire` starts at locally accepted configuration commit
+`92e2597`, preserving its dependency on unmerged PR #24. Migration 030 and five
+strict commands add shared table/takeaway tabs, quote/choice snapshots, holds,
+draft-only discard and exactly-once NEW/ADD-ON station tickets. Fired source
+lines and tickets are immutable. Kitchen/bar reads require current server
+station authority; source orders never post stock, sales, tender or journals.
+Printing, live preparation/serving and source settlement remain the next P1
+dependencies. P2–P4 and full release acceptance remain open.
+
+The complete local API run passed **285 tests, zero failures/skips**, including
+ten competing fire requests, preserved existing receipt/stock/financial evidence,
+strict role/device scope, current quote/station guards and populated 029→030
+upgrade/checksum rerun. Browser/build/container verification is in progress.
+Review also separated setup recovery from order/fire commands and rejected
+incomplete order details before a whole-draft save could hide/remove source rows.
+[The focused evidence register](64-RESTAURANT-ORDERS-FIRE.md) records contracts,
+policy limits, test artifacts and remaining gates. There is no new hosted CI,
+push, merge, production connection or deployment evidence for this local slice.
+
 ## 29 October hospitality priority and P1.1 continuation
 
 The user invoked the hospitality-first

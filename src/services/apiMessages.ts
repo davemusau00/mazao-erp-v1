@@ -28,6 +28,13 @@ const messages: Record<string, string> = {
   RESTAURANT_RESOURCE_IN_USE: 'Move or remove this entry’s active tables, menu routes or station access before deactivating it.',
   RESTAURANT_IDENTITY_CONFLICT: 'That name already exists in this outlet. Edit the existing entry or choose another name.',
   RESTAURANT_CAPACITY_EXCEEDED: 'This outlet has reached its setup capacity. Review existing entries before adding another.',
+  RESTAURANT_ORDER_HELD: 'Resume this order before creating its station tickets.',
+  RESTAURANT_ORDER_CANCELLED: 'This draft order was discarded. Open another order to continue.',
+  RESTAURANT_ORDER_CAPACITY_EXCEEDED: 'This outlet has reached its supported open-order capacity. Review its existing orders before starting another.',
+  RESTAURANT_TAB_LABEL_EXISTS: 'That tab label already belongs to an open order here. Open the existing order or choose a different label.',
+  RESTAURANT_FIRED_LINES_IMMUTABLE: 'This line already has a saved station ticket. Cancellation and void tickets are not available yet.',
+  RESTAURANT_MENU_UNAVAILABLE: 'This item or its preparation stations are unavailable. Review the menu setup before adding or firing it.',
+  RESTAURANT_NO_UNFIRED_LINES: 'Save at least one unfired draft line before creating station tickets.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
@@ -105,6 +112,22 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
   const value = outcome.value as Record<string, unknown>;
   const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
   const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if(commandType?.startsWith('restaurant.order.')){
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const types=['restaurant.order.create','restaurant.order.save','restaurant.order.hold','restaurant.order.fire','restaurant.order.cancel'];
+    if(!types.includes(commandType)||!identifier('orderId')||!uuid.test(String(value.orderId))||!version('version')||!['DRAFT','FIRED','CANCELLED'].includes(String(value.status))
+      ||typeof value.held!=='boolean'||!Number.isSafeInteger(value.fireRevision)||Number(value.fireRevision)<0||Number(value.fireRevision)>100)return false;
+    if(value.status==='FIRED'?Number(value.fireRevision)<1:value.fireRevision!==0)return false;
+    const originalVersion=typeof commandPayload?.orderId==='string'?expectedVersions?.['order:'+commandPayload.orderId]:undefined;
+    if(value.version!==(originalVersion===undefined?1:originalVersion+1))return false;
+    if(commandType==='restaurant.order.create')return value.status==='DRAFT'&&value.held===false&&value.fireRevision===0;
+    if(commandType==='restaurant.order.cancel')return value.status==='CANCELLED'&&value.held===false&&value.fireRevision===0;
+    if(commandType==='restaurant.order.hold'&&value.held!==commandPayload?.held)return false;
+    if(commandType==='restaurant.order.fire')return value.status==='FIRED'&&value.held===false&&Number(value.fireRevision)>=1&&uuid.test(String(value.batchId))
+      &&Array.isArray(value.ticketIds)&&value.ticketIds.length>0&&value.ticketIds.length<=100&&value.ticketIds.every(id=>typeof id==='string'&&uuid.test(id))&&new Set(value.ticketIds).size===value.ticketIds.length
+      &&value.ticketType===(value.fireRevision===1?'NEW':'ADD_ON');
+    return value.status!=='CANCELLED';
+  }
   if (commandType?.startsWith('restaurant.')) {
     const contracts:Record<string,[string,string]>={
       'restaurant.section.save':['sectionId','section'],

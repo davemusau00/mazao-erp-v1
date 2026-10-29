@@ -5,6 +5,7 @@ import {secretOperationJournal,type SecretOperationRecovery} from './secretOpera
 import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
 import type { RestaurantConfiguration, RestaurantProduct } from '../types/restaurant';
+import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket } from '../types/restaurantOrders';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
 import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
 import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
@@ -163,6 +164,54 @@ function restaurantProductPage(value:unknown):boolean {
   return isRecord(value)&&typeof value.asOf==='string'&&Number.isSafeInteger(value.totalCount)&&Number(value.totalCount)>=0
     &&Number.isSafeInteger(value.limit)&&Number(value.limit)>=1&&typeof value.hasMore==='boolean'
     &&(value.hasMore?typeof value.nextCursor==='string'&&value.nextCursor.length>0:value.nextCursor===null);
+}
+const restaurantId=(value:unknown):value is string=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const restaurantInteger=(value:unknown,minimum=0)=>Number.isSafeInteger(value)&&Number(value)>=minimum;
+const restaurantQuantity=(value:unknown)=>typeof value==='string'&&/^\d{1,14}(?:\.\d{1,6})?$/.test(value)&&BigInt(value.replace('.',''))>0n;
+const restaurantStrings=(value:unknown)=>Array.isArray(value)&&value.every(item=>typeof item==='string');
+function restaurantOrderStation(value:unknown):boolean {
+  return isRecord(value)&&restaurantId(value.id)&&typeof value.name==='string'&&['KITCHEN','BAR','EXPO'].includes(String(value.kind))&&restaurantInteger(value.version,1)&&restaurantInteger(value.charactersPerLine,32)&&Number(value.charactersPerLine)<=64;
+}
+function restaurantMenu(value:unknown):boolean {
+  return isRecord(value)&&restaurantId(value.productId)&&typeof value.productName==='string'&&typeof value.sku==='string'
+    &&['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(value.itemKind))&&typeof value.baseUnit==='string'&&typeof value.currency==='string'
+    &&restaurantInteger(value.sellingPriceMinor)&&restaurantInteger(value.taxRateBps)&&Number(value.taxRateBps)<=10000&&restaurantInteger(value.productVersion,1)&&restaurantInteger(value.menuVersion,1)
+    &&typeof value.preparationLabel==='string'&&typeof value.instructions==='string'&&typeof value.effectiveAvailable==='boolean'
+    &&Array.isArray(value.stationIds)&&value.stationIds.every(restaurantId)&&new Set(value.stationIds).size===value.stationIds.length
+    &&Array.isArray(value.stations)&&value.stations.every(restaurantOrderStation)&&value.stations.length===value.stationIds.length
+    &&value.stations.every(station=>isRecord(station)&&value.stationIds instanceof Array&&value.stationIds.includes(station.id));
+}
+function restaurantOrderSummary(value:unknown):boolean {
+  return isRecord(value)&&restaurantId(value.id)&&(value.tableId===null||restaurantId(value.tableId))&&(value.tableName===null||typeof value.tableName==='string')
+    &&typeof value.serviceLabel==='string'&&restaurantId(value.ownerId)&&typeof value.ownerName==='string'&&typeof value.currency==='string'
+    &&['DRAFT','FIRED','CANCELLED'].includes(String(value.status))&&typeof value.held==='boolean'&&restaurantInteger(value.version,1)
+    &&['fireRevision','lineCount','draftLineCount','subtotalMinor','taxMinor','totalMinor'].every(key=>restaurantInteger(value[key]))
+    &&Number(value.fireRevision)<=100&&Number(value.lineCount)<=100&&Number(value.draftLineCount)<=Number(value.lineCount)
+    &&(value.status==='FIRED'?Number(value.fireRevision)>0:value.fireRevision===0)&&!(value.status==='CANCELLED'&&value.held)
+    &&BigInt(Number(value.totalMinor))===BigInt(Number(value.subtotalMinor))+BigInt(Number(value.taxMinor))
+    &&typeof value.createdAt==='string'&&typeof value.updatedAt==='string';
+}
+function restaurantOrderLine(value:unknown):boolean {
+  return isRecord(value)&&restaurantId(value.id)&&restaurantId(value.productId)&&typeof value.sku==='string'&&typeof value.name==='string'
+    &&['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(value.itemKind))&&typeof value.baseUnit==='string'&&restaurantQuantity(value.quantity)
+    &&['unitPriceMinor','taxRateBps','lineSubtotalMinor','lineTaxMinor'].every(key=>restaurantInteger(value[key]))&&Number(value.taxRateBps)<=10000
+    &&typeof value.currency==='string'&&restaurantInteger(value.productVersion,1)&&restaurantInteger(value.menuVersion,1)
+    &&typeof value.preparationLabel==='string'&&typeof value.preparationInstructions==='string'&&restaurantStrings(value.modifiers)&&typeof value.instructions==='string'
+    &&Array.isArray(value.stations)&&value.stations.length>0&&value.stations.every(restaurantOrderStation)
+    &&(value.fireRevision===null||restaurantInteger(value.fireRevision,1))&&typeof value.createdAt==='string';
+}
+function restaurantTicket(value:unknown):boolean {
+  if(!isRecord(value)||!restaurantId(value.id)||!restaurantId(value.orderId)||!restaurantId(value.batchId)||!restaurantInteger(value.fireRevision,1)
+    ||!['NEW','ADD_ON'].includes(String(value.type))||!restaurantId(value.stationId)||typeof value.stationName!=='string'
+    ||!['KITCHEN','BAR','EXPO'].includes(String(value.stationKind))||typeof value.createdAt!=='string'||typeof value.documentHash!=='string'||!/^[a-f0-9]{64}$/.test(value.documentHash)||!isRecord(value.snapshot))return false;
+  const s=value.snapshot;
+  return s.schemaVersion===1&&s.ticketId===value.id&&s.orderId===value.orderId&&s.batchId===value.batchId&&s.fireRevision===value.fireRevision&&s.type===value.type
+    &&(value.type==='NEW'?value.fireRevision===1:Number(value.fireRevision)>1)
+    &&isRecord(s.station)&&s.station.id===value.stationId&&s.station.name===value.stationName&&s.station.kind===value.stationKind&&restaurantInteger(s.station.charactersPerLine,32)&&Number(s.station.charactersPerLine)<=64
+    &&(s.tableId===null||restaurantId(s.tableId))&&(s.tableName===null||typeof s.tableName==='string')&&typeof s.serviceLabel==='string'&&typeof s.orderInstructions==='string'
+    &&isRecord(s.waiter)&&restaurantId(s.waiter.id)&&typeof s.waiter.name==='string'&&isRecord(s.firedBy)&&restaurantId(s.firedBy.id)&&typeof s.firedBy.name==='string'
+    &&restaurantId(s.deviceId)&&typeof s.firedAt==='string'&&(s.type==='NEW'?s.originalBatchId===null:restaurantId(s.originalBatchId)&&s.originalBatchId!==s.batchId)&&Array.isArray(s.lines)&&s.lines.length>0&&new Set(s.lines.map(line=>isRecord(line)?line.lineId:undefined)).size===s.lines.length&&s.lines.every(line=>isRecord(line)&&restaurantId(line.lineId)&&restaurantId(line.productId)&&typeof line.sku==='string'&&typeof line.name==='string'
+      &&['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(line.itemKind))&&typeof line.baseUnit==='string'&&restaurantQuantity(line.quantity)&&typeof line.preparationLabel==='string'&&typeof line.preparationInstructions==='string'&&restaurantStrings(line.modifiers)&&typeof line.instructions==='string');
 }
 function isTerminalCredentialOutcome(result:unknown,operation:SecretOperationRecovery):boolean{
   if(!isTerminalOutcome(result,operation.commandId,operation.kind)||!isRecord(result))return false;
@@ -463,7 +512,7 @@ class ApiClient {
     const versioned=(row:unknown):row is Record<string,unknown>=>isRecord(row)&&typeof row.version==='number'&&Number.isSafeInteger(row.version)&&row.version>=1;
     const directory=(row:unknown)=>versioned(row)&&typeof row.id==='string'&&row.id.length>0&&typeof row.name==='string'&&typeof row.active==='boolean';
     const ids=(value:unknown)=>Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.length>0)&&new Set(value).size===value.length;
-    const unavailable=(value:unknown)=>isRecord(value)&&['ordering','fire','kds','printing','roomCharge','recipeConsumption'].every(key=>value[key]===false);
+    const unavailable=(value:unknown)=>isRecord(value)&&typeof value.ordering==='boolean'&&typeof value.fire==='boolean'&&['kds','printing','roomCharge','recipeConsumption'].every(key=>value[key]===false);
     const validLimits=(value:unknown)=>isRecord(value)&&['sections','tables','stations','menuRoutes'].every(key=>Number.isSafeInteger(value[key])&&Number(value[key])>0);
     if(!isRecord(configuration)
       ||!Array.isArray(configuration.sections)||!configuration.sections.every(directory)
@@ -482,6 +531,47 @@ class ApiClient {
   async listRestaurantProducts(options:HistoryOptions={},signal?:AbortSignal){
     const result=await this.requestArray<{products:RestaurantProduct[];page:HistoryPage}>(historyUrl('/restaurant/products',options),'products',signal);
     if(!result.products.every(restaurantProduct)||!restaurantProductPage(result.page))throw new ApiClientError('The menu item search response is incomplete. Retry this search.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantOrders(options:HistoryOptions={},signal?:AbortSignal){
+    const result=await this.request<{orders:RestaurantOrderSummary[];page:HistoryPage}>(historyUrl('/restaurant/orders',options),{signal});
+    if(!Array.isArray(result.orders)||!result.orders.every(restaurantOrderSummary)||!restaurantProductPage(result.page))throw new ApiClientError('The restaurant order list is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async getRestaurantOrder(orderId:string,signal?:AbortSignal){
+    const result=await this.request<RestaurantOrderDetail>('/restaurant/orders/'+encodeURIComponent(orderId),{signal});
+    if(!restaurantOrderSummary(result.order)||result.order.id!==orderId||typeof result.order.instructions!=='string'||!Array.isArray(result.order.lines)||!result.order.lines.every(restaurantOrderLine)
+      ||new Set(result.order.lines.map(line=>line.id)).size!==result.order.lines.length||result.order.lineCount!==result.order.lines.length
+      ||result.order.draftLineCount!==result.order.lines.filter(line=>line.fireRevision===null).length
+      ||!result.order.lines.every(line=>line.currency===result.order.currency&&(line.fireRevision===null||line.fireRevision<=result.order.fireRevision))
+      ||BigInt(result.order.subtotalMinor)!==result.order.lines.reduce((total,line)=>total+BigInt(line.lineSubtotalMinor),0n)
+      ||BigInt(result.order.taxMinor)!==result.order.lines.reduce((total,line)=>total+BigInt(line.lineTaxMinor),0n)
+      ||!Array.isArray(result.tickets)||!result.tickets.every(ticket=>restaurantTicket(ticket)&&ticket.orderId===orderId&&ticket.fireRevision<=result.order.fireRevision
+        &&ticket.snapshot.tableId===result.order.tableId&&ticket.snapshot.tableName===result.order.tableName&&ticket.snapshot.serviceLabel===result.order.serviceLabel
+        &&ticket.snapshot.lines.every(ticketLine=>result.order.lines.some(line=>line.id===ticketLine.lineId&&line.productId===ticketLine.productId&&line.fireRevision===ticket.fireRevision)))
+      ||new Set(result.tickets.map(ticket=>ticket.id)).size!==result.tickets.length||!restaurantProductPage(result.ticketPage)
+      ||!Array.isArray(result.currentQuotes)||!result.currentQuotes.every(restaurantMenu)||new Set(result.currentQuotes.map(quote=>quote.productId)).size!==result.currentQuotes.length)
+      throw new ApiClientError('The restaurant order details are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantMenu(options:HistoryOptions={},signal?:AbortSignal){
+    const result=await this.request<{menu:RestaurantMenuItem[];page:HistoryPage}>(historyUrl('/restaurant/menu',options),{signal});
+    if(!Array.isArray(result.menu)||!result.menu.every(restaurantMenu)||!restaurantProductPage(result.page))throw new ApiClientError('The restaurant menu is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantOrderTickets(orderId:string,options:HistoryOptions={},signal?:AbortSignal){
+    const result=await this.request<{tickets:RestaurantOrderTicket[];page:HistoryPage}>(historyUrl('/restaurant/orders/'+encodeURIComponent(orderId)+'/tickets',options),{signal});
+    if(!Array.isArray(result.tickets)||!result.tickets.every(ticket=>restaurantTicket(ticket)&&ticket.orderId===orderId)||!restaurantProductPage(result.page))throw new ApiClientError('The saved order tickets are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantTicketStations(signal?:AbortSignal){
+    const result=await this.request<{stations:RestaurantOrderStation[];authority:'LOGICAL_ASSIGNMENT'|'MANAGER'}>('/restaurant/ticket-stations',{signal});
+    if(!Array.isArray(result.stations)||!result.stations.every(restaurantOrderStation)||!['LOGICAL_ASSIGNMENT','MANAGER'].includes(result.authority))throw new ApiClientError('The available ticket stations are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantStationTickets(stationId:string,options:HistoryOptions={},signal?:AbortSignal){
+    const result=await this.request<{tickets:RestaurantOrderTicket[];page:HistoryPage}>(historyUrl('/restaurant/stations/'+encodeURIComponent(stationId)+'/tickets',options),{signal});
+    if(!Array.isArray(result.tickets)||!result.tickets.every(ticket=>restaurantTicket(ticket)&&ticket.stationId===stationId)||!restaurantProductPage(result.page))throw new ApiClientError('The saved station tickets are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
   async getStockSalePolicy(signal?:AbortSignal){

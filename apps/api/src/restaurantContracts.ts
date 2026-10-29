@@ -14,4 +14,4 @@ export const RESTAURANT_CONTRACTS: Record<string,{payload:ContractSchema;output:
 };
 
 export const RESTAURANT_LIMITS = {sections:100,tables:500,stations:100,menuRoutes:2000} as const;
-export const RESTAURANT_AVAILABILITY = {ordering:false,fire:false,kds:false,printing:false,roomCharge:false,recipeConsumption:false} as const;
+export const RESTAURANT_AVAILABILITY = {ordering:true,fire:true,kds:false,printing:false,roomCharge:false,recipeConsumption:false} as const;

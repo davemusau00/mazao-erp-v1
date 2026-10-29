@@ -303,3 +303,8 @@ printing, add-on/void and settlement follow the master's ordered dependencies.
 Prepared payment remains blocked until recipe consumption is accepted. Later
 cashier settlement must preserve source lines and price/tax snapshots rather
 than rebuild a current-price POS basket. Room charges wait for P2 folio authority.
+
+The dependent 30 October [P1.2 continuation](64-RESTAURANT-ORDERS-FIRE.md) now
+implements source orders and NEW/ADD-ON station tickets. Its source and
+acceptance are recorded separately. This document preserves the accepted P1.1
+configuration artifact and does not extend its test counts to later changes.

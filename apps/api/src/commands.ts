@@ -17,6 +17,7 @@ import { executeAccountCatalogCommand } from './accountCatalog.js';
 import { executeStockExceptionCommand } from './stockShortfalls.js';
 import { COUNT_CAPACITY, appendCountEvent, assertCountPostable, countBefore, ensureCountCheckpoint, loadCountState, reviewStockCount } from './countRecovery.js';
 import { executeRestaurantCommand } from './restaurant.js';
+import { executeRestaurantOrderCommand } from './restaurantOrders.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -175,6 +176,11 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
   if(envelope.type==='catalog.product.create'||envelope.type==='catalog.import.apply'||envelope.type.startsWith('inventory.count.'))await lockCatalogOutlet(client,session);
   if(['sales.order.settle','sales.order.refund','inventory.receive','inventory.sale_shortfall.resolve'].includes(envelope.type))await lockCatalogOutlet(client,session,'shared');
   switch (envelope.type) {
+    case 'restaurant.order.create':
+    case 'restaurant.order.save':
+    case 'restaurant.order.hold':
+    case 'restaurant.order.cancel':
+    case 'restaurant.order.fire': return executeRestaurantOrderCommand(client,session,envelope);
     case 'restaurant.section.save':
     case 'restaurant.table.save':
     case 'restaurant.station.save':
