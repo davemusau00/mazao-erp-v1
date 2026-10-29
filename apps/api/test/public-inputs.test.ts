@@ -45,7 +45,7 @@ test('actual routes reject malformed UUID paths and repeated query values before
   try {
     for (const url of ['/staff/bad-id/sessions','/configuration/assets/bad-id','/catalog/imports/bad-id','/inventory/shortfalls/bad-id',
       '/inventory/counts/bad-id','/shifts/bad-id/cash-movements','/sales/orders/bad-id/receipt','/customers/bad-id/statement',
-      '/reports/journal-source/bad-id','/commands/bad-id','/sales/orders?q=a&q=b','/inventory/movements?limit=1&limit=2',
+      '/inventory/counts/bad-id/events/bad-id','/reports/journal-source/bad-id','/commands/bad-id','/sales/orders?q=a&q=b','/inventory/movements?limit=1&limit=2',
       '/sales/orders?q=prefix%00suffix','/inventory/movements?q=%0Asearch']) {
       const result = await app.inject({url:'/api/v1'+url});
       assert.equal(result.statusCode,400,`${url}: ${result.body}`);

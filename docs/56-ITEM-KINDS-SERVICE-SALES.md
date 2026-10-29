@@ -118,6 +118,105 @@ The named disposable browser database upgraded from 023 to 024 and 025 with
 checksums `7db9006c09b4` and `7c39b0313b7a`. Both new SQL files have explicit LF
 checkout rules, preserving their checksummed bytes across Windows/Linux.
 
+## Combined verification continuation (27 October)
+
+The first complete sequential API rerun used the unchanged standard isolation
+preload and completed 219 tests in 399.27 seconds: **217 passed, 2 failed, 0
+skipped**. The two failures were an older configuration fixture that still
+classified commerce alone as invalid and a customer-credit refund fixture that
+supplied an unrelated random line ID. Trusted planning correctly could not find
+that line before reaching the unsupported-tender guard. Corrected fixtures now
+exercise valid original lines and retain separate invalid-line rejection; no
+runtime guard is relaxed. The full failed reporter is preserved in
+`.s01-kinds-api-full-reviewed-2026-10-27.log`. Focused reruns passed as recorded
+below; the final complete API rerun remains required.
+
+The coordinated typecheck and PWA build passed. The resulting main asset is
+`index-Bf2i1Arf.js` (507.18 kB, 138.07 kB gzip); catalog maintenance is 24.11 kB /
+7.30 kB gzip, Manage is 55.73 kB / 13.87 kB gzip, and PWA precaching includes
+20 entries / 836.62 KiB. Existing Vite configuration/chunk warnings and a PWA
+callback timing warning remain; build success is not performance acceptance.
+
+The complete real API/PostgreSQL browser suite on this unchanged artifact
+passed **19/19**, 1.8 minutes, using the preserved disposable `mazao_test`
+database with migrations through 025. The previously failed configured stock
+sale now passes, and the service workflow covers actual Manage reads before
+the taxed sale/refund/close. Full output is retained in
+`.s01-kinds-real-reviewed-2026-10-27.log`, with artifacts under
+`dist-artifacts/playwright-s01-item-kinds-real-reviewed-2026-10-27`.
+Full intercepted Chromium/Firefox and corrected combined API acceptance are
+reported separately when terminal.
+
+The corrected complete API rerun subsequently passed **219/219, 0 failed, 0
+skipped**, 417.23 seconds, with the same sequential standard-isolation command
+and unchanged migration-bootstrap limits. It includes the strengthened
+commerce-only setup/checkout, valid unsupported credit refund and separate
+invalid-line rejection, together with all inventory, finance, tenancy,
+credential, migration and command-recovery cases. The retained reporter is
+`.s01-kinds-api-final-2026-10-27.log`. No API runtime source changed between the
+failed full run and this successful run; only the documented fixtures changed.
+This API result remains separate from browser/physical/hosted release gates.
+
+The shared dialog focus correction produced a new artifact after UI/API
+typecheck and build passed: `index-cBYBUKkU.js` (507.26 kB / 138.09 kB gzip),
+PWA 20 entries / 836.87 KiB. Three focused cases passed in Chromium (14.3
+seconds) and Firefox (25.3 seconds), covering the original Add item entry,
+active typing through a delayed focus frame, normal initial focus, cancellation
+and focus restoration. The full real API/PostgreSQL browser suite on this
+artifact passed **19/19**, 1.9 minutes; its reporter is
+`.s01-kinds-real-focus-2026-10-27.log`, with artifacts in
+`dist-artifacts/playwright-s01-item-kinds-real-focus-2026-10-27`.
+The API runtime is unchanged from the 219-case passing run. Full 113-case
+intercepted browser runs remain separate pending gates. Earlier artifact
+results and failed traces are preserved below, without relabeling them.
+
+## Confirmed settings navigation follow-up (27 October)
+
+The 25 October full real browser batch completed 18 passed and 1 failed (19
+tests, 3.0 minutes). The configured inventory/sale case clicked Stock immediately
+after an outlet save displayed **Settings saved**. At that instant the form's
+unsaved flag was still true until its refresh completed, so navigation raised a
+discard confirmation. The browser dismissed that confirmation and remained in
+Manage. No inventory or financial assertion was reached in the failed case.
+
+A new configuration browser regression deliberately holds the post-confirmation
+configuration refresh, dismisses unexpected dialogs, and attempts to navigate to
+Help. It failed on the unchanged static artifact (1 failed, 17.6-second case),
+proving this timing window without adding sleeps or relaxing deadlines. Its trace
+is retained under `dist-artifacts/playwright-s01-settings-nav-repro-2026-10-27`;
+the full real batch remains under `dist-artifacts/playwright-s01-item-kinds-real-all`.
+
+`BackendManageWorkspace` now clears the submitted edits' unsaved flag when the
+original command is confirmed, before displaying success and refreshing the
+projection. Unknown/rejected/conflicted requests keep their existing recovery
+rules. Fresh-build regression and the complete real browser batch remain required.
+
+## Service-only settings follow-up (27 October)
+
+Manage previously loaded business configuration and the inventory stock-sale
+policy together unconditionally. With commerce alone, the actual policy endpoint
+returns `CAPABILITY_DISABLED`, so even the business/outlet/capability forms could
+not load. Earlier intercepted service fixtures supplied a policy regardless of
+capability and masked this dependency.
+
+A new browser case returns the actual 403 when inventory is disabled. Against
+the unchanged artifact it failed before the business-name field appeared (1
+failed, 17.2-second case); the trace remains under
+`dist-artifacts/playwright-s01-service-settings-repro-2026-10-27`.
+
+Manage now reads authoritative configuration first and requests the policy only
+when inventory is enabled and the session has a supported policy-read
+permission. It retains no invented policy/version when unavailable. The Stock
+exceptions settings tab is disabled with a visible capability/access reason.
+Deciding from returned configuration also handles a committed enable/disable
+before the browser session refresh completes. A regression toggles inventory on
+and off, checks that commerce remains enabled and counts only the one authorized
+policy read. The real service workflow now visits Manage before creating its
+item, and its existing request assertion covers this setup as well as POS.
+
+Fresh-build focused and complete browser results remain required. The dedicated
+kind fixtures now return 403 for this unavailable read rather than masking it.
+
 ## Real browser service workflow
 
 The corrected real service workflow passed against the final static build and
@@ -479,3 +578,306 @@ foreign key correctly rejected that fixture update. The corrected test creates
 an independent authenticated assignment in the other outlet; no runtime code
 change was required. These local results do not replace the combined API,
 fresh-build browser, hosted CI or operational release evidence.
+
+## 27 October refund and import recovery follow-up
+
+The committed checkpoint `f365090` already contains the fixture corrections for
+waiting for authenticated navigation, checking the actual disabled option
+attribute, and advancing refunded quantities after the mocked commit. A focused
+run against its preserved static artifact reproduced the remaining refund UI
+defect: the full committed/lost-response case failed because the review dialog
+hid a line whose remaining quantity was already zero. Its original requested
+quantity and stock-return choice therefore disappeared after reload.
+
+```text
+npx playwright test e2e/catalog-item-kinds.spec.ts --grep 'a full committed lost stocked refund' --output=dist-artifacts/playwright-s01-refund-committed-repro-2026-10-27 --reporter=list
+1 failed. The expected original stock-return control was absent.
+```
+
+The failed trace is retained in that directory. The UI now renders unknown
+refunds from their original command's requested line IDs, including exhausted
+lines, while retaining disabled original quantities and dispositions. It does
+not add unrelated remaining lines to that pending request. Ordinary new refunds
+still show only remaining quantities. If the original sale is older than the
+first history page, recovery uses the existing tenant/outlet-scoped server search
+for its exact order ID and selects the matching result. This additional recovery
+lookup does not alter the displayed history page or its totals. Status lookup
+retains the original command ID; the fix does not create a replacement refund.
+
+Four browser cases cover full and partial committed refunds, both within and
+beyond the first history page, after inventory is disabled. They assert the
+original quantity, checked stock-return intent, current remaining quantity,
+durable unchanged journal, and removal only after an accepted original status.
+The import recovery client case models an applied/lost-response import followed
+by an original-ID POST retry denied with HTTP 403. The command must remain in
+IndexedDB across reload, new imports stay locked, and restored authority permits
+the original saved confirmation to clear it without a second commit. CSV source
+never enters that ordinary command record. The API authority correction and
+database evidence are documented separately below.
+
+Verification on 27 October used the coordinated static artifact
+`index-Bf2i1Arf.js`, after the shared UI/API typecheck and production build passed:
+
+```text
+node node_modules/@playwright/test/cli.js test e2e/configuration.spec.ts --grep 'service-only settings skip|confirmed settings allow navigation' --output=dist-artifacts/playwright-s01-config-review-2026-10-27 --reporter=list
+2 passed; 0 failed. 9.8 seconds.
+
+node node_modules/@playwright/test/cli.js test e2e/catalog-maintenance.spec.ts e2e/catalog-item-kinds.spec.ts e2e/catalog-recovery-response.spec.ts --output=dist-artifacts/playwright-s01-catalog-review-2026-10-27 --reporter=list
+29 passed; 0 failed. 1.6 minutes. No test retries.
+```
+
+The 29-case batch comprises 15 item-kind cases, nine maintenance cases and five
+response/recovery cases. All four committed refund cases and the import POST-403
+case passed; the latter recovered the original saved confirmation with exactly
+one modeled commit and two identical POST envelopes. The item-kind fixture now
+returns the actual inventory-disabled HTTP 403 for stock-policy reads, instead
+of supplying a policy to service-only sessions. The two settings regressions
+separately verify capability enable/disable policy reads and navigation while a
+confirmed projection refresh remains held. The reproduced failure above remains
+failed evidence for the preceding artifact. These focused runs do not establish
+the full browser suite, hosted CI, physical hardware or production acceptance.
+
+## 27 October full browser regression
+
+On the same frozen `index-Bf2i1Arf.js` artifact, the complete intercepted Chromium
+suite passed:
+
+```text
+node node_modules/@playwright/test/cli.js test --output=dist-artifacts/playwright-s01-all-chromium-2026-10-27 --reporter=list
+111 passed; 0 failed. 9.0 minutes. No test retries.
+```
+
+A deliberate conversation interruption did not restart this run. Its original
+live handle was polled to terminal completion and the remaining reporter output
+was retained. All catalog, service, refund, import-journal, configuration,
+credential, inventory, directory, history and existing recovery cases in that
+suite passed. This is intercepted browser acceptance; it does not replace real
+API/PostgreSQL, exact-head hosted CI, installed-PWA, physical or performance gates.
+The preview logged an unmocked trial-balance proxy refusal in the existing
+account-label case; that case's mocked label workflow passed. No live API result
+is inferred from that intercepted case.
+
+After verifying port 3000 was released and the static entry still referenced
+`index-Bf2i1Arf.js`, the complete Firefox suite was started without rebuilding.
+Its original handle completed with **110 passed, one failed**, 11.0 minutes:
+
+```text
+node node_modules/@playwright/test/cli.js test --browser=firefox --output=dist-artifacts/playwright-s01-all-firefox-2026-10-27 --reporter=list
+110 passed; 1 failed. No test retries.
+```
+
+Only the original Add item creation case failed. Its dialog remained open with
+an empty required item name while the SKU, price, cost, barcode, reorder level
+and category retained their entered values, so it never reached the expected
+Stock screen. The trace records the first field-fill followed by late catalog
+reads, without a page/console exception. This is retained failed acceptance,
+not a full Firefox pass. All four committed-refund recovery cases, the denied
+import retry/journal case and both new settings cases passed in that run.
+Deterministic callback-order tests then reproduced a shared dialog focus race
+consistent with this first-input failure:
+
+```text
+node node_modules/@playwright/test/cli.js test e2e/catalog-maintenance.spec.ts --browser=firefox --grep 'queued dialog focus|dialog initial focus' --output=dist-artifacts/playwright-s01-dialog-focus-repro-2026-10-27 --reporter=list
+2 failed against index-Bf2i1Arf.js.
+```
+
+The first case explicitly held the queued animation-frame callback, focused the
+name field and entered `First`, then released the callback before entering the
+remaining text. The callback moved focus away and the field retained only
+`First` instead of `First entry`. The second case verified normal initial focus
+and Escape restoration, then demonstrated that closing a dialog left its queued
+focus callback uncancelled. Both failed traces are preserved in the reproduction
+directory. No delay or timeout relaxation was added to the original creation
+case.
+
+`ResponsiveDialog` now moves initial focus only when focus is still outside the
+dialog, preserving an operator who already selected a field. Effect cleanup
+cancels its scheduled animation frame before restoring the previous focus.
+Fresh-build focus, creation and full browser/real-API acceptance remain required
+for this shared component change; the preceding 111-case Chromium pass applies
+to the earlier artifact.
+
+The coordinated UI/API typecheck and build subsequently passed with static entry
+`index-cBYBUKkU.js`. Focused acceptance of that new artifact passed in both browsers:
+
+```text
+node node_modules/@playwright/test/cli.js test e2e/catalog-maintenance.spec.ts --grep 'queued dialog focus|dialog initial focus|original Add item entry' --output=dist-artifacts/playwright-s01-dialog-focus-chromium-verified-2026-10-27 --reporter=list
+3 passed; 0 failed. 14.3 seconds.
+
+node node_modules/@playwright/test/cli.js test e2e/catalog-maintenance.spec.ts --browser=firefox --grep 'queued dialog focus|dialog initial focus|original Add item entry' --output=dist-artifacts/playwright-s01-dialog-focus-firefox-verified-2026-10-27 --reporter=list
+3 passed; 0 failed. 25.3 seconds.
+```
+
+These cases include the original create-and-return workflow plus deterministic
+typing preservation and normal initial focus/close restoration with callback
+cancellation. No test deadline or original creation locator was changed. The
+new artifact still requires the complete browser and real-API regressions.
+
+The pending stocked-refund fixture was also hardened to model the API's actual
+recovery authority. Its earlier UI-only status mock could return confirmation
+while inventory remained disabled; that was not evidence of a server authority
+bypass. The fixture now freezes the inventory requirement from the original sale
+line when accepting the refund, returns HTTP 403 for its status while inventory
+is disabled, and leaves the original intent and journal intact without another
+POST. Each case then restores inventory, reloads through `GET /auth/me`, and
+recovers the same original confirmation exactly once. It does not derive this
+requirement from mutable current catalog kinds. No application source or build
+changed for this fixture correction.
+
+```text
+node node_modules/@playwright/test/cli.js test e2e/catalog-item-kinds.spec.ts --grep 'committed lost stocked refund' --output=dist-artifacts/playwright-s01-refund-authority-chromium-2026-10-27 --reporter=list
+4 passed; 0 failed. 18.0 seconds.
+
+node node_modules/@playwright/test/cli.js test e2e/catalog-item-kinds.spec.ts --browser=firefox --grep 'committed lost stocked refund' --output=dist-artifacts/playwright-s01-refund-authority-firefox-2026-10-27 --reporter=list
+4 passed; 0 failed. 44.5 seconds.
+```
+
+The complete 113-case Chromium suite, including the two new dialog regressions
+and these stronger refund cases, passed on the same `index-cBYBUKkU.js` build:
+
+```text
+node node_modules/@playwright/test/cli.js test --output=dist-artifacts/playwright-s01-all-chromium-dialog-reviewed-2026-10-27 --reporter=list
+113 passed; 0 failed. 5.0 minutes. No test retries.
+```
+
+The complete 113-case Firefox rerun was then started on this unchanged artifact.
+Its result remains pending until terminal output is appended. The preceding
+111-case Chromium and 110-pass/one-fail Firefox runs describe the earlier static
+artifact and are retained separately.
+
+## 27 October review: denied import replay retains recovery evidence
+
+Review found an import-specific exception in original-ID POST replay. When
+current permission or capability checks failed, it returned HTTP 200 with a
+synthetic `REJECTED` result under the original command ID. The stored import
+could already be confirmed, while the client's terminal-result handling would
+remove its unresolved journal. The GET status route correctly returned an
+access error, so POST and GET disagreed about what the caller had learned.
+
+POST replay now propagates the same current-authority HTTP error. A revoked
+role or disabled required capability returns HTTP 403 with `error.code`, without
+claiming a terminal status or returning the original outcome. The original
+command, request hash, capability requirements and posting evidence remain
+unchanged. After authority is restored, the same original ID can recover its
+stored outcome without repeating business work. This changes recovery admission;
+fresh commands still persist their own definite domain outcomes as before.
+
+The new command-recovery DB case commits both validation and a stocked opening
+import, then checks role/capability revocation after HTTP preflight and subsequent
+GET/POST denials. It compares complete import/product/balance/movement/journal/
+command/audit/outbox rows before and after denied retries and authorized recovery.
+Existing import-security assertions now require the real HTTP denial instead of
+the synthetic terminal envelope.
+
+Observed local verification on 27 October 2026, sequentially against separate
+fresh databases on the task-owned localhost PostgreSQL 16 server:
+
+```text
+TEST_DATABASE_URL=<disposable localhost PostgreSQL>
+node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/command-recovery.integration.test.ts
+14 passed; 0 failed; 0 skipped. 31.95 seconds.
+
+node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/product-import-security.integration.test.ts
+10 passed; 0 failed; 0 skipped. 28.73 seconds.
+
+npx tsc --noEmit -p tsconfig.api.json
+Passed.
+```
+
+Both runs used the unchanged standard migration preload and its 60-second
+bootstrap gate. The generated databases were
+`mazao_api_a9eb9e5b4348424788791635fb12ec9f` and
+`mazao_api_b712ab15852a44a7a1922d35e0a0c5c1`; the full reporter logs remain in
+`.s01-kinds-replay-recovery-2026-10-27.log` and
+`.s01-kinds-import-security-2026-10-27.log`. The new committed-import subcase
+passed in 1.17 seconds. Scope-specific `git diff --check` also passed. These
+results validate API recovery and import security; the paired client journal
+case, combined regression and exact-head hosted/release gates remain separate.
+
+## 27 October review: align API fixtures with service and original-line authority
+
+The configuration suite still listed `['commerce']` as an invalid capability
+set. S01-02 explicitly supports service-only commerce. Its negative cases now
+check retail missing inventory, retail missing commerce, hospitality missing
+commerce, duplicate capabilities and an unsupported restaurant capability.
+The existing hardcoded business-version sequence is preserved. A positive
+workflow appended at the end uses the current server version to enable commerce
+alone and replays that setup once. Stocked goods alone do not satisfy its
+catalog readiness; creating an explicit service makes it ready, and actual
+checkout succeeds without an inventory capability. Database assertions confirm
+commerce-only saved requirements, no service balance or movements and zero
+inventory cost/COGS snapshots despite a nonzero reference cost. The previous
+stocked receipt, balance and COGS evidence remains unchanged.
+
+A later negative configuration fixture supplied a refund without any original
+line, preventing trusted planning from deriving its stocked requirement. It now
+uses the actual prior receipt line, with no restock requested. This verifies that
+original stocked refunds still need inventory, independently of disposition.
+
+The PostgreSQL integration fixture for unsupported customer-account refunds
+previously supplied a random line UUID. It now supplies the actual immutable
+credit receipt line and still receives `CUSTOMER_CREDIT_REFUND_UNAVAILABLE`.
+A separate invalid-line command explicitly expects `NOT_FOUND`. Complete saved
+orders/lines/payments/refunds/shifts, balances/movements, customer accounts/
+charges and journals are compared before and after both refusals, proving no
+credit reversal, cash refund or stock mutation. These are test-fixture
+corrections; command planning, tender policy and posting code are unchanged.
+
+Observed focused verification on 27 October 2026, sequentially with the unchanged
+standard isolation/migration preload and separate fresh task-owned databases:
+
+```text
+TEST_DATABASE_URL=<disposable localhost PostgreSQL>
+node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/configuration.integration.test.ts
+1 passed; 0 failed; 0 skipped. 26.11 seconds overall; 11.99 seconds in the workflow.
+
+node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/postgres.integration.test.ts
+1 passed; 0 failed; 0 skipped. 51.96 seconds overall; 40.07 seconds in the workflow.
+
+npx tsc --noEmit -p tsconfig.api.json
+Passed.
+```
+
+The generated databases were `mazao_api_e10716f017274ef5a346f27fea6a27e1` and
+`mazao_api_d1fff17d3fdb4ba8baf30914f3a7adc4`. Full reporter logs are retained in
+`.s01-kinds-configuration-reviewed-2026-10-27.log` and
+`.s01-kinds-postgres-reviewed-2026-10-27.log`. The PostgreSQL test continued on
+its original live process across an intentional turn interruption; its terminal
+exit 0 was polled from that same handle, with no restart. Scope-specific diff
+checks passed. The earlier 217/219 run remains failed evidence until a separate
+complete rerun validates the candidate.
+
+## 29 October 2026 local artifact acceptance follow-up
+
+The first full Firefox run against the S01-02 artifact completed **109/113**.
+All four failures timed out at page navigation waiting for `load`; their traces
+showed unresolved Google Fonts stylesheet/WOFF2 requests while the application
+had rendered. This was an artifact-level external font dependency, so the fix
+removed the Google Fonts preconnect and stylesheet from `index.html`, set system
+font stacks in `src/index.css`, and changed receipt CSS to a system monospace
+stack in `src/services/hardware.ts`. The fixed 1.5-second wait in the workspace-
+navigation cancellation test also became a held route plus an assertion that the
+obsolete shift-status request was cancelled while pending.
+
+On the rebuilt offline-font artifact, the complete intercepted browser suites
+passed **113/113 in Firefox** (5.4 minutes) and **113/113 in Chromium** (3.1
+minutes). The five earlier Firefox failures each passed in a targeted rerun.
+The source-frozen real API/PostgreSQL browser suite remains **19/19**, the
+configuration browser cases **2/2**, and the catalog/kind/recovery batch **29/29**.
+The complete isolated API regression passed **219/219, 0 skipped** after the
+27 October fixture corrections. `npm run typecheck` passed UI and API; `npm run
+build` passed with entry JS 507.26 kB / 138.09 kB gzip, 20 precache entries and
+836.59 KiB total precache. Existing chunk-size warning remains; bundle size is
+not a performance acceptance result.
+
+Evidence logs: `.s01-font-followups-firefox-2026-10-28.log`,
+`.s01-all-firefox-system-fonts-2026-10-28.log`,
+`.s01-all-chromium-system-fonts-2026-10-28.log`,
+`.s01-kinds-build-font-offline-2026-10-28.log` and
+`.s01-kinds-typecheck-font-offline-2026-10-28.log`. Browser traces and reports
+are under `dist-artifacts/playwright-s01-all-firefox-system-fonts-2026-10-28`
+and `dist-artifacts/playwright-s01-all-chromium-system-fonts-2026-10-28`.
+
+This establishes local artifact acceptance for S01-02, including its full
+intercepted browser matrix. Exact-head hosted CI and all release, production,
+backup/restore, installed-device and performance gates remain separate.

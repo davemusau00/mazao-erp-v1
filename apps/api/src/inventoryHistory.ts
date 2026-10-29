@@ -24,13 +24,13 @@ export async function listInventoryCounts(session: ApiSession, query: HistoryQue
   if (!session.capabilities.includes('inventory')) throw new DomainError('CAPABILITY_DISABLED','Inventory is not enabled.',403);
   if (!ROLE_PERMISSIONS[session.role].some(p=>p==='inventory.count'||p==='inventory.count.approve')) throw new DomainError('FORBIDDEN','Your role cannot access stock counts.',403);
   return inReadSnapshot(async client => {
-    const result = await readHistoryPage(client,session,'inventory.counts',query,`SELECT c.id,c.opened_at sort_at,c.status,c.area_label,c.version,c.opened_at,c.posted_at,
+    const result = await readHistoryPage(client,session,'inventory.counts',query,`SELECT c.id,c.opened_at sort_at,c.status,c.count_mode,c.blind_count,c.area_label,c.version,c.opened_at,c.posted_at,
       opened.full_name opened_by_name,posted.full_name posted_by_name,concat_ws(' ',c.area_label,c.status,opened.full_name) search_text,
       (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
       (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
       FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by LEFT JOIN identity.users posted ON posted.id=c.posted_by
       WHERE c.tenant_id=$1 AND c.outlet_id=$2`,[session.tenantId,session.outletId]);
-    return { page:result.page,counts:result.rows.map(r=>({id:r.id,status:r.status,areaLabel:r.area_label,version:Number(r.version),openedAt:r.opened_at,
+    return { page:result.page,counts:result.rows.map(r=>({id:r.id,status:r.status,scope:r.count_mode,blind:r.blind_count,areaLabel:r.area_label,version:Number(r.version),openedAt:r.opened_at,
       openedBy:r.opened_by_name,postedAt:r.posted_at,postedBy:r.posted_by_name,lineCount:r.line_count,countedLineCount:r.counted_line_count})) };
   });
 }

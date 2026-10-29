@@ -20,6 +20,11 @@ const messages: Record<string, string> = {
   ITEM_KIND_UNRESOLVED_SHORTFALL: 'Resolve this item’s stock exceptions before changing its type.',
   NOT_STOCKED_ITEM: 'Choose a stocked good for receiving physical inventory.',
   OPEN_COUNT_CONFLICT: 'Finish or cancel the open outlet count before changing its catalog baseline.',
+  COUNT_REVIEW_REQUIRED: 'Stock changed during this count. Review the changed items and count them again before posting.',
+  COUNT_REVIEW_STALE: 'Stock or this draft changed after the review opened. Refresh the changed-item review before continuing.',
+  COUNT_REVIEW_BLOCKED: 'This count needs an administrator to review its item or stock evidence before a new baseline can be accepted.',
+  COUNT_RECOUNT_REQUIRED: 'Physically recount the affected items and save their fresh quantities before posting.',
+  COUNT_CAPACITY_EXCEEDED: 'This full count exceeds the supported capacity. Ask an administrator to review its scope; no items have been omitted.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
@@ -87,7 +92,7 @@ export function presentOutcome<T extends { status?: unknown; code?: unknown; mes
 }
 
 /** An incomplete acknowledgement must never cause retained financial evidence to be deleted. */
-export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string,unknown>): boolean {
+export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string,unknown>, expectedVersions?: Record<string,number>): boolean {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
   const outcome = result as Record<string, unknown>;
   if (outcome.commandId !== commandId || !['CONFIRMED', 'REJECTED', 'CONFLICT'].includes(String(outcome.status))) return false;
@@ -97,6 +102,19 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
   const value = outcome.value as Record<string, unknown>;
   const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
   const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if (commandType === 'inventory.count.review') {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const requested = commandPayload?.affectedProductIds, affected = value.affectedProductIds;
+    const requestedCountId = typeof commandPayload?.countId === 'string' && uuid.test(commandPayload.countId) ? commandPayload.countId.toLowerCase() : undefined;
+    const originalVersion = requestedCountId ? expectedVersions?.[`count:${requestedCountId}`] : undefined;
+    const ids = (input: unknown): input is string[] => Array.isArray(input) && input.length > 0 && input.length <= 5000
+      && input.every(item => typeof item === 'string' && uuid.test(item)) && new Set(input.map(item => item.toLowerCase())).size === input.length;
+    return typeof value.countId === 'string' && uuid.test(value.countId) && value.countId.toLowerCase() === requestedCountId
+      && typeof value.reviewId === 'string' && uuid.test(value.reviewId) && version('revision') && version('version')
+      && typeof originalVersion === 'number' && Number.isSafeInteger(originalVersion) && originalVersion >= 1 && value.version === originalVersion + 1
+      && ids(requested) && ids(affected) && requested.length === affected.length
+      && requested.every(id => affected.some(other => other.toLowerCase() === id.toLowerCase()));
+  }
   if (commandType === 'catalog.product.create') {
     return typeof value.productId === 'string' && value.productId.trim().length > 0
       && typeof value.sku === 'string' && value.sku.trim().length > 0
@@ -126,7 +144,7 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
 }
 
 /** Status transport may omit the nested ID, but must never contradict it. */
-export function isTerminalCommandStatus(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string, unknown>): result is {
+export function isTerminalCommandStatus(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string, unknown>, expectedVersions?: Record<string,number>): result is {
   commandId: string; status: string; response: Record<string, unknown>;
 } {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
@@ -134,5 +152,5 @@ export function isTerminalCommandStatus(result: unknown, commandId: string, comm
   if (status.commandId !== commandId || !status.response || typeof status.response !== 'object' || Array.isArray(status.response)) return false;
   const response = status.response as Record<string, unknown>;
   if (response.status !== status.status || Object.hasOwn(response, 'commandId') && response.commandId !== commandId) return false;
-  return isTerminalOutcome({ ...response, commandId }, commandId, commandType, commandPayload);
+  return isTerminalOutcome({ ...response, commandId }, commandId, commandType, commandPayload, expectedVersions);
 }

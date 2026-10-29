@@ -127,6 +127,55 @@ if (!databaseUrl) {
       assert.deepEqual(await controls(owner.tenantId), baseline, 'denial cannot change the confirmed outcome or business evidence');
     });
 
+    await t.test('committed imports deny recovery access without inventing a terminal outcome after authority loss', async t => {
+      const { app, owner, race } = await fixture(t);
+      const validation = command(owner, 'catalog.import.validate', {
+        fileName: 'recovery-opening.csv', mode: 'CREATE_ONLY',
+        csv: 'sku,name,unit,price,cost,opening,openingCost\nRECOVERY-IMPORT,Recovery opening goods,each,10,4,2,4',
+        mapping: { sku: 'sku', name: 'name', baseUnit: 'unit', sellingPrice: 'price', costPrice: 'cost', openingQuantity: 'opening', openingUnitCost: 'openingCost' },
+      });
+      const validated = confirmed(await submit(app, owner, validation));
+      const apply = command(owner, 'catalog.import.apply', { batchId: validated.value.batchId, reviewed: true, acknowledgedWarnings: true }, { [`import:${validated.value.batchId}`]: 1 });
+      const applied = confirmed(await submit(app, owner, apply));
+      assert.equal(applied.value.openingValueMinor, '800');
+      const baseline = await controls(owner.tenantId);
+      assert.equal(baseline.products, '1'); assert.equal(baseline.movements, '1'); assert.equal(baseline.journals, '1');
+      const evidence = async () => {
+        const snapshot: Record<string, unknown> = {};
+        for (const table of ['catalog.product_import_batches', 'catalog.products', 'inventory.balances', 'inventory.movements', 'finance.journal_entries', 'finance.journal_lines', 'system.commands', 'system.audit_events', 'system.transactional_outbox']) {
+          snapshot[table] = (await db.pool.query(`SELECT to_jsonb(e) evidence FROM ${table} e WHERE tenant_id=$1 ORDER BY to_jsonb(e)::text`, [owner.tenantId])).rows;
+        }
+        return snapshot;
+      };
+      const committed = await evidence();
+      const denyRecovery = async (code: string) => {
+        for (const envelope of [validation, apply]) {
+          denied(await status(app, owner, envelope.commandId), 403, code);
+          const replay = await submit(app, owner, envelope);
+          denied(replay, 403, code);
+          assert.equal(replay.json().status, undefined, 'access denial must not claim a terminal command outcome');
+          assert.equal(replay.json().commandId, undefined, 'the denial must not impersonate the original command response');
+        }
+        assert.deepEqual(await controls(owner.tenantId), baseline);
+        assert.deepEqual(await evidence(), committed, 'a lost-response retry cannot overwrite committed import, stock, journal or command evidence');
+      };
+      const role = (value: ApiRole) => db.pool.query('UPDATE identity.memberships SET role=$3 WHERE tenant_id=$1 AND user_id=$2', [owner.tenantId, owner.userId, value]);
+      race(() => role('cashier'));
+      denied(await submit(app, owner, apply, true), 403, 'FORBIDDEN');
+      await denyRecovery('FORBIDDEN');
+      await role('admin');
+      race(() => db.pool.query("DELETE FROM core.tenant_capabilities WHERE tenant_id=$1 AND capability='inventory'", [owner.tenantId]));
+      denied(await submit(app, owner, validation, true), 403, 'CAPABILITY_DISABLED');
+      await denyRecovery('CAPABILITY_DISABLED');
+      await db.pool.query("INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,'inventory')", [owner.tenantId]);
+      for (const [envelope, original] of [[validation, validated], [apply, applied]] as const) {
+        assert.deepEqual(confirmed(await submit(app, owner, envelope)), original);
+        assert.deepEqual((await status(app, owner, envelope.commandId)).json().response, { status: 'CONFIRMED', value: original.value });
+      }
+      assert.deepEqual(await controls(owner.tenantId), baseline);
+      assert.deepEqual(await evidence(), committed, 'regained authority recovers the original outcome without repeating import effects');
+    });
+
     await t.test('session and assignment revocation after preflight block recovery within the transaction', async t => {
       const { app, owner, race } = await fixture(t), envelope = productCommand(owner);
       confirmed(await submit(app, owner, envelope)); const baseline = await controls(owner.tenantId);

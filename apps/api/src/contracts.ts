@@ -28,6 +28,7 @@ export interface ApiSession {
   deviceId: string;
   role: ApiRole;
   capabilities:string[];
+  onboardingStatus?: 'SETUP'|'LIVE'|'LEGACY_ACTIVE';
   expiresAt: Date;
 }
 

@@ -51,7 +51,7 @@ else{
       for(const table of tables){
         // Compare every original column; later additive columns have separate
         // migration-specific assertions in item-kinds-upgrade.integration.
-        const expression=table==='catalog.products'?"to_jsonb(x)-'category_id'-'item_kind'":table==='commerce.order_lines'?"to_jsonb(x)-'item_kind_snapshot'":table==='system.commands'?"to_jsonb(x)-'authority_version'-'required_capabilities'":'to_jsonb(x)';
+        const expression=table==='catalog.products'?"to_jsonb(x)-'category_id'-'item_kind'":table==='inventory.movements'?"to_jsonb(x)-'movement_seq'":table==='commerce.order_lines'?"to_jsonb(x)-'item_kind_snapshot'":table==='system.commands'?"to_jsonb(x)-'authority_version'-'required_capabilities'":'to_jsonb(x)';
         result[table]=(await client.query(`SELECT ${expression} evidence FROM ${table} x ORDER BY (${expression})::text`)).rows;
       }
       return result;

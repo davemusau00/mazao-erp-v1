@@ -4,7 +4,7 @@ import { CatalogMaintenanceWorkspace } from './CatalogMaintenanceWorkspace';
 import { ProductCsvImportWorkspace } from './ProductCsvImportWorkspace';
 
 /** Catalog access also serves businesses that sell services without inventory. */
-export function CatalogWorkspace({ onBack, initialImport = false, onInitialImportConsumed }: { onBack: () => void; initialImport?: boolean; onInitialImportConsumed?: () => void }) {
+export function CatalogWorkspace({ onBack, initialImport = false, initialBarcode = '', onInitialImportConsumed }: { onBack: () => void; initialImport?: boolean; initialBarcode?: string; onInitialImportConsumed?: () => void }) {
   const session = apiClient.getSession()!;
   const [importOpen, setImportOpen] = useState(initialImport);
   useEffect(() => { if (initialImport) onInitialImportConsumed?.(); }, []);
@@ -20,5 +20,5 @@ export function CatalogWorkspace({ onBack, initialImport = false, onInitialImpor
     return () => { mounted = false; unsubscribe(); unsubscribeValidation(); };
   }, [session.tenant.id, session.user.id, session.deviceId]);
   if (importOpen) return <ProductCsvImportWorkspace onBack={() => setImportOpen(false)} backLabel="Back to items and services" />;
-  return <CatalogMaintenanceWorkspace onBack={onBack} backLabel="Back to today" onImport={() => setImportOpen(true)} />;
+  return <CatalogMaintenanceWorkspace onBack={onBack} backLabel="Back to today" onImport={() => setImportOpen(true)} initialBarcode={initialBarcode} />;
 }

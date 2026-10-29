@@ -149,3 +149,26 @@ test('reviewed kind changes have strict contracts and capability baselines defer
   for(const [name,entry] of Object.entries(COMMAND_CATALOGUE))if(name.startsWith('catalog.'))assert.deepEqual(entry.capabilities,[],name);
   for(const name of ['sales.order.settle','sales.order.refund'])assert.deepEqual(COMMAND_CATALOGUE[name].capabilities,['commerce']);
 });
+
+test('count review schemas require explicit affected identities and a complete reviewed result', () => {
+  const countId=randomUUID(),productId=randomUUID(),secondProductId=randomUUID(),type='inventory.count.review';
+  const base={protocolVersion:1 as const,commandId:randomUUID(),deviceId:randomUUID(),occurredAt:'2026-10-27T10:00:00Z',expectedVersions:{[`count:${countId}`]:3,[`product:${productId}`]:1,[`balance:${productId}`]:8}};
+  const payload={countId,reason:'Reviewed sale since count opened',reviewFingerprint:'a'.repeat(64),affectedProductIds:[productId,secondProductId]};
+  validateCommandPayload({...base,type,payload});
+  assert.deepEqual(COMMAND_CATALOGUE[type].permissions,['inventory.count.approve']);
+  assert.deepEqual(COMMAND_CATALOGUE[type].capabilities,['inventory']);
+  assert.equal(COMMAND_CATALOGUE[type].offlineMode,'ONLINE_ONLY');
+  assert.equal(COMMAND_CATALOGUE[type].validation,'SCHEMA_AND_DOMAIN');
+  for(const invalid of [{countId:'------------------------------------'},{reason:''},{reason:'\nreviewed'},{reviewFingerprint:'A'.repeat(64)},{reviewFingerprint:'a'.repeat(63)},{affectedProductIds:[]},{affectedProductIds:[productId,productId]},{affectedProductIds:[productId,1]},{affectedProductIds:null},{countedQuantity:'9'}]){
+    assert.throws(()=>validateCommandPayload({...base,type,payload:{...payload,...invalid}}),DomainError);
+  }
+  for(const key of Object.keys(payload)){
+    const missing:Record<string,unknown>={...payload};delete missing[key];
+    assert.throws(()=>validateCommandPayload({...base,type,payload:missing}),DomainError);
+  }
+  const output={countId,version:4,reviewId:randomUUID(),revision:2,affectedProductIds:[secondProductId,productId]};
+  assertContract(output,COMMAND_CATALOGUE[type].outputSchema);
+  for(const invalid of [{reviewId:''},{version:0},{revision:'2'},{affectedProductIds:[]},{affectedProductIds:[productId,productId]},{unreviewedIntent:true}]){
+    assert.throws(()=>assertContract({...output,...invalid},COMMAND_CATALOGUE[type].outputSchema),DomainError);
+  }
+});

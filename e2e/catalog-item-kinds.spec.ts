@@ -17,9 +17,10 @@ async function fixture(page: Page, inventory = true, commerce = true) {
     { ...base, id: preparedId, sku: 'PREPARED', name: 'Prepared meal', itemKind: 'PREPARED', stockTracked: false, quantity: null, inventoryValueMinor: null, version: null, balanceVersion: null, productVersion: 6 },
   ];
   if (!inventory) { items[0].quantity = null; items[0].inventoryValueMinor = null; items[0].version = null; }
-  const posts: BackendCommand[] = [], reads: string[] = [];
+  const posts: BackendCommand[] = [], reads: string[] = [], saleSearches: string[] = [];
   const confirmed = new Map<string, object>();
-  const state = { mode: 'normal' as 'normal' | 'lost' | 'open-count', inventoryEnabled: inventory };
+  const inventoryRefunds=new Set<string>();
+  const state = { mode: 'normal' as 'normal' | 'lost' | 'open-count', inventoryEnabled: inventory, hideSaleFromFirstPage: false };
   const receipt = { status: 'CONFIRMED', fiscalDocumentStatus: 'NOT_INTEGRATED', receiptId: 'service-sale', receiptNumber: 'SERVICE-001', tenantName: 'Services business', outletName: 'Services outlet', timeZone: 'Africa/Nairobi', currency: 'KES', createdAt: '2026-10-25T09:00:00Z', operatorName: 'Kind operator', saleStatus: 'CONFIRMED', lines: [{ lineId: 'service-line', sku: 'SERVICE', name: 'Consultation', itemKind: 'SERVICE', quantity: '1', unitPriceMinor: '1000', taxRateBps: 0, subtotalMinor: '1000', taxMinor: '0', totalMinor: '1000' }], payments: [{ method: 'CASH', amountMinor: '1000', currency: 'KES', status: 'confirmed' }], subtotalMinor: '1000', taxMinor: '0', totalMinor: '1000', amountPaidMinor: '1000', customerAccountCharge: null, cashTenderedMinor: '1000', changeMinor: '0' };
   const order = { id: 'service-sale', orderNumber: 'SERVICE-001', timestamp: '2026-10-25T09:00:00Z', cashierName: 'Kind operator', currency: 'KES', subtotalMinor: 1000, taxMinor: 0, totalMinor: 1000, paidMinor: 1000, amountDueMinor: 0, customerName: null, refundedMinor: 0, status: 'completed', paymentMethod: 'cash', lines: [{ ...receipt.lines[0], productId: serviceId, refundedQuantity: '0' }] };
   await page.route('**/api/v1/**', async route => {
@@ -32,17 +33,27 @@ async function fixture(page: Page, inventory = true, commerce = true) {
     if (path === '/catalog/imports') return route.fulfill({ json: { batches: [] } });
     if (path === '/configuration') return route.fulfill({ json: { configuration: { business: { id: tenantId, name: 'Services business', currency: 'KES', timeZone: 'Africa/Nairobi', version: 3, legalName: '', registrationNumber: '', taxRegistrationNumber: '', address: '', phone: '', email: '', website: '', logoUrl: '', receiptQrImage: '', showQrOnReceipt: false, receiptHeader: '', receiptFooter: '', taxPolicy: { calculation: 'exclusive', defaultRateBps: 0, label: 'Tax', reviewed: true } }, outlet: { id: 'kind-outlet', name: 'Services outlet', timeZone: 'Africa/Nairobi', version: 1, address: '', phone: '', email: '', receiptHeader: '', receiptFooter: '' }, capabilities: inventory ? ['commerce', 'inventory'] : ['commerce'], supportedCapabilities: ['commerce', 'inventory', 'retail', 'hospitality'], currencyLocked: true, readiness: { readyForFirstSale: true, checks: [{ key: 'catalog', label: 'Sellable service available', complete: true, detail: 'Service pricing is ready without inventory.' }] } } } });
     if (path === '/shifts/current') return route.fulfill({ json: { shift } });
-    if (path === '/configuration/stock-sale-policy') return route.fulfill({ json: { policy: { enabled: true, requirePhysicalConfirmation: true, requireReason: true, allowZeroReferenceCost: true, version: 1 } } });
-    if (path === '/sales/orders') return route.fulfill({ json: { orders: [order] } });
+    if (path === '/configuration/stock-sale-policy') return state.inventoryEnabled
+      ?route.fulfill({ json: { policy: { enabled: true, requirePhysicalConfirmation: true, requireReason: true, allowZeroReferenceCost: true, version: 1 } } })
+      :route.fulfill({status:403,json:{error:{code:'CAPABILITY_DISABLED',message:'Inventory is required for stock-sale policy.'}}});
+    if (path === '/sales/orders') {
+      const search=url.searchParams.get('q')??'';saleSearches.push(search);
+      return route.fulfill({ json: { orders: state.hideSaleFromFirstPage&&search!==order.id?[]:[order] } });
+    }
     if (path === '/sales/orders/service-sale/receipt') return route.fulfill({ json: receipt });
     if (path.startsWith('/commands/')) {
       const commandId = path.split('/').at(-1)!;
+      if(inventoryRefunds.has(commandId)&&!state.inventoryEnabled)return route.fulfill({status:403,json:{error:{code:'CAPABILITY_DISABLED',message:'Inventory is required to recover this original stocked refund.'}}});
       return confirmed.has(commandId) ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: confirmed.get(commandId) } }) : route.fulfill({ status: 404, json: { code: 'NOT_FOUND' } });
     }
     if (path === '/commands') {
       const command: BackendCommand = route.request().postDataJSON(); posts.push(command);
       const p = command.payload;
       if (state.mode === 'open-count') { state.mode = 'normal'; return route.fulfill({ json: { commandId: command.commandId, status: 'REJECTED', code: 'OPEN_COUNT_CONFLICT' } }); }
+      if(command.type==='sales.order.refund'&&(p.lines as Array<{orderLineId:string}>).some(entry=>{
+        const original=order.lines.find(line=>line.lineId===entry.orderLineId);
+        return original&&(original.itemKind===undefined||original.itemKind==='STOCKED_GOOD');
+      }))inventoryRefunds.add(command.commandId);
       let value: object;
       if (command.type === 'catalog.product.change_kind') {
         const item = items.find(row => row.id === p.productId)!;
@@ -66,7 +77,21 @@ async function fixture(page: Page, inventory = true, commerce = true) {
     }
     return route.fulfill({ status: 404, json: { code: 'UNEXPECTED_ENDPOINT' } });
   });
-  return { items, posts, reads, state, order };
+  return { items, posts, reads, saleSearches, state, order };
+}
+
+async function savedRefundCommands(page: Page) {
+  return page.evaluate(async () => {
+    const database=await new Promise<IDBDatabase>((resolve,reject)=>{
+      const request=indexedDB.open('mazao-v1-command-journal',1);
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+    try{return await new Promise<BackendCommand[]>((resolve,reject)=>{
+      const request=database.transaction('commands').objectStore('commands').getAll();
+      request.onsuccess=()=>resolve(request.result.map((record:{command:BackendCommand})=>record.command));
+      request.onerror=()=>reject(request.error);
+    });}finally{database.close();}
+  });
 }
 
 async function navigateCatalog(page: Page) {
@@ -203,13 +228,27 @@ test('inventory-disabled mixed refunds leave stocked quantities unavailable whil
   await expect(dialog).toHaveCount(0); await expect(page.getByRole('button', { name: 'Refund remaining items', exact: true })).toBeDisabled(); await expect(page.getByText('Enable inventory to refund remaining stocked goods.')).toBeVisible();
 });
 
-for (const committed of ['full', 'partial'] as const) test(`a ${committed} committed lost stocked refund retains its original stock disposition after inventory is disabled`, async ({ page }) => {
-  const { order, state, posts } = await fixture(page); Object.assign(order.lines[0], { itemKind: 'STOCKED_GOOD', productId: stockedId }); state.mode = 'lost';
+for (const committed of ['full', 'partial'] as const) for(const outsidePage of [false,true]) test(`a ${committed} committed lost stocked refund retains its original stock disposition after inventory is disabled${outsidePage?' beyond the first history page':''}`, async ({ page }) => {
+  const { order, state, posts, reads, saleSearches } = await fixture(page); Object.assign(order.lines[0], { itemKind: 'STOCKED_GOOD', productId: stockedId }); state.mode = 'lost';
   if (committed === 'partial') { order.lines[0].quantity = '3'; order.subtotalMinor = order.totalMinor = order.paidMinor = 3000; }
   await page.goto('/'); await page.getByRole('button', { name: 'Sales history', exact: true }).click(); await page.getByRole('button', { name: 'Refund remaining items', exact: true }).click(); await page.getByRole('dialog').getByLabel('Qty').fill('1'); await page.getByRole('button', { name: 'Confirm cash refund', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Check status', exact: true })).toBeEnabled(); const original = structuredClone(posts[0]); expect((original.payload.lines as Array<{ restock: boolean }>)[0].restock).toBe(true);
-  state.inventoryEnabled = false; await page.reload(); await page.getByRole('button', { name: 'Sales history', exact: true }).click();
+  state.inventoryEnabled = false; state.hideSaleFromFirstPage=outsidePage; await page.reload(); await page.getByRole('button', { name: 'Sales history', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review returned quantities' }); const disposition = dialog.getByLabel('Original request: return to stock. Inventory is disabled.'); await expect(disposition).toBeChecked(); await expect(disposition).toBeDisabled();
   await expect(dialog.getByLabel('Qty')).toHaveValue('1'); await expect(dialog.getByLabel('Qty')).toBeDisabled(); await expect(dialog.getByText(`Remaining ${committed === 'full' ? '0' : '2'}`, { exact: false })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Check status', exact: true }).click(); await expect(dialog).toHaveCount(0); expect(posts).toEqual([original]);
+  expect(await savedRefundCommands(page)).toEqual([original]);
+  if(outsidePage){expect(saleSearches).toContain(order.id);await expect(page.getByText('No receipts match this search.')).toBeVisible();}
+  await dialog.getByRole('button',{name:'Check status',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Check status',exact:true})).toBeEnabled();
+  await expect(disposition).toBeChecked();await expect(dialog.getByLabel('Qty')).toHaveValue('1');
+  expect(await savedRefundCommands(page)).toEqual([original]);expect(posts).toEqual([original]);
+  const priorAuthReads=reads.filter(path=>path==='/auth/me').length;
+  state.inventoryEnabled=true;await page.reload();await page.getByRole('button',{name:'Sales history',exact:true}).click();
+  expect(reads.filter(path=>path==='/auth/me').length).toBeGreaterThan(priorAuthReads);
+  await expect(page.getByRole('button',{name:'Stock',exact:true})).toBeEnabled();
+  const restored=page.getByRole('dialog',{name:'Review returned quantities'});
+  await expect(restored.getByLabel('Return to stock',{exact:true})).toBeChecked();
+  await expect(restored.getByLabel('Return to stock',{exact:true})).toBeDisabled();
+  await expect(restored.getByLabel('Qty')).toHaveValue('1');expect(await savedRefundCommands(page)).toEqual([original]);
+  await restored.getByRole('button', { name: 'Check status', exact: true }).click(); await expect(restored).toHaveCount(0); expect(posts).toEqual([original]);expect(await savedRefundCommands(page)).toEqual([]);
 });

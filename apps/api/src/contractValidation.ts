@@ -2,12 +2,16 @@ import { DomainError } from './contracts.js';
 
 /** The deliberately small JSON Schema vocabulary used by the first migrated
  * contracts. No coercion, default insertion, or removal of unknown properties. */
-type ContractType = 'object' | 'string' | 'integer' | 'boolean' | 'null';
+type ContractType = 'object' | 'array' | 'string' | 'integer' | 'boolean' | 'null';
 export interface ContractSchema {
   type: ContractType | readonly ContractType[];
   properties?: Readonly<Record<string, ContractSchema>>;
   required?: readonly string[];
   additionalProperties?: boolean | ContractSchema;
+  items?: ContractSchema;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
   minLength?: number;
   maxLength?: number;
   pattern?: string;
@@ -46,6 +50,23 @@ export function assertContract(value: unknown, schema: ContractSchema, field = '
   }
   if (schema.const !== undefined && value !== schema.const) invalid();
   if (schema.type === 'null') { if (value !== null) invalid(); return; }
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) return invalid();
+    if (schema.minItems !== undefined && value.length < schema.minItems) invalid();
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) invalid();
+    if (schema.items) for (const [index,item] of value.entries()) assertContract(item, schema.items, `${field}[${index}]`);
+    if (schema.uniqueItems) {
+      // Canonicalize object key order too, so uniqueness has the same meaning
+      // for every supported JSON item type rather than depending on insertion.
+      const canonical = (item: unknown): string => {
+        if (Array.isArray(item)) return `[${item.map(canonical).join(',')}]`;
+        if (isRecord(item)) return `{${Object.keys(item).sort().map(key => `${JSON.stringify(key)}:${canonical(item[key])}`).join(',')}}`;
+        return JSON.stringify(item);
+      };
+      if (new Set(value.map(canonical)).size !== value.length) invalid();
+    }
+    return;
+  }
   if (schema.type === 'object') {
     if (!isRecord(value)) return invalid();
     for (const key of schema.required ?? []) if (!Object.hasOwn(value, key)) invalid();

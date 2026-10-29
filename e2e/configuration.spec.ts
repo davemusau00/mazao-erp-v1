@@ -61,6 +61,62 @@ async function holdCommandJournal(page:Page) {
   });
 }
 
+test('service-only settings skip inventory policy reads and follow committed capability changes',async({page})=>{
+  const configuration=fixture();configuration.capabilities=['commerce'];
+  await routeReads(page,configuration,[...permissions,'inventory.shortfall.configure']);
+  let policyReads=0;
+  await page.route('**/api/v1/configuration/stock-sale-policy',route=>{
+    policyReads++;
+    if(!configuration.capabilities.includes('inventory'))return route.fulfill({status:403,json:{error:{code:'CAPABILITY_DISABLED',message:'Inventory is disabled.'}}});
+    return route.fulfill({json:{policy:{enabled:false,requirePhysicalConfirmation:true,requireReason:true,allowZeroReferenceCost:true,version:1,updatedBy:null,updatedByName:null,updatedAt:null}}});
+  });
+  await page.route('**/api/v1/commands',route=>{
+    const command=route.request().postDataJSON();
+    configuration.capabilities=command.payload.capabilities;
+    configuration.business.version++;
+    return route.fulfill({json:{commandId:command.commandId,status:'CONFIRMED',value:{version:configuration.business.version}}});
+  });
+  await openManage(page);
+  const stockSettings=page.getByRole('button',{name:'Stock exceptions',exact:true});
+  await expect(stockSettings).toBeDisabled();expect(policyReads).toBe(0);
+  await page.getByRole('button',{name:'Capabilities',exact:true}).click();
+  await page.getByLabel('Inventory',{exact:true}).check();
+  await page.getByRole('button',{name:'Save capabilities',exact:true}).click();
+  await expect(stockSettings).toBeEnabled();expect(policyReads).toBe(1);
+  await expect(page.getByLabel('Inventory',{exact:true})).toBeEnabled();
+  await page.getByLabel('Inventory',{exact:true}).uncheck();
+  await page.getByRole('button',{name:'Save capabilities',exact:true}).click();
+  await expect(stockSettings).toBeDisabled();
+  await expect(page.getByLabel('Sales and customer accounts')).toBeChecked();
+  expect(policyReads).toBe(1);
+});
+
+test('confirmed settings allow navigation while their refreshed projection is still loading',async({page})=>{
+  const configuration=fixture();await routeReads(page,configuration);await openManage(page);
+  let releaseRefresh!:()=>void;
+  const refreshGate=new Promise<void>(resolve=>{releaseRefresh=resolve;});
+  let refreshing=false,discardPrompts=0,posts=0;
+  page.on('dialog',async dialog=>{discardPrompts++;await dialog.dismiss();});
+  await page.route('**/api/v1/configuration',async route=>{
+    refreshing=true;await refreshGate;
+    await route.fulfill({json:{configuration}}).catch(()=>{});
+  });
+  await page.route('**/api/v1/commands',route=>{
+    const command=route.request().postDataJSON();posts++;
+    configuration.business={...configuration.business,...command.payload,version:2};
+    return route.fulfill({json:{commandId:command.commandId,status:'CONFIRMED',value:{version:2}}});
+  });
+  try {
+    await page.getByLabel('Legal business name').fill('Confirmed business revision');
+    await page.getByRole('button',{name:'Save business settings',exact:true}).click();
+    await expect(page.getByText('Settings saved.',{exact:true})).toBeVisible();
+    await expect.poll(()=>refreshing).toBe(true);
+    await page.getByRole('button',{name:'Help',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Help with your daily work',exact:true})).toBeVisible();
+    expect(discardPrompts).toBe(0);expect(posts).toBe(1);
+  } finally {releaseRefresh();}
+});
+
 test('settings stay locked until recovery evidence is checked and a configured 100 percent policy can be resaved',async({page})=>{
   const configuration=fixture();configuration.business.taxPolicy.defaultRateBps=10000;
   await routeReads(page,configuration);
@@ -325,18 +381,24 @@ test('opening Setup checklist from the workspace navigation loads its checklist 
 test('internal workspace navigation cancels the obsolete shift status read',async({page})=>{
   const configuration=fixture();await routeReads(page,configuration,['shift.open','shift.close']);
   let currentReads=0;let cancelledReads=0;
+  let releaseFirstRead!:()=>void;
+  let markFirstReadStarted!:()=>void;
+  const firstReadHeld=new Promise<void>(resolve=>{releaseFirstRead=resolve;});
+  const firstReadStarted=new Promise<void>(resolve=>{markFirstReadStarted=resolve;});
   page.on('requestfailed',request=>{if(request.url().endsWith('/api/v1/shifts/current'))cancelledReads++;});
   await page.route('**/api/v1/shifts/current',async route=>{
     currentReads++;
-    if(currentReads===1){await new Promise(resolve=>setTimeout(resolve,1500));await route.fulfill({json:{shift:null}}).catch(()=>{});return;}
+    if(currentReads===1){markFirstReadStarted();await firstReadHeld;await route.fulfill({json:{shift:null}}).catch(()=>{});return;}
     await route.fulfill({json:{shift:null}});
   });
   await page.route('**/api/v1/shifts/close-reports',route=>route.fulfill({json:{reports:[]}}));
-  await page.goto('/');await expect.poll(()=>currentReads).toBe(1);
-  await page.getByRole('button',{name:'Open a shift',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Cash control'})).toBeVisible();
-  await expect.poll(()=>cancelledReads).toBeGreaterThan(0);
-  await expect.poll(()=>currentReads).toBe(2);
+  await page.goto('/');await firstReadStarted;
+  try{
+    await page.getByRole('button',{name:'Open a shift',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Cash control'})).toBeVisible();
+    await expect.poll(()=>cancelledReads).toBeGreaterThan(0);
+    await expect.poll(()=>currentReads).toBe(2);
+  }finally{releaseFirstRead();}
 });
 
 test('cashier navigation shows unsupported restaurant work as disabled and keeps management private',async({page})=>{

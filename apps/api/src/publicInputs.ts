@@ -2,7 +2,7 @@ import type { CommandEnvelope } from './contracts.js';
 import { assertContract, type ContractSchema, uuidSchema, versionsSchema } from './contractValidation.js';
 import { DomainError } from './contracts.js';
 
-export const UUID_ROUTE_PARAMETERS = ['userId','assetId','batchId','shortfallId','countId','shiftId','orderId','customerId','journalEntryId','commandId'] as const;
+export const UUID_ROUTE_PARAMETERS = ['userId','assetId','batchId','shortfallId','countId','eventId','shiftId','orderId','customerId','journalEntryId','commandId'] as const;
 
 export function validateRequestIdentifiers(params: unknown, query: unknown): void {
   // Router parameter/query containers may use Fastify's internal prototypes;
@@ -27,6 +27,11 @@ export const LOGIN_SCHEMA: ContractSchema = {
   },
 };
 
+export const CONTEXT_SWITCH_SCHEMA: ContractSchema = {
+  type: 'object', required: ['deviceId'], additionalProperties: false,
+  properties: { deviceId: uuidSchema },
+};
+
 export const COMMAND_ENVELOPE_SCHEMA: ContractSchema = {
   type: 'object',
   required: ['protocolVersion', 'commandId', 'deviceId', 'type', 'occurredAt', 'expectedVersions', 'payload'],
@@ -44,6 +49,11 @@ export function parseLoginInput(input: unknown): { email: string; password: stri
   assertContract(input, LOGIN_SCHEMA, 'Sign-in fields');
   const value = input as { email: string; password: string; deviceId?: string };
   return { ...value, email: value.email.trim().toLowerCase() };
+}
+
+export function parseContextSwitchInput(input: unknown): { deviceId: string } {
+  assertContract(input, CONTEXT_SWITCH_SCHEMA, 'Workspace selection');
+  return input as { deviceId: string };
 }
 
 export function parseCommandEnvelope(input: unknown): CommandEnvelope {

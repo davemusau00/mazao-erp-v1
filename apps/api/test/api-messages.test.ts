@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from '../../../src/services/apiMessages.js';
 
 test('uncertain changes direct the operator to status recovery without implying failure', () => {
@@ -78,4 +79,21 @@ test('kind-change acknowledgements preserve reviewed target kind and stock-track
   assert.equal(check({productId:'product-a',itemKind:'PREPARED',version:2,stockTracked:false},'PREPARED'),true);
   assert.equal(check({productId:'product-a',itemKind:'STOCKED_GOOD',version:2,stockTracked:true},'STOCKED_GOOD'),true);
   for(const value of [{},{productId:'product-b',itemKind:'SERVICE',version:2,stockTracked:false},{productId:'product-a',itemKind:'PREPARED',version:2,stockTracked:false},{productId:'product-a',itemKind:'SERVICE',version:2,stockTracked:true},{productId:'product-a',itemKind:'SERVICE',version:0,stockTracked:false},{productId:'product-a',itemKind:'SERVICE',version:2}])assert.equal(check(value),false);
+});
+
+test('count review acknowledgement proves original count version and the exact affected set', () => {
+  const countId='abcdefab-1234-4abc-8def-1234567890ab',first=randomUUID(),second=randomUUID(),reviewId=randomUUID();
+  const payload={countId,reason:'Reviewed live movement',reviewFingerprint:'a'.repeat(64),affectedProductIds:[first,second]};
+  const expectedVersions={[`count:${countId}`]:3};
+  const value={countId,version:4,reviewId,revision:2,affectedProductIds:[second,first]};
+  const check=(candidate:Record<string,unknown>,versions:Record<string,number>|undefined=expectedVersions)=>isTerminalOutcome({commandId:'original',status:'CONFIRMED',value:candidate},'original','inventory.count.review',payload,versions);
+  assert.equal(check(value),true,'server ordering may differ without changing the reviewed set');
+  const uppercasePayload={...payload,countId:countId.toUpperCase(),affectedProductIds:[first.toUpperCase(),second.toUpperCase()]};
+  assert.equal(isTerminalOutcome({commandId:'original',status:'CONFIRMED',value},'original','inventory.count.review',uppercasePayload,expectedVersions),true,'canonical UUID results must resolve valid uppercase input without changing retained intent');
+  assert.equal(isTerminalOutcome({commandId:'original',status:'CONFIRMED',value},'original','inventory.count.review',uppercasePayload,{[`count:${countId.toUpperCase()}`]:3}),false,'the original expected version must use the canonical key required by the domain');
+  for(const candidate of [{},{...value,countId:randomUUID()},{...value,version:3},{...value,version:5},{...value,version:'4'},{...value,reviewId:''},{...value,revision:0},{...value,affectedProductIds:[]},{...value,affectedProductIds:[first]},{...value,affectedProductIds:[first,second,randomUUID()]},{...value,affectedProductIds:[first,first]},{...value,affectedProductIds:[first,first.toUpperCase()]}])assert.equal(check(candidate),false);
+  assert.equal(check(value,{}),false,'missing original expected count version cannot resolve recovery');
+  assert.equal(isTerminalOutcome({commandId:'other',status:'CONFIRMED',value},'original','inventory.count.review',payload,expectedVersions),false);
+  assert.equal(isTerminalCommandStatus({commandId:'original',status:'CONFIRMED',response:{status:'CONFIRMED',value}},'original','inventory.count.review',payload,expectedVersions),true);
+  assert.equal(isTerminalCommandStatus({commandId:'original',status:'CONFIRMED',response:{status:'CONFIRMED',value:{...value,version:5}}},'original','inventory.count.review',payload,expectedVersions),false);
 });

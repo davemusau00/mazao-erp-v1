@@ -209,3 +209,61 @@ test('receiving access does not expose catalog management or archived catalog re
   await expect(page.getByRole('heading', { name: 'Items and stock' })).toBeVisible(); await expect(page.getByRole('button', { name: 'Manage items and categories' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'Add item', exact: true })).toHaveCount(0);
   expect(reads.some(path => path.includes('includeArchived'))).toBe(false);
 });
+
+async function holdDialogFocusFrames(page:Page) {
+  await page.evaluate(()=>{
+    const testWindow=window as typeof window & {
+      queuedDialogFocusFrames:()=>number;
+      releaseDialogFocusFrames:()=>void;
+    };
+    const requestFrame=window.requestAnimationFrame.bind(window);
+    const cancelFrame=window.cancelAnimationFrame.bind(window);
+    const queued=new Map<number,FrameRequestCallback>();
+    let holding=true,nextId=1_000_000_000;
+    window.requestAnimationFrame=callback=>{
+      if(!holding)return requestFrame(callback);
+      const id=nextId++;queued.set(id,callback);return id;
+    };
+    window.cancelAnimationFrame=id=>{queued.delete(id);cancelFrame(id);};
+    testWindow.queuedDialogFocusFrames=()=>queued.size;
+    testWindow.releaseDialogFocusFrames=()=>{
+      holding=false;const callbacks=[...queued.values()];queued.clear();
+      for(const callback of callbacks)callback(performance.now());
+    };
+  });
+}
+const queuedDialogFocusFrames=(page:Page)=>page.evaluate(()=>(window as typeof window & {queuedDialogFocusFrames:()=>number}).queuedDialogFocusFrames());
+const releaseDialogFocusFrames=(page:Page)=>page.evaluate(()=>(window as typeof window & {releaseDialogFocusFrames:()=>void}).releaseDialogFocusFrames());
+
+test('queued dialog focus preserves an operator already typing their first field',async({page})=>{
+  await fixture(page);await openMaintenance(page);await holdDialogFocusFrames(page);
+  try {
+    await page.getByRole('button',{name:'Add item',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Create item',exact:true});
+    const name=dialog.getByLabel('Item name',{exact:true});
+    await expect.poll(()=>queuedDialogFocusFrames(page)).toBeGreaterThan(0);
+    await name.focus();await page.keyboard.insertText('First');
+    await releaseDialogFocusFrames(page);
+    const retainedFocus=await name.evaluate(element=>document.activeElement===element);
+    await page.keyboard.insertText(' entry');
+    expect.soft(retainedFocus).toBe(true);
+    await expect(name).toHaveValue('First entry');
+  }finally{await releaseDialogFocusFrames(page);}
+});
+
+test('dialog initial focus and close restoration cancel a still queued focus callback',async({page})=>{
+  await fixture(page);await openMaintenance(page);
+  const add=page.getByRole('button',{name:'Add item',exact:true});
+  await add.click();
+  let dialog=page.getByRole('dialog',{name:'Create item',exact:true});
+  await expect(dialog.getByRole('button',{name:'Close dialog',exact:true})).toBeFocused();
+  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(add).toBeFocused();
+  await holdDialogFocusFrames(page);
+  try {
+    await add.click();dialog=page.getByRole('dialog',{name:'Create item',exact:true});
+    await expect.poll(()=>queuedDialogFocusFrames(page)).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+    await expect(add).toBeFocused();await expect.poll(()=>queuedDialogFocusFrames(page)).toBe(0);
+    await releaseDialogFocusFrames(page);await expect(add).toBeFocused();
+  }finally{await releaseDialogFocusFrames(page);}
+});

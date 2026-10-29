@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { pool, inTransaction } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
-import { parseCommandEnvelope, parseLoginInput, validateRequestIdentifiers } from './publicInputs.js';
+import { parseCommandEnvelope, parseLoginInput, parseContextSwitchInput, validateRequestIdentifiers } from './publicInputs.js';
 import { listCatalogCategories, readIncludeArchived } from './catalogMaintenance.js';
 import { isStockTracked, requireCatalogCapability } from './itemKinds.js';
 import { executeCommand, hashCommand } from './commands.js';
@@ -34,11 +34,25 @@ import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
 import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
 import { initializeCommandRequirements, prepareCommandRequirements } from './commandRequirements.js';
+import { getCount, getCountEvent, getCountEvents, getCountReview, getCountReviewMovements } from './countRecovery.js';
 import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
+const setupCommandTypes = new Set(['configuration.business.update','configuration.outlet.create','configuration.outlet.update','configuration.outlet.set_active','configuration.capabilities.update','configuration.stock_exception_policy.update','configuration.go_live.approve','inventory.receive','inventory.count.open','inventory.count.save','inventory.count.review','inventory.count.post','inventory.count.cancel','staff.member.create','staff.member.update','staff.member.set_active','staff.sessions.revoke','staff.password.set','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','auth.session.revoke']);
+function setupCommandAllowed(type: unknown): boolean {
+  return typeof type==='string'&&(setupCommandTypes.has(type)||type.startsWith('catalog.product.')||type.startsWith('catalog.category.')||type.startsWith('catalog.import.'));
+}
+function setupRequestAllowed(method: string, url: string, body: unknown): boolean {
+  const path=url.split('?',1)[0];
+  if(method==='GET')return path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
+  if(method==='POST') {
+    if(['/api/v1/auth/logout','/api/v1/auth/password','/api/v1/auth/password/reconcile','/api/v1/auth/context','/api/v1/configuration/assets'].includes(path)||/^\/api\/v1\/staff\/[0-9a-f-]{36}\/password$/i.test(path))return true;
+    if(path==='/api/v1/commands'&&body&&typeof body==='object'&&!Array.isArray(body))return setupCommandAllowed((body as Record<string,unknown>).type);
+  }
+  return false;
+}
 
 export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   const { production, allowedOrigins, trustedProxyIps } = readRuntimeConfig();
@@ -150,9 +164,10 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
     const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
     if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
+    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
+      LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
       JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id AND o.active
       WHERE u.id=$1 AND u.active AND m.active ORDER BY t.name,o.name,d.label,d.id`,[identity.rows[0].id]);
@@ -169,7 +184,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = production ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readTaxPolicy(row.tax_policy),capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readTaxPolicy(row.tax_policy),capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, onboardingStatus:row.onboarding_status, csrfToken };
   });
   // The plugin installs an onRoute hook during boot. Defer route registration
   // until then, while keeping buildApp's synchronous public interface.
@@ -182,27 +197,75 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
-    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
+    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.sessions s JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
       JOIN core.tenants t ON t.id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
+      LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
       JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id AND d.outlet_id=s.outlet_id
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id`, [hashToken(token)]);
     if (!result.rowCount) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Session is expired or access was revoked.' } });
     const r = result.rows[0];
-    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readTaxPolicy(r.tax_policy),timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
+    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readTaxPolicy(r.tax_policy),timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,onboardingStatus:r.onboarding_status,expiresAt:r.expires_at };
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
       if (!csrfCookie || typeof csrfHeader !== 'string' || !safeEqual(csrfCookie,csrfHeader) || !safeEqual(hashToken(csrfHeader).toString('base64url'),Buffer.from(r.csrf_hash).toString('base64url'))) return reply.code(403).send({ error:{ code:'CSRF_FAILED',message:'Refresh the session before submitting this action.' } });
     }
+    if(r.onboarding_status==='SETUP'&&!setupRequestAllowed(request.method,request.url,request.body))return reply.code(403).send({error:{code:'ONBOARDING_REQUIRED',message:'Complete the reviewed first-use setup before opening this business workspace.'}});
   });
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
     const token = request.cookies?.[cookieName]; if (token) await pool.query('UPDATE identity.sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL',[hashToken(token)]);
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
-  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/auth/assignments', async request => {
+    const result=await pool.query(`SELECT d.id device_id,d.label device_label,t.id tenant_id,t.name tenant_name,o.id outlet_id,o.name outlet_name
+      FROM identity.devices d JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=d.assigned_user_id
+      JOIN identity.users u ON u.id=d.assigned_user_id JOIN core.tenants t ON t.id=d.tenant_id
+      JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id
+      WHERE d.assigned_user_id=$1 AND d.active AND m.active AND u.active AND o.active
+      ORDER BY t.name,o.name,d.label,d.id`,[request.operator!.userId]);
+    return {assignments:result.rows.map(row=>({deviceId:row.device_id,deviceLabel:row.device_label,tenantId:row.tenant_id,tenantName:row.tenant_name,outletId:row.outlet_id,outletName:row.outlet_name}))};
+  });
+  app.post('/api/v1/auth/context', async request => {
+    const {deviceId}=parseContextSwitchInput(request.body);
+    const token=request.cookies?.[cookieName];
+    if(!token)throw new DomainError('UNAUTHENTICATED','Sign in to continue.',401);
+    const current=request.operator!;
+    const session=await inTransaction(async client=>{
+      const locked=await client.query(`SELECT s.id FROM identity.sessions s
+        WHERE s.id=$1 AND s.token_hash=$2 AND s.tenant_id=$3 AND s.outlet_id=$4 AND s.device_id=$5
+          AND s.revoked_at IS NULL AND s.expires_at>now()
+        FOR UPDATE OF s`,[current.sessionId,hashToken(token),current.tenantId,current.outletId,current.deviceId]);
+      if(!locked.rowCount)throw new DomainError('SESSION_CONTEXT_CHANGED','This browser workspace changed in another tab. Refresh and retry.',409);
+      const selected=await client.query(`SELECT u.id user_id,u.email,m.display_name operator_name,m.role,t.id tenant_id,t.name tenant_name,t.currency,t.time_zone,
+          CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,
+          COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,
+          COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
+        FROM identity.devices d JOIN identity.users u ON u.id=d.assigned_user_id
+        JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=u.id
+        JOIN core.tenants t ON t.id=d.tenant_id JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id
+        LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
+        WHERE d.id=$1 AND d.assigned_user_id=$2 AND d.active AND u.active AND m.active AND o.active
+        FOR SHARE OF u,m,d,t,o`,[deviceId,current.userId]);
+      if(!selected.rowCount)throw new DomainError('ASSIGNMENT_UNAVAILABLE','That workspace assignment is no longer active for your account. Refresh the choices.',409);
+      const target=selected.rows[0];
+      if(target.tenant_id===current.tenantId&&target.outlet_id===current.outletId&&target.device_id===current.deviceId)return {target,changed:false};
+      await client.query(`UPDATE identity.sessions SET tenant_id=$1,outlet_id=$2,device_id=$3,version=version+1
+        WHERE id=$4 AND tenant_id=$5 AND outlet_id=$6 AND device_id=$7`,[target.tenant_id,target.outlet_id,target.device_id,current.sessionId,current.tenantId,current.outletId,current.deviceId]);
+      await client.query(`INSERT INTO system.audit_events(id,tenant_id,outlet_id,actor_id,event_type,payload)
+        VALUES($1,$2,$3,$4,'AUTH_CONTEXT_SWITCHED',$5::jsonb)`,[randomUUID(),current.tenantId,current.outletId,current.userId,
+        JSON.stringify({from:{tenantId:current.tenantId,outletId:current.outletId,deviceId:current.deviceId},to:{tenantId:target.tenant_id,outletId:target.outlet_id,deviceId:target.device_id}})]);
+      return {target,changed:true};
+    });
+    const r=session.target;
+    return {user:{id:r.user_id,name:r.operator_name,email:r.email,role:r.role,permissions:ROLE_PERMISSIONS[r.role as keyof typeof ROLE_PERMISSIONS]},
+      tenant:{id:r.tenant_id,name:r.tenant_name,currency:r.currency,timeZone:r.time_zone,taxPolicy:readTaxPolicy(r.tax_policy),capabilities:r.capabilities},
+      outlet:{id:r.outlet_id,name:r.outlet_name,timeZone:r.outlet_time_zone},deviceId:r.device_id,
+      onboardingStatus:r.onboarding_status,csrfToken:request.cookies?.maz_csrf??''};
+  });
+  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,onboardingStatus:request.operator!.onboardingStatus??'LEGACY_ACTIVE',csrfToken:request.cookies?.maz_csrf ?? '' }));
   app.get<{Querystring:HistoryQuery}>('/api/v1/staff',async request=>listStaff(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/devices',async request=>listAssignments(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!,undefined,request.query));
@@ -252,42 +315,18 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     '/api/v1/inventory/shortfalls', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfalls(request.operator!, request.query);});
   app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallDetail(request.operator!, request.params.shortfallId);});
   app.get<{Params:{shortfallId:string};Querystring:HistoryQuery}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId,request.query);});
-  const requireInventoryCountAccess = (operator: ApiSession) => {
-    requireEnabledCapability(operator, 'inventory');
-    if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
-      throw new DomainError('FORBIDDEN', 'Your role cannot access stock counts.', 403);
-    }
-  };
-  const readInventoryCount = async (operator: ApiSession, countId: string) => {
-    const count = await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.baseline_at,c.opened_at,c.posted_at,
-        opened.full_name opened_by_name,posted.full_name posted_by_name,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
-      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by
-      LEFT JOIN identity.users posted ON posted.id=c.posted_by
-      WHERE c.id=$1 AND c.tenant_id=$2 AND c.outlet_id=$3`, [countId, operator.tenantId, operator.outletId]);
-    if (!count.rowCount) return null;
-    const lineResult = await pool.query(`SELECT product_id,sku_snapshot,name_snapshot,base_unit_snapshot,baseline_quantity::text baseline_quantity,
-        baseline_balance_version::text baseline_balance_version,counted_quantity::text counted_quantity,variance_reason,counted_by,counted_at
-      FROM inventory.stock_count_lines WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 ORDER BY sku_snapshot,product_id`, [operator.tenantId, operator.outletId, countId]);
-    const c = count.rows[0];
-    return { id:c.id,status:c.status,areaLabel:c.area_label,version:Number(c.version),baselineAt:c.baseline_at,openedAt:c.opened_at,openedBy:c.opened_by_name,
-      postedAt:c.posted_at,postedBy:c.posted_by_name,lineCount:c.line_count,countedLineCount:c.counted_line_count,
-      lines:lineResult.rows.map(line=>({productId:line.product_id,sku:line.sku_snapshot,name:line.name_snapshot,unit:line.base_unit_snapshot,
-        expectedQuantity:String(line.baseline_quantity),expectedBalanceVersion:Number(line.baseline_balance_version),countedQuantity:line.counted_quantity===null?null:String(line.counted_quantity),
-        varianceReason:line.variance_reason,countedBy:line.counted_by,countedAt:line.counted_at}))};
-  };
   app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/counts',async request=>listInventoryCounts(request.operator!,request.query));
-  app.get('/api/v1/inventory/counts/current', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const current=await pool.query<{id:string}>('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' ORDER BY opened_at DESC LIMIT 1',[operator.tenantId,operator.outletId]);
-    return {count:current.rowCount?await readInventoryCount(operator,current.rows[0].id):null};
+  app.get('/api/v1/inventory/counts/current', request => getCount(request.operator!));
+  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId', request => getCount(request.operator!,request.params.countId));
+  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId/review', request => {
+    if(Object.keys(request.query as object).length)throw new DomainError('VALIDATION_FAILED','Changed-item review does not accept extra filters.');
+    return getCountReview(request.operator!,request.params.countId);
   });
-  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const count=await readInventoryCount(operator,request.params.countId);
-    if(!count)throw new DomainError('NOT_FOUND','Stock count was not found.',404);
-    return {count};
+  app.get<{Params:{countId:string};Querystring:{after?:string}}>('/api/v1/inventory/counts/:countId/review/movements', request => getCountReviewMovements(request.operator!,request.params.countId,request.query));
+  app.get<{Params:{countId:string};Querystring:HistoryQuery}>('/api/v1/inventory/counts/:countId/events', request => getCountEvents(request.operator!,request.params.countId,request.query));
+  app.get<{Params:{countId:string;eventId:string}}>('/api/v1/inventory/counts/:countId/events/:eventId', request => {
+    if(Object.keys(request.query as object).length)throw new DomainError('VALIDATION_FAILED','Count evidence does not accept extra filters.');
+    return getCountEvent(request.operator!,request.params.countId,request.params.eventId);
   });
   app.get('/api/v1/shifts/current', async request => {
     const s=request.operator!;
@@ -388,6 +427,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
   app.post<{ Body: CommandEnvelope }>('/api/v1/commands',{bodyLimit:2_097_152}, async (request, reply) => {
     const envelope=parseCommandEnvelope(request.body); const s=request.operator!;
+    if(s.onboardingStatus==='SETUP'&&!setupCommandAllowed(envelope.type))throw new DomainError('ONBOARDING_REQUIRED','Complete the reviewed first-use setup before using this business action.',403);
     if (envelope.tenantId && envelope.tenantId!==s.tenantId) throw new DomainError('FORBIDDEN','Command tenant differs from authenticated tenant.',403);
     if(envelope.deviceId!==s.deviceId)throw new DomainError('FORBIDDEN','Command device differs from the authenticated assignment.',403);
     assertImportSourceSafe(envelope);
@@ -404,12 +444,9 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
           await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
         }
         const fresh=await revalidateOperator(client,s);
-        try { requireCommandRecoveryAuthority(fresh,old.rows[0],'replay'); }
-        catch(error) {
-          // Preserve import's existing definite rejected-envelope contract.
-          if(!(error instanceof DomainError)||!old.rows[0].command_type.startsWith('catalog.import.'))throw error;
-          return {status:'REJECTED',code:error.code,message:error.message};
-        }
+        // A denial describes current access, not the original command outcome.
+        // Keep it an HTTP error so clients retain unresolved recovery evidence.
+        requireCommandRecoveryAuthority(fresh,old.rows[0],'replay');
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
@@ -451,7 +488,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         }
         if(businessSavepoint)await client.query('ROLLBACK TO SAVEPOINT business_command');
         if (!(error instanceof DomainError)) throw error;
-        const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT'].includes(error.code)?'CONFLICT':'REJECTED';
+        const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT','COUNT_REVIEW_REQUIRED','COUNT_REVIEW_BLOCKED','COUNT_RECOUNT_REQUIRED','COUNT_CAPACITY_EXCEEDED','ONBOARDING_INCOMPLETE','ONBOARDING_ALREADY_LIVE'].includes(error.code)?'CONFLICT':'REJECTED';
         const response={status,code:error.code,message:error.message,details:error.details};
         await client.query('UPDATE system.commands SET status=$3,response=$4::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2',[s.tenantId,envelope.commandId,status,JSON.stringify(response)]);
         return response;

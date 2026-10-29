@@ -2,7 +2,10 @@ import {historyUrl,type HistoryOptions,type HistoryPage} from '../types/history'
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
+import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
+import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
+import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
 import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 export type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 import type { SaleHistory, SaleHistoryQuery } from '../types/sales';
@@ -17,8 +20,10 @@ export interface BackendSession {
   user:{id:string;name:string;email:string;role:string;permissions:string[];credentialVersion?:number};
   tenant:{id:string;name:string;currency:string;timeZone:string;capabilities:string[];taxPolicy?:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean}};
   outlet:{id:string;name:string;timeZone?:string}; deviceId:string; csrfToken:string;
+  onboardingStatus?:'SETUP'|'LIVE'|'LEGACY_ACTIVE';
 }
 export interface BackendAssignmentChoice {deviceId:string;deviceLabel:string;tenantId:string;tenantName:string;outletId:string;outletName:string}
+export interface BackendContextSwitchBlockers {commands:number;imports:number;credentialChanges:number;ownPasswordChanges:number;staffPasswordChanges:number;countDrafts:number}
 export interface BackendAssignmentSelection {status:'ASSIGNMENT_REQUIRED';assignments:BackendAssignmentChoice[]}
 export interface BackendStaffMember {userId:string;displayName:string;email:string;role:string;active:boolean;version:number;credentialVersion:number;hasCredential:boolean;assignmentCount:number;activeSessionCount:number}
 export interface BackendStaffDirectory {page?:HistoryPage;staff:BackendStaffMember[];roles:Array<{role:string;label:string;permissions:string[];assignable:boolean}>;outlets:Array<{id:string;name:string;timeZone:string;active:boolean}>;authorizationModel:'COARSE_ROLE_MAP'}
@@ -34,16 +39,18 @@ export interface BackendBusinessConfiguration {
   taxPolicy:{calculation:'exclusive';defaultRateBps:number;label:string;reviewed:boolean};
 }
 export interface BackendOutletConfiguration {
-  id:string;name:string;timeZone:string;version:number;address:string;phone:string;email:string;
+  id:string;name:string;timeZone:string;version:number;active:boolean;address:string;phone:string;email:string;
   receiptHeader:string;receiptFooter:string;
+  taxPolicy:{defaultRateBps:number;label:string;reviewed:boolean}|null;
 }
 export interface BackendConfiguration {
-  business:BackendBusinessConfiguration;outlet:BackendOutletConfiguration;
+  business:BackendBusinessConfiguration;outlet:BackendOutletConfiguration;outlets:BackendOutletConfiguration[];
   capabilities:string[];supportedCapabilities:string[];currencyLocked:boolean;
+  onboarding?:{status:'SETUP'|'LIVE'|'LEGACY_ACTIVE';reviewedAt:string|null;reviewedByName:string|null;reviewReason:string|null};
   readiness:{readyForFirstSale:boolean;checks:Array<{key:string;label:string;complete:boolean;detail:string}>};
 }
 export type BackendBusinessConfigurationInput=Omit<BackendBusinessConfiguration,'id'|'version'>;
-export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'>;
+export type BackendOutletConfigurationInput=Omit<BackendOutletConfiguration,'id'|'version'|'active'>;
 export interface BackendProduct { id:string;sku:string;name:string;unit:string;currency:string;sellingPriceMinor:number;costPriceMinor?:number;inventoryValueMinor?:string|null;taxRateBps:number;quantity:string|null;version:number|null;balanceVersion?:number|null;productVersion?:number;barcode?:string|null;category?:string;categoryId?:string|null;reorderLevel?:string;active?:boolean;itemKind?:CatalogItemKind;stockTracked?:boolean }
 export interface BackendCatalogCategory {id:string;name:string;active:boolean;version:number;mergedInto?:string|null;productCount:number;activeProductCount:number}
 export interface BackendCatalogReadOptions {includeArchived?:boolean}
@@ -95,9 +102,9 @@ export interface BackendStockExceptionReport {
 }
 export interface BackendCustomerAccount {id:string;name:string;phone:string;email:string|null;creditLimitMinor:string;balanceMinor:string;status:'ACTIVE'|'SUSPENDED';version:number;createdAt:string;updatedAt:string}
 export interface BackendCustomerStatement {customer:BackendCustomerAccount;entries:Array<{id:string;type:'CHARGE'|'REPAYMENT';amountMinor:string;balanceAfterMinor:string;createdAt:string;reference:string|null;orderId:string|null;receiptNumber:string|null;allocations:Array<{amountMinor:string;receiptNumber:string;orderId:string}>}>;generatedAt:string;currency:string}
-export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null }
-export interface BackendInventoryCount { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;version:number;baselineAt:string;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number;lines:BackendInventoryCountLine[] }
-export interface BackendInventoryCountSummary { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;version:number;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number }
+export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string|null;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null;baselineRevision?:number;countedRevision?:number|null;requiresRecount?:boolean;referenceCostMinor?:string;inventoryValueMinor?:string }
+export interface BackendInventoryCount { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;scope:'FULL'|'SELECTED';blind:boolean;version:number;baselineAt:string;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number;lines:BackendInventoryCountLine[];revision?:number;coverage?:CountEvidenceCoverage }
+export interface BackendInventoryCountSummary { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;scope:'FULL'|'SELECTED';blind:boolean;version:number;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number }
 export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
 export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
 export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number}
@@ -169,6 +176,25 @@ class ApiClient {
   private importRecoveryListeners=new Set<(records:ImportValidationRecovery[])=>void>();
   private secretRecoveryListeners=new Set<(records:SecretOperationRecovery[])=>void>();
   private pendingReadControllers = new Set<AbortController>();
+  private contextChannel:BroadcastChannel|null=null;
+  private pendingContextUserId:string|null=null;
+  constructor(){
+    if(typeof BroadcastChannel==='undefined')return;
+    this.contextChannel=new BroadcastChannel('mazao-auth-context-v1');
+    this.contextChannel.onmessage=event=>{
+      const message=event.data;
+      if(!isRecord(message)||typeof message.userId!=='string')return;
+      if(message.type==='context-switch-pending'){
+        if(this.session?.user.id!==message.userId)return;
+        this.pendingContextUserId=message.userId;this.cancelPendingReads();this.csrf='';this.publish(null);return;
+      }
+      if(message.type==='context-switch-finished'){
+        if(this.pendingContextUserId!==message.userId&&this.session?.user.id!==message.userId)return;
+        this.pendingContextUserId=null;this.cancelPendingReads();this.csrf='';this.publish(null);
+        void this.restore().catch(()=>{this.csrf='';this.publish(null);});
+      }
+    };
+  }
   subscribe(listener:(session:BackendSession|null)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
   subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
   subscribeImportRecovery(listener:(records:ImportValidationRecovery[])=>void){this.importRecoveryListeners.add(listener);return()=>{this.importRecoveryListeners.delete(listener)}}
@@ -325,6 +351,60 @@ class ApiClient {
     catch(cause){const error=cause as {code?:string;details?:{assignments?:BackendAssignmentChoice[]}};if(error.code==='ASSIGNMENT_REQUIRED'&&Array.isArray(error.details?.assignments))return {status:'ASSIGNMENT_REQUIRED',assignments:error.details.assignments};throw cause;}
     finally{password='';}
   }
+  async listContextAssignments(signal?:AbortSignal):Promise<BackendAssignmentChoice[]>{
+    const result=await this.request<{assignments:BackendAssignmentChoice[]}>('/auth/assignments',{signal});
+    if(!Array.isArray(result.assignments)||result.assignments.some(item=>!isRecord(item)||typeof item.deviceId!=='string'||typeof item.deviceLabel!=='string'||typeof item.tenantId!=='string'||typeof item.tenantName!=='string'||typeof item.outletId!=='string'||typeof item.outletName!=='string'))
+      throw new ApiClientError('The workspace assignment choices are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result.assignments;
+  }
+  async inspectContextSwitchBlockers():Promise<BackendContextSwitchBlockers>{
+    const session=this.session;
+    if(!session)throw new ApiClientError('Sign in again before changing workspaces.','UNAUTHENTICATED',401);
+    try{
+      const [commands,imports,credentialChanges,countDrafts]=await Promise.all([
+        this.listRecoverableCommands(session.tenant.id),this.listImportValidationRecovery(),this.listSecretOperationRecovery(),
+        countDraftStore.listForScope({tenantId:session.tenant.id,actorId:session.user.id,outletId:session.outlet.id}),
+      ]);
+      return {commands:commands.filter(record=>record.command.deviceId===session.deviceId).length,imports:imports.length,credentialChanges:credentialChanges.length,
+        ownPasswordChanges:credentialChanges.filter(record=>record.kind==='auth.password.change').length,
+        staffPasswordChanges:credentialChanges.filter(record=>record.kind==='staff.password.set').length,countDrafts:countDrafts.length};
+    }catch(cause){
+      if(cause instanceof ApiClientError&&cause.code==='RECOVERY_STORAGE_UNAVAILABLE')throw cause;
+      throw new ApiClientError('Local recovery storage could not be checked. Resolve the storage problem before changing workspaces.','RECOVERY_STORAGE_UNAVAILABLE');
+    }
+  }
+  async switchContext(deviceId:string):Promise<BackendSession>{
+    const previous=this.session;
+    if(!previous)throw new ApiClientError('Sign in again before changing workspaces.','UNAUTHENTICATED',401);
+    if(deviceId===previous.deviceId)return previous;
+    this.cancelPendingReads();
+    const transitionId=requestIdentifier();
+    this.contextChannel?.postMessage({type:'context-switch-pending',userId:previous.user.id,transitionId});
+    const finishTransition=()=>this.contextChannel?.postMessage({type:'context-switch-finished',userId:previous.user.id,transitionId});
+    try{
+      const next=await this.request<unknown>('/auth/context',{method:'POST',body:JSON.stringify({deviceId})});
+      assertBackendSession(next);this.csrf=next.csrfToken;this.publish(next);
+      finishTransition();
+      return next;
+    }catch(cause){
+      const failure=cause as {code?:string;status?:number};
+      const uncertain=['OUTCOME_UNKNOWN','CONNECTION_FAILED','REQUEST_TIMED_OUT','INVALID_SERVER_RESPONSE'].includes(failure.code??'')||(failure.status??0)>=500;
+      if(!uncertain){finishTransition();throw cause;}
+      try{
+        const actual=await this.restore();
+        if(actual?.user.id===previous.user.id&&actual.deviceId===deviceId){finishTransition();return actual;}
+        if(actual){finishTransition();throw cause;}
+      }catch(restoreFailure){
+        if(restoreFailure===cause)throw cause;
+        this.csrf='';this.publish(null);
+        finishTransition();
+        throw new ApiClientError('The workspace change could not be confirmed. Sign in again to load the active workspace.','SESSION_CONTEXT_UNKNOWN');
+      }
+      this.csrf='';this.publish(null);
+      finishTransition();
+      throw new ApiClientError('The workspace change could not be confirmed. Sign in again to load the active workspace.','SESSION_CONTEXT_UNKNOWN');
+    }
+  }
   async restore(){try{const s=await this.request<unknown>('/auth/me');assertBackendSession(s);this.csrf=s.csrfToken;this.publish(s);return s}catch(error){if((error as {status?:number}).status!==401)throw error;this.csrf='';this.publish(null);return null}}
   async logout(){await this.request('/auth/logout',{method:'POST'});this.csrf='';this.publish(null)}
   clearAuthenticatedSession(){this.csrf='';this.publish(null);}
@@ -343,13 +423,25 @@ class ApiClient {
   async getStaffSessions(userId:string,signal?:AbortSignal,options:HistoryOptions={}){const result=await this.requestArray<BackendOperatorSessions>(historyUrl('/staff/'+encodeURIComponent(userId)+'/sessions',options),'sessions',signal);if(typeof result.userId!=='string'||typeof result.credentialVersion!=='number')throw new ApiClientError('The session response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result;}
   async getConfiguration(signal?:AbortSignal){
     const result=await this.request<{configuration:BackendConfiguration}>('/configuration',{signal});
-    const configuration=result.configuration as unknown;
+    const configuration=result.configuration as unknown as Record<string,unknown>;
     if(!isRecord(configuration)||!isRecord(configuration.business)||!isRecord(configuration.outlet)||!Array.isArray(configuration.capabilities)||!Array.isArray(configuration.supportedCapabilities)||!isRecord(configuration.readiness)||!Array.isArray(configuration.readiness.checks))
       throw new ApiClientError('Business settings were returned without the required business, outlet, capability, or readiness data. Retry this read.','INVALID_SERVER_RESPONSE',200);
     for(const [name,record] of [['business',configuration.business],['outlet',configuration.outlet]] as const){
       if(typeof record.id!=='string'||typeof record.name!=='string'||typeof record.version!=='number'||!Number.isSafeInteger(record.version))
         throw new ApiClientError(`Business settings are missing required ${name} fields. Retry this read.`,'INVALID_SERVER_RESPONSE',200);
     }
+    const currentOutlet=configuration.outlet as Record<string,unknown>;
+    const rawOutlets:unknown[]=Array.isArray(configuration.outlets)?configuration.outlets:[{...currentOutlet,active:true}];
+    const normalizedOutlets=rawOutlets.map(item=>{
+      if(!isRecord(item)||typeof item.id!=='string'||typeof item.name!=='string'||typeof item.timeZone!=='string'||typeof item.version!=='number'||!Number.isSafeInteger(item.version))
+        throw new ApiClientError('The outlet directory response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+      const taxPolicy=isRecord(item.taxPolicy)&&typeof item.taxPolicy.defaultRateBps==='number'&&typeof item.taxPolicy.label==='string'&&typeof item.taxPolicy.reviewed==='boolean'?item.taxPolicy:null;
+      return {...item,active:typeof item.active==='boolean'?item.active:true,taxPolicy} as Record<string,unknown>;
+    });
+    if(!normalizedOutlets.some(item=>item.id===currentOutlet.id))throw new ApiClientError('The current outlet is missing from the business outlet directory. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    configuration.outlets=normalizedOutlets;
+    const currentTaxPolicy=isRecord(currentOutlet.taxPolicy)&&typeof currentOutlet.taxPolicy.defaultRateBps==='number'&&typeof currentOutlet.taxPolicy.label==='string'&&typeof currentOutlet.taxPolicy.reviewed==='boolean'?currentOutlet.taxPolicy:null;
+    configuration.outlet={...currentOutlet,active:typeof currentOutlet.active==='boolean'?currentOutlet.active:true,taxPolicy:currentTaxPolicy};
     return result;
   }
   async getStockSalePolicy(signal?:AbortSignal){
@@ -417,6 +509,28 @@ class ApiClient {
   listInventoryCounts(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{counts:BackendInventoryCountSummary[];page?:HistoryPage}>(historyUrl('/inventory/counts',options),'counts',signal)}
   async getCurrentInventoryCount(signal?:AbortSignal){const result=await this.request<unknown>('/inventory/counts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'count')||(result.count!==null&&!isRecord(result.count)))throw new ApiClientError('The current stock count response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {count:BackendInventoryCount|null};}
   getInventoryCount(countId:string,signal?:AbortSignal){return this.requestRecord<{count:BackendInventoryCount}>('/inventory/counts/'+encodeURIComponent(countId),'count',signal)}
+  async getInventoryCountReview(countId:string,signal?:AbortSignal){
+    const result=await this.request<unknown>('/inventory/counts/'+encodeURIComponent(countId)+'/review',{signal});
+    if(!isRecord(result)||!isCountReview(result.review,countId))throw new ApiClientError('The changed-item review is incomplete. Your count entries remain available. Retry the review.','INVALID_SERVER_RESPONSE',200);
+    return result as {review:CountReview};
+  }
+  async getInventoryCountReviewMovements(countId:string,after:string,signal?:AbortSignal){
+    const result=await this.request<unknown>('/inventory/counts/'+encodeURIComponent(countId)+'/review/movements?'+new URLSearchParams({after}),{signal});
+    if(!isRecord(result)||typeof result.productId!=='string'||!Array.isArray(result.movements)||!result.movements.every(isCountReviewMovement)||!isCountMovementPage(result.page))throw new ApiClientError('The changed-item movements are incomplete. Retry this page.','INVALID_SERVER_RESPONSE',200);
+    const page=result.page;
+    if(result.movements.length>page.limit||result.movements.length>page.totalCount||page.hasMore&&result.movements.length===0||new Set(result.movements.map(item=>item.id)).size!==result.movements.length||result.movements.some(item=>BigInt(item.sequence)<=BigInt(page.lowerExclusive)||BigInt(item.sequence)>BigInt(page.upperInclusive)))throw new ApiClientError('The changed-item movements do not match this review range. Retry this page.','INVALID_SERVER_RESPONSE',200);
+    return result as {productId:string;movements:CountReviewMovement[];page:CountMovementPage};
+  }
+  async listInventoryCountEvents(countId:string,signal?:AbortSignal,options:HistoryOptions={}){
+    const result=await this.requestArray<{events:CountEvidenceEvent[];page:HistoryPage}>(historyUrl('/inventory/counts/'+encodeURIComponent(countId)+'/events',options),'events',signal);
+    if(!result.events.every(isCountEvidenceEvent)||!isCountEventPage(result.page))throw new ApiClientError('The count evidence history is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async getInventoryCountEvent(countId:string,eventId:string,signal?:AbortSignal){
+    const result=await this.request<CountEvidenceDetail>('/inventory/counts/'+encodeURIComponent(countId)+'/events/'+encodeURIComponent(eventId),{signal});
+    if(!isCountEvidenceEvent(result.event)||result.event.id!==eventId||!Array.isArray(result.lines)||!result.lines.every(line=>isRecord(line)&&isCountLineEvidence(line.after)&&(line.before===null||isCountLineEvidence(line.before))&&line.productId===line.after.productId&&(line.before===null||line.before.productId===line.productId)))throw new ApiClientError('This count history entry is incomplete. Retry the entry.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
   async getCurrentShift(signal?:AbortSignal){const result=await this.request<unknown>('/shifts/current',{signal});if(!isRecord(result)||!Object.hasOwn(result,'shift')||(result.shift!==null&&!isRecord(result.shift)))throw new ApiClientError('The current shift response is incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);return result as {shift:BackendShift|null};}
   listShiftCashMovements(shiftId:string,signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{movements:BackendShiftCashMovement[];page?:HistoryPage}>(historyUrl('/shifts/'+encodeURIComponent(shiftId)+'/cash-movements',options),'movements',signal)}
   listShiftCloseReports(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{reports:BackendShiftCloseReport[];page?:HistoryPage}>(historyUrl('/shifts/close-reports',options),'reports',signal)}
@@ -447,7 +561,7 @@ class ApiClient {
     try{await commandJournal.save(command,'sending',actorId);}
     catch{throw Object.assign(new Error('This action was not sent because recovery details could not be saved on this device. Enable browser storage and try again.'),{code:'COMMAND_NOT_SENT'});}
     await this.emitRecovery();
-    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(!isTerminalOutcome(result,command.commandId,command.type,command.payload))throw new ApiClientError(unconfirmedActionMessage('/commands'),'OUTCOME_UNKNOWN');await commandJournal.remove(command.commandId);await this.emitRecovery();return presentOutcome(result)}
+    try{const result=await this.request<{commandId:string;status:string;value?:Record<string,unknown>;message?:string;code?:string}>('/commands',{method:'POST',body:JSON.stringify(command)});if(!isTerminalOutcome(result,command.commandId,command.type,command.payload,command.expectedVersions))throw new ApiClientError(unconfirmedActionMessage('/commands'),'OUTCOME_UNKNOWN');await commandJournal.remove(command.commandId);await this.emitRecovery();return presentOutcome(result)}
     catch(error){await commandJournal.save(command,'outcome_unknown',actorId);await this.emitRecovery();throw error}
   }
   async submitPasswordOperation(operation:SecretOperationRecovery,newPassword:string,currentPassword?:string):Promise<BackendCommandResult>{
@@ -513,7 +627,7 @@ class ApiClient {
   async checkCommandStatus(commandId:string){
     const result=await this.request<unknown>('/commands/'+encodeURIComponent(commandId));
     const stored=(await this.listRecoverableCommands(this.session?.tenant.id)).find(record=>record.command.commandId===commandId);
-    if(!isTerminalCommandStatus(result,commandId,stored?.command.type,stored?.command.payload))throw new ApiClientError(unconfirmedActionMessage('/commands'),'INVALID_SERVER_RESPONSE');
+    if(!isTerminalCommandStatus(result,commandId,stored?.command.type,stored?.command.payload,stored?.command.expectedVersions))throw new ApiClientError(unconfirmedActionMessage('/commands'),'INVALID_SERVER_RESPONSE');
     await commandJournal.remove(commandId);await this.emitRecovery();return {...result,response:presentOutcome(result.response)};
   }
   async listRecoverableCommands(tenantId?:string):Promise<RecoverableCommand[]>{try{const actorId=this.session?.user.id;const records=await commandJournal.list(tenantId);return actorId?records.filter(record=>record.actorId===actorId):[]}catch{throw new ApiClientError(apiErrorMessage('RECOVERY_STORAGE_UNAVAILABLE'),'RECOVERY_STORAGE_UNAVAILABLE');}}

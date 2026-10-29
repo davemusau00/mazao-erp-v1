@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
@@ -6,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const sourceUrl=process.env.TEST_DATABASE_URL;
+const migrationCount=readdirSync(new URL('../migrations/',import.meta.url)).filter(name=>/^\d{3}_.+\.sql$/.test(name)).length;
 if(!sourceUrl){
   test('product import upgrade preserves migration-014 business evidence',{skip:'Set TEST_DATABASE_URL to a disposable PostgreSQL database with CREATE DATABASE permission.'},()=>{});
 }else{
@@ -48,7 +50,10 @@ if(!sourceUrl){
       await fixture.query('COMMIT');
       const snapshot=async()=>{
         const balances=await fixture!.query('SELECT * FROM inventory.balances ORDER BY product_id');
-        const movements=await fixture!.query('SELECT * FROM inventory.movements ORDER BY id');
+        // Migration 026 adds an ordinal for count evidence. Compare every
+        // original movement field here; its new sequence receives its own
+        // migration-upgrade assertions in count-recovery-upgrade.integration.
+        const movements=await fixture!.query("SELECT to_jsonb(m)-'movement_seq' AS prior_evidence FROM inventory.movements m ORDER BY id");
         const journals=await fixture!.query('SELECT id,tenant_id,source_type,source_id,currency,created_by,posted_at FROM finance.journal_entries ORDER BY id');
         const lines=await fixture!.query('SELECT * FROM finance.journal_lines ORDER BY id');
         // Migration 016 adds this one new display snapshot. Compare every
@@ -68,7 +73,7 @@ if(!sourceUrl){
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
       assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.credential_operations')).rows[0].total,0,'upgrade leaves pre-existing credential commands unchanged without inventing metadata');
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,25,'the complete additive upgrade reaches the current migration');
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,migrationCount,'the complete additive upgrade reaches the current migration');
     }finally{
       try{
         // Client.end waits for the socket to close. Pool.end can resolve while

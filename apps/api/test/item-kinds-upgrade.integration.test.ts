@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
@@ -8,10 +9,11 @@ import { DomainError, type ApiSession } from '../src/contracts.js';
 import { requireStoredCommandAuthority } from '../src/commandAuthorization.js';
 
 const sourceUrl = process.env.TEST_DATABASE_URL;
+const migrationCount = readdirSync(new URL('../migrations/', import.meta.url)).filter(name => /^\d{3}_.+\.sql$/.test(name)).length;
 if (!sourceUrl) {
   test('item kind upgrade preserves posted and legacy authority evidence', { skip: 'Requires a disposable localhost TEST_DATABASE_URL with CREATE DATABASE permission.' }, () => {});
 } else {
-  test('populated 023 to 024/025 upgrade preserves history, defaults legacy kinds and fences physical writes', { timeout: 180_000 }, async t => {
+  test('populated 023 to current schema upgrade preserves history, defaults legacy kinds and fences physical writes', { timeout: 180_000 }, async t => {
     const source = new URL(sourceUrl);
     assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(source.hostname), 'Upgrade fixture requires explicitly disposable localhost PostgreSQL.');
     const name = 'mazao_kind_upgrade_' + randomUUID().replaceAll('-', '');
@@ -62,17 +64,17 @@ if (!sourceUrl) {
       const snapshot = async () => {
         const result: Record<string, unknown> = {};
         for (const table of ['catalog.products', 'catalog.categories', 'inventory.balances', 'inventory.movements', 'commerce.orders', 'commerce.order_lines', 'commerce.payments', 'commerce.shifts', 'finance.journal_entries', 'finance.journal_lines', 'system.commands', 'system.audit_events', 'system.transactional_outbox']) {
-          const expression = table === 'catalog.products' ? "to_jsonb(x)-'item_kind'" : table === 'commerce.order_lines' ? "to_jsonb(x)-'item_kind_snapshot'" : table === 'system.commands' ? "to_jsonb(x)-'authority_version'-'required_capabilities'" : 'to_jsonb(x)';
+          const expression = table === 'catalog.products' ? "to_jsonb(x)-'item_kind'" : table === 'inventory.movements' ? "to_jsonb(x)-'movement_seq'" : table === 'commerce.order_lines' ? "to_jsonb(x)-'item_kind_snapshot'" : table === 'system.commands' ? "to_jsonb(x)-'authority_version'-'required_capabilities'" : 'to_jsonb(x)';
           result[table] = (await client!.query(`SELECT ${expression} AS evidence FROM ${table} x ORDER BY (${expression})::text`)).rows;
         }
         return result;
       };
       const before = await snapshot();
-      await t.test('all original fields remain identical and rerun checks all 25 migration checksums', async () => {
+      await t.test('all original fields remain identical and rerun checks every current migration checksum', async () => {
         migrate(); const rerun = migrate();
         assert.deepEqual(await snapshot(), before);
-        assert.equal((rerun.match(/already applied; checksum matches/g) ?? []).length, 25);
-        assert.equal((await client!.query('SELECT count(*)::int n FROM system.schema_migrations')).rows[0].n, 25);
+        assert.equal((rerun.match(/already applied; checksum matches/g) ?? []).length, migrationCount);
+        assert.equal((await client!.query('SELECT count(*)::int n FROM system.schema_migrations')).rows[0].n, migrationCount);
         assert.deepEqual((await client!.query('SELECT DISTINCT item_kind FROM catalog.products')).rows, [{ item_kind: 'STOCKED_GOOD' }]);
         assert.deepEqual((await client!.query('SELECT item_kind_snapshot FROM commerce.order_lines')).rows, [{ item_kind_snapshot: 'STOCKED_GOOD' }]);
       });

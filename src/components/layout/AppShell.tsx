@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays, PackageSearch } from 'lucide-react';
+import { ArrowLeftRight, BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays, PackageSearch } from 'lucide-react';
 import type { WorkspaceId } from '../../types/ui';
 import { featureState, workspaceFeatures } from '../../app/featureRegistry';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
-import { apiClient, type BackendSession } from '../../services/apiClient';
+import { apiClient, type BackendAssignmentChoice, type BackendContextSwitchBlockers, type BackendSession } from '../../services/apiClient';
 import type { RecoverableCommand } from '../../services/commandJournal';
 import type { ImportValidationRecovery } from '../../services/importValidationJournal';
 import { MyAccountDialog } from '../auth/MyAccountDialog';
@@ -13,8 +13,10 @@ export type ActiveTab=WorkspaceId;
 const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,catalog:<Package/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,'stock-exceptions':<PackageSearch/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
 const workspaceItems=workspaceFeatures.map(feature=>({...feature,icon:workspaceIcons[feature.id]}));
 const groups=[{id:'work',label:'WORK'},{id:'money',label:'MONEY'},{id:'manage',label:'MANAGE'},{id:'support',label:'SUPPORT'}] as const;
+const setupWorkspaces=new Set<WorkspaceId>(['onboarding','manage','catalog','stock','stock-count','help']);
 
 export function canOpenWorkspace(session:BackendSession,workspace:WorkspaceId):boolean {
+  if(session.onboardingStatus==='SETUP'&&!setupWorkspaces.has(workspace))return false;
   const feature=workspaceFeatures.find(item=>item.id===workspace);
   return Boolean(feature&&['connected','partial'].includes(featureState(session,feature)));
 }
@@ -28,6 +30,12 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [logoutError,setLogoutError]=useState('');
   const [recoveryOpen,setRecoveryOpen]=useState(false);
   const [accountOpen,setAccountOpen]=useState(false);
+  const [contextSwitchOpen,setContextSwitchOpen]=useState(false);
+  const [contextAssignments,setContextAssignments]=useState<BackendAssignmentChoice[]>([]);
+  const [contextBlockers,setContextBlockers]=useState<BackendContextSwitchBlockers|null>(null);
+  const [contextLoading,setContextLoading]=useState(false);
+  const [contextBusy,setContextBusy]=useState(false);
+  const [contextError,setContextError]=useState('');
   const [checkingCommand,setCheckingCommand]=useState('');
   const [recoveryMessages,setRecoveryMessages]=useState<Record<string,string>>({});
   const [lastRecoveryResult,setLastRecoveryResult]=useState<{commandId:string;status:string;message:string}|null>(null);
@@ -59,7 +67,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     void apiClient.listImportValidationRecovery().then(setImportRecoveries).catch(()=>setImportRecoveries([]));
     return apiClient.subscribeImportRecovery(setImportRecoveries);
   },[session?.tenant.id,session?.user.id,session?.deviceId]);
-  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'):[],[session]);
+  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
   const available=useMemo(()=>session?discoverable.filter(item=>canOpenWorkspace(session,item.id)):[],[session,discoverable]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
@@ -74,6 +82,26 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     setLogoutError('');apiClient.cancelPendingReads();try{await apiClient.logout();}catch(cause){setLogoutError(cause instanceof Error?cause.message:'Sign-out could not be confirmed.');}
   };
   const openRecovery=()=>setRecoveryOpen(true);
+  const openContextSwitch=async()=>{
+    if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+    if(!window.dispatchEvent(new Event('mazao:before-context-switch',{cancelable:true})))return;
+    setContextSwitchOpen(true);setContextLoading(true);setContextError('');setContextBlockers(null);setContextAssignments([]);
+    try{
+      const [assignments,blockers]=await Promise.all([apiClient.listContextAssignments(),apiClient.inspectContextSwitchBlockers()]);
+      setContextAssignments(assignments);setContextBlockers(blockers);
+    }catch(cause){setContextError(cause instanceof Error?cause.message:'Workspace choices could not be checked. Retry.');}
+    finally{setContextLoading(false);}
+  };
+  const switchContext=async(assignment:BackendAssignmentChoice)=>{
+    if(assignment.deviceId===session.deviceId){setContextSwitchOpen(false);return;}
+    setContextBusy(true);setContextError('');
+    try{
+      const blockers=await apiClient.inspectContextSwitchBlockers();setContextBlockers(blockers);
+      if(blockers.commands+blockers.imports+blockers.credentialChanges+blockers.countDrafts>0)return;
+      apiClient.cancelPendingReads();await apiClient.switchContext(assignment.deviceId);
+    }catch(cause){setContextError(cause instanceof Error?cause.message:'The workspace could not be changed. Check your sign-in and try again.');}
+    finally{setContextBusy(false);}
+  };
   const copyRequestId=async(requestId:string)=>{try{await navigator.clipboard.writeText(requestId);setCopiedRequestId(requestId);}catch{setCopiedRequestId('');}};
   const openAccount=()=>{if(window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true})))setAccountOpen(true);};
   const checkCommand=async(commandId:string)=>{
@@ -100,7 +128,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       <div className="sidebar-footer"><span className="demo-indicator"><span/>{session.outlet.name}</span></div>
     </aside>
     <div className="app-main-column">
-      <header className="topbar"><div className="topbar-context"><button type="button" className="operator-button min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={'Signed in as '+session.user.name} aria-haspopup="dialog" aria-expanded={accountOpen} title="Open My account" onClick={openAccount}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {roleLabel(session.user.role)}</small></span></button></div><div className="topbar-actions"><div className={'connection-pill server-session '+(online?'online':'offline')} title={online?'Your browser is online':'You are offline. A connection is required to complete business actions.'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Online':'Offline'}</span><button className="min-h-11 min-w-11 whitespace-nowrap" type="button" onClick={()=>void signOut()} aria-label="Sign out">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
+      <header className="topbar"><div className="topbar-context"><button type="button" className="operator-button min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={'Signed in as '+session.user.name} aria-haspopup="dialog" aria-expanded={accountOpen} title="Open My account" onClick={openAccount}><span className="operator-avatar">{session.user.name.slice(0,1)}</span><span className="operator-copy"><strong>{session.tenant.name}</strong><small>{session.outlet.name} · {session.user.name} · {roleLabel(session.user.role)}</small></span></button></div><div className="topbar-actions"><button type="button" className="icon-action min-h-11" onClick={()=>void openContextSwitch()} aria-haspopup="dialog" aria-expanded={contextSwitchOpen} aria-label="Switch workspace"><ArrowLeftRight size={16}/><span className="hidden sm:inline">Switch workspace</span></button><div className={'connection-pill server-session '+(online?'online':'offline')} title={online?'Your browser is online':'You are offline. A connection is required to complete business actions.'}>{online?<Wifi size={15}/>:<WifiOff size={15}/>}<span>{online?'Online':'Offline'}</span><button className="min-h-11 min-w-11 whitespace-nowrap" type="button" onClick={()=>void signOut()} aria-label="Sign out">Sign out</button></div>{isInstallable&&!isInstalled&&<button type="button" className="icon-action install-action" onClick={install}><Download size={16}/><span>Install app</span></button>}</div></header>
       <main className="workspace-content" id="main-content" tabIndex={-1}>
         {!online&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">You are offline. Reconnect to complete business actions. You can still review actions awaiting confirmation.</div>}
         {slowRequests.size>0&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">Loading is taking longer than usual. If it stops, use Try again in the affected section.</div>}
@@ -116,6 +144,19 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
           <section aria-labelledby="import-recovery-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="import-recovery-title" className="text-sm font-semibold">Product imports</h3><span className="text-[11px] text-zinc-500">{importRecoveries.length} to review</span></div>{importRecoveries.length?<div className="space-y-2">{importRecoveries.map(record=><article key={record.commandId} className="rounded-lg border border-amber-900/70 bg-amber-950/20 p-3"><p className="text-xs font-semibold text-amber-100">{record.fileName} · confirmation needed</p><details className="mt-2 text-xs"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{record.sourceHash}</p></details><p className="mt-1 text-[11px] text-amber-100/70">Reopen product import and select the original file to check it again. The file contents are not saved on this device.</p><button type="button" onClick={()=>{setRecoveryOpen(false);selectWorkspace('catalog');}} className="mt-2 min-h-10 rounded-lg border border-amber-800 px-3 text-xs font-semibold text-amber-100">Open product import review</button></article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No product imports need review on this browser.</p>}</section>
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] leading-relaxed text-zinc-400">Sales need a connection to complete. Check an unconfirmed payment before taking payment again.</div>
         </div></section></div>}
+      {contextSwitchOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!contextBusy)setContextSwitchOpen(false);}}>
+        <section role="dialog" aria-modal="true" aria-labelledby="context-switch-title" className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+          <header className="flex items-start justify-between gap-3 border-b border-zinc-800 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-blue-300">AUTHORIZED WORKSPACES</p><h2 id="context-switch-title" className="mt-1 text-xl font-bold">Switch workspace</h2><p className="mt-1 text-sm text-zinc-400">Choose an active outlet assignment for your account.</p></div><button type="button" onClick={()=>setContextSwitchOpen(false)} disabled={contextBusy} aria-label="Close workspace choices" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"><X size={18}/></button></header>
+          <div className="space-y-3 p-4 sm:p-5">
+            {contextLoading&&<p role="status" className="text-sm text-zinc-400">Checking active assignments and saved recovery details…</p>}
+            {contextError&&<p role="alert" className="rounded-lg border border-rose-900 bg-rose-950/30 p-3 text-sm text-rose-200">{contextError}</p>}
+            {contextBlockers&&contextBlockers.commands+contextBlockers.imports+contextBlockers.credentialChanges+contextBlockers.countDrafts>0&&<div role="alert" className="space-y-2 rounded-lg border border-amber-800 bg-amber-950/20 p-3 text-sm text-amber-100"><p>Resolve or safely save current workspace work before switching. No pending action will be sent again automatically.</p><ul className="list-inside list-disc text-xs text-amber-100/80">{contextBlockers.commands>0&&<li>{contextBlockers.commands} business action{contextBlockers.commands===1?'':'s'} need status review</li>}{contextBlockers.imports>0&&<li>{contextBlockers.imports} product import{contextBlockers.imports===1?'':'s'} need review</li>}{contextBlockers.credentialChanges>0&&<li>{contextBlockers.credentialChanges} password operation{contextBlockers.credentialChanges===1?'':'s'} need recovery</li>}{contextBlockers.countDrafts>0&&<li>{contextBlockers.countDrafts} unsent count draft{contextBlockers.countDrafts===1?'':'s'} are saved on this device</li>}</ul><div className="flex flex-wrap gap-2">{(contextBlockers.commands>0||contextBlockers.imports>0)&&<button type="button" className="min-h-10 rounded-lg border border-amber-700 px-3 text-xs" onClick={()=>{setContextSwitchOpen(false);setRecoveryOpen(true);}}>Review saved actions</button>}{contextBlockers.countDrafts>0&&canOpenWorkspace(session,'stock-count')&&<button type="button" className="min-h-10 rounded-lg border border-amber-700 px-3 text-xs" onClick={()=>{setContextSwitchOpen(false);selectWorkspace('stock-count');}}>Open stock count</button>}{contextBlockers.ownPasswordChanges>0&&<button type="button" className="min-h-10 rounded-lg border border-amber-700 px-3 text-xs" onClick={()=>{setContextSwitchOpen(false);setAccountOpen(true);}}>Open account security</button>}{contextBlockers.staffPasswordChanges>0&&canOpenWorkspace(session,'manage')&&<button type="button" className="min-h-10 rounded-lg border border-amber-700 px-3 text-xs" onClick={()=>{setContextSwitchOpen(false);selectWorkspace('manage');}}>Open staff management</button>}</div></div>}
+            {!contextLoading&&!contextAssignments.length&&!contextError&&<p className="rounded-lg border border-zinc-800 p-4 text-sm text-zinc-400">No active workspace assignments are available.</p>}
+            {contextAssignments.map(assignment=><button key={assignment.deviceId} type="button" disabled={contextBusy||assignment.deviceId===session.deviceId||contextLoading} aria-current={assignment.deviceId===session.deviceId?'true':undefined} onClick={()=>void switchContext(assignment)} className="flex min-h-16 w-full items-center justify-between gap-3 rounded-lg border border-zinc-700 bg-zinc-900/50 p-3 text-left hover:border-blue-700 disabled:cursor-default disabled:opacity-60"><span><strong className="block text-sm text-zinc-100">{assignment.tenantName}</strong><span className="mt-1 block text-xs text-zinc-400">{assignment.outletName} · {assignment.deviceLabel}</span></span><span className="text-xs text-blue-200">{contextBusy?'Switching…':assignment.deviceId===session.deviceId?'Current':'Switch'}</span></button>)}
+            {!contextLoading&&contextAssignments.length>0&&!contextBlockers&&!contextError&&<p className="text-xs text-zinc-500">Saved actions and unsent stock count edits must be resolved before changing outlets.</p>}
+          </div>
+        </section>
+      </div>}
       {accountOpen&&<MyAccountDialog onClose={()=>setAccountOpen(false)}/>}
     </div>
   </div>;

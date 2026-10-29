@@ -40,9 +40,9 @@ export async function lockCatalogOutlet(client:PoolClient,session:ApiSession,mod
   const lock=mode==='shared'?'pg_advisory_xact_lock_shared':'pg_advisory_xact_lock';
   await client.query(`SELECT ${lock}(hashtextextended('catalog:'||$1::text||':'||$2::text,0))`,[session.tenantId,session.outletId]);
 }
-export async function assertNoOpenCatalogCount(client:PoolClient,session:ApiSession) {
-  const count=await client.query("SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status='OPEN' LIMIT 1",[session.tenantId,session.outletId]);
-  if(count.rowCount)throw new DomainError('OPEN_COUNT_CONFLICT','Finish or cancel the open outlet count before changing count membership or reference cost.',409,{countId:count.rows[0].id});
+export async function assertNoOpenCatalogCount(client:PoolClient,session:ApiSession,allowNewItemOutsideSelectedCount=false) {
+  const count=await client.query("SELECT id,count_mode FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status='OPEN' LIMIT 1",[session.tenantId,session.outletId]);
+  if(count.rowCount&&!(allowNewItemOutsideSelectedCount&&count.rows[0].count_mode==='SELECTED'))throw new DomainError('OPEN_COUNT_CONFLICT','Finish or cancel the open outlet count before changing count membership or reference cost.',409,{countId:count.rows[0].id});
 }
 
 /** Text is retained for preceding clients and CSV reviews; the scoped FK is

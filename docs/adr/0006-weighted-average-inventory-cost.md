@@ -6,7 +6,7 @@
 
 Value each outlet's on-hand stock with an integer minor-unit carrying value stored with its decimal-safe quantity. A receipt adds its extended receipt value to that balance. A sale consumes a proportionate share of the balance value at the sale transaction's locked stock revision. This is a perpetual moving weighted-average policy.
 
-The item setup cost remains a reference cost and a fallback estimate when a physical count discovers stock while the baseline quantity is zero. It is not used as sale COGS. Full-count gains use the current carrying-value-per-unit when stock exists; full-count shrinkage removes carrying value at that same baseline average. Count variances retain the estimate fallback when no baseline stock exists.
+The item setup cost remains a reference cost and an estimate when a physical count discovers stock while the baseline quantity is zero. Before posting such a gain, a cost-authorized count approver must review the opening reference unit cost and proposed extended value and record an approval reason. If the opening reference cost is zero, the gain may remain zero-valued only with an explicit reason; this does not assert that purchase cost is zero or verified. The estimate origin and exact values are recorded with the posted count/audit evidence. It is not used as verified sale COGS. Full-count gains use the current carrying-value-per-unit when stock exists; full-count shrinkage removes carrying value at that same baseline average.
 
 ## Rounding and history
 
@@ -16,4 +16,4 @@ Every receipt, sale, restocked refund and count adjustment stores the exact exte
 
 ## Consequences and limits
 
-Inventory carrying value and COGS reconcile at minor-unit precision for the supported receipt, sale, refund-restock and full-count commands. The item setup cost is not an inventory valuation report. Transfers, locations, landed cost, supplier invoices, zero-stock count gain approval, and restocking non-cash provider refunds need their own accepted workflows. This decision does not make incomplete financial reports authoritative.
+Inventory carrying value and COGS reconcile at minor-unit precision for the supported receipt, sale, refund-restock and full-count commands. The item setup cost is not an inventory valuation report. The zero-baseline count valuation gate passed local API and UI reconciliation acceptance in S01-06; provisional COGS for stock exceptions remains a separate evidence path. Exact-head hosted CI, release and production acceptance remain open. Transfers, locations, landed cost, supplier invoices, and restocking non-cash provider refunds need their own accepted workflows. This decision does not make incomplete financial reports authoritative.

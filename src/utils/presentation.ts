@@ -6,6 +6,7 @@ export function operationLabel(type: string): string {
     'shift.open': 'Open till', 'shift.close': 'Close till', 'shift.cash.movement': 'Till cash movement',
     'inventory.receive': 'Stock delivery', 'inventory.count.open': 'Start stock count',
     'inventory.count.save': 'Save stock count', 'inventory.count.update': 'Save stock count',
+    'inventory.count.review': 'Review count baseline',
     'inventory.count.post': 'Approve stock count', 'inventory.count.cancel': 'Cancel stock count',
     'catalog.product.create': 'Create item', 'catalog.product.update': 'Update item',
     'catalog.product.set_active': 'Change item availability', 'catalog.product.change_kind': 'Change item type',
@@ -67,7 +68,8 @@ export function permissionLabel(code: string): string {
 
 export function sourceLabel(type: string): string {
   return ({ sale: 'Sale', restock: 'Stock received', adjustment: 'Stock adjustment',
-    RECEIPT: 'Stock received', COUNT: 'Stock count', OPENING: 'Opening stock',
+    RECEIPT: 'Stock received', COUNT: 'Stock count', OPENING: 'Opening stock', OPENING_IMPORT: 'Opening stock import',
+    COUNT_ADJUSTMENT: 'Stock count adjustment', SHORTFALL_RECONCILIATION: 'Stock exception reconciliation',
     SALE: 'Sale', SALES_ORDER: 'Sale', SALE_PAYMENT: 'Sale payment', REFUND: 'Sale refund',
     SALE_COGS: 'Cost of sold items', SALE_REFUND: 'Sale refund', SALE_REFUND_COGS: 'Returned item costs',
     SHIFT_OPEN: 'Till opening', SHIFT_CASH_PAID_IN: 'Till cash paid-in', SHIFT_CASH_PAYOUT: 'Till cash payout',

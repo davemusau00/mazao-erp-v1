@@ -39,11 +39,45 @@ const categoryLabelSchema = normalizedTextSchema(80, true);
 const reorderSchema: ContractSchema = {type:'string',pattern:'^[^\\S\\u0000-\\u001f\\u007f]*\\d{1,14}(?:\\.\\d{1,6})?[^\\S\\u0000-\\u001f\\u007f]*$'};
 const barcodeSchema: ContractSchema = {type:['string','null'],pattern:'^[^\\S\\u0000-\\u001f\\u007f]*(?:[A-Za-z0-9._/-]{1,64})?[^\\S\\u0000-\\u001f\\u007f]*$'};
 const itemKindSchema: ContractSchema = {type:'string',pattern:'^(?:STOCKED_GOOD|SERVICE|PREPARED)$'};
+const affectedProductsSchema: ContractSchema = {type:'array',items:uuidSchema,minItems:1,maxItems:5000,uniqueItems:true};
 
 // Each migrated schema is used at execution. Remaining entries deliberately
 // describe only the object boundary; their referenced domain validator remains
 // authoritative until that command receives a reviewed schema migration.
 const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  'inventory.count.post': {
+    payload: strictObject({countId:uuidSchema,valuationReason:reasonSchema}, ['countId']),
+    output: objectResult,
+  },
+  'inventory.count.open': {
+    payload: strictObject({
+      areaLabel: normalizedTextSchema(100, true),
+      scope: {type:'string',pattern:'^(?:FULL|SELECTED)$'},
+      productIds: {type:'array',items:uuidSchema,minItems:1,maxItems:5000,uniqueItems:true},
+      blind: {type:'boolean'},
+    }, []),
+    output: strictObject({countId:uuidSchema,status:{type:'string',const:'OPEN'},scope:{type:'string',pattern:'^(?:FULL|SELECTED)$'},blind:{type:'boolean'},lineCount:minorSchema,version:versionSchema,baselineAt:{type:'string',format:'date-time'}}),
+  },
+  'inventory.count.review': {
+    payload: strictObject({countId:uuidSchema,reason:reasonSchema,reviewFingerprint:{type:'string',pattern:'^[a-f0-9]{64}$'},affectedProductIds:affectedProductsSchema}),
+    output: strictObject({countId:uuidSchema,version:versionSchema,reviewId:uuidSchema,revision:versionSchema,affectedProductIds:affectedProductsSchema}),
+  },
+  'configuration.go_live.approve': {
+    payload: strictObject({reason:reasonSchema}),
+    output: strictObject({tenantId:uuidSchema,status:{type:'string',const:'LIVE'},reviewedAt:{type:'string',format:'date-time'}}),
+  },
+  'configuration.outlet.create': {
+    payload: strictObject({name:normalizedTextSchema(160),timeZone:normalizedTextSchema(100),address:normalizedTextSchema(500,true),phone:normalizedTextSchema(40,true),email:normalizedTextSchema(254,true),receiptHeader:normalizedTextSchema(500,true),receiptFooter:normalizedTextSchema(500,true),taxPolicy:{type:['object','null'],properties:{calculation:{type:'string',const:'exclusive'},defaultRateBps:{type:'integer',minimum:0,maximum:10000},label:normalizedTextSchema(40),reviewed:{type:'boolean'}},required:['defaultRateBps','label','reviewed'],additionalProperties:false}},['name','timeZone','address','phone','email','receiptHeader','receiptFooter']),
+    output: strictObject({outletId:uuidSchema,version:versionSchema,active:{type:'boolean'},businessVersion:versionSchema}),
+  },
+  'configuration.outlet.set_active': {
+    payload: strictObject({outletId:uuidSchema,active:{type:'boolean'},reason:reasonSchema}),
+    output: strictObject({outletId:uuidSchema,version:versionSchema,active:{type:'boolean'}}),
+  },
+  'configuration.outlet.update': {
+    payload: strictObject({outletId:uuidSchema,id:uuidSchema,version:versionSchema,active:{type:'boolean'},name:normalizedTextSchema(160),timeZone:normalizedTextSchema(100),address:normalizedTextSchema(500,true),phone:normalizedTextSchema(40,true),email:normalizedTextSchema(254,true),receiptHeader:normalizedTextSchema(500,true),receiptFooter:normalizedTextSchema(500,true),taxPolicy:{type:['object','null'],properties:{calculation:{type:'string',const:'exclusive'},defaultRateBps:{type:'integer',minimum:0,maximum:10000},label:normalizedTextSchema(40),reviewed:{type:'boolean'}},required:['defaultRateBps','label','reviewed'],additionalProperties:false}},['name','timeZone','address','phone','email','receiptHeader','receiptFooter']),
+    output: strictObject({outletId:uuidSchema,version:versionSchema}),
+  },
   'catalog.product.change_kind': {
     payload: strictObject({productId:uuidSchema,itemKind:itemKindSchema,reason:reasonSchema}),
     output: strictObject({productId:uuidSchema,itemKind:itemKindSchema,version:versionSchema,stockTracked:{type:'boolean'}}),
@@ -132,7 +166,8 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'inventory.receive': contract('inventory.receive', ['inventory.receive'], ['inventory'], 'commands.ts#receiveInventory', ['stock', 'journal']),
   'inventory.count.open': contract('inventory.count.open', ['inventory.count'], ['inventory'], 'commands.ts#openStockCount', ['stock_count']),
   'inventory.count.save': contract('inventory.count.save', ['inventory.count'], ['inventory'], 'commands.ts#saveStockCount', ['stock_count']),
-  'inventory.count.post': contract('inventory.count.post', ['inventory.count.approve'], ['inventory'], 'commands.ts#postStockCount', ['stock_count', 'stock', 'journal']),
+  'inventory.count.review': contract('inventory.count.review', ['inventory.count.approve'], ['inventory'], 'countRecovery.ts#reviewStockCount', ['stock_count','count_evidence']),
+  'inventory.count.post': contract('inventory.count.post', ['inventory.count.approve'], ['inventory'], 'commands.ts#postStockCount', ['stock_count', 'count_evidence', 'stock', 'journal']),
   'inventory.count.cancel': contract('inventory.count.cancel', ['inventory.count.approve'], ['inventory'], 'commands.ts#cancelStockCount', ['stock_count']),
   'inventory.sale_shortfall.resolve': contract('inventory.sale_shortfall.resolve', ['inventory.shortfall.resolve'], ['inventory'], 'stockShortfalls.ts#executeStockExceptionCommand', ['stock_exception', 'stock', 'journal']),
   'shift.open': contract('shift.open', ['shift.open'], ['commerce'], 'commands.ts#openShift', ['shift', 'journal']),
@@ -164,7 +199,10 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'hotel.room.mark_ready': contract('hotel.room.mark_ready', ['hotel.housekeeping'], ['hospitality'], 'commands.ts#markRoomReady', ['room', 'housekeeping']),
   'configuration.business.update': contract('configuration.business.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
   'configuration.outlet.update': contract('configuration.outlet.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
+  'configuration.outlet.create': contract('configuration.outlet.create', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration','outlet']),
+  'configuration.outlet.set_active': contract('configuration.outlet.set_active', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration','outlet','session_revocation']),
   'configuration.capabilities.update': contract('configuration.capabilities.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
+  'configuration.go_live.approve': contract('configuration.go_live.approve', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration', 'go_live_review']),
   'configuration.stock_exception_policy.update': contract('configuration.stock_exception_policy.update', ['inventory.shortfall.configure'], ['inventory'], 'stockShortfalls.ts#executeStockExceptionCommand', ['configuration', 'stock_exception_policy']),
   'staff.member.create': contract('staff.member.create', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['identity', 'membership']),
   'staff.member.update': contract('staff.member.update', ['staff.manage'], [], 'staff.ts#executeStaffCommand', ['membership', 'session_revocation']),

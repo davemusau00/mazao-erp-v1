@@ -28,7 +28,7 @@ function productDraft(product: BackendProduct): Draft {
 }
 
 /** Only confirmed commands change the displayed catalog, through fresh server reads. */
-export function CatalogMaintenanceWorkspace({ onBack, initialCreate = false, backLabel = 'Back to stock', onImport }: { onBack: (notice?: string) => void; initialCreate?: boolean; backLabel?: string; onImport?: () => void }) {
+export function CatalogMaintenanceWorkspace({ onBack, initialCreate = false, initialBarcode = '', backLabel = 'Back to stock', onImport }: { onBack: (notice?: string) => void; initialCreate?: boolean; initialBarcode?: string; backLabel?: string; onImport?: () => void }) {
   const session = apiClient.getSession()!;
   const canManage = session.user.permissions.includes('catalog.manage');
   const inventoryEnabled = session.tenant.capabilities.includes('inventory');
@@ -97,7 +97,9 @@ export function CatalogMaintenanceWorkspace({ onBack, initialCreate = false, bac
     if (locked || loading) return;
     const source = product ?? category;
     setTarget(source ? { id: source.id, name: source.name, active: source.active !== false, version: product ? product.productVersion ?? 0 : category!.version, balanceVersion: product ? (product.balanceVersion === undefined ? (product.itemKind ? null : product.version) : product.balanceVersion) : null, itemKind: product ? catalogItemKind(product) : 'STOCKED_GOOD' } : null);
-    setDraft(product ? { ...productDraft(product), nextActive: product.active === false } : { ...blank(), kind: inventoryEnabled ? 'STOCKED_GOOD' : 'SERVICE', name: category?.name ?? '', nextActive: category?.active === false });
+    const nextDraft: Draft = product ? { ...productDraft(product), nextActive: product.active === false } : { ...blank(), kind: inventoryEnabled ? 'STOCKED_GOOD' : 'SERVICE', name: category?.name ?? '', nextActive: category?.active === false };
+    if (initialBarcode && (next === 'product-create' || next === 'product-edit' && (!product?.barcode || product.barcode === initialBarcode))) nextDraft.barcode = initialBarcode;
+    setDraft(nextDraft);
     setFormError(''); setNotice(''); setConflict(false); setDirty(false); setAction(next);
   };
   const close = () => {
@@ -197,6 +199,7 @@ export function CatalogMaintenanceWorkspace({ onBack, initialCreate = false, bac
   if (!canManage) return <p role="alert" className="p-6">Catalog management requires catalog access.</p>;
   return <main className="page-stack">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-blue-300">CATALOG · {session.outlet.name}</p><h1 className="mt-1 text-2xl font-bold">Manage items and categories</h1><p className="mt-2 max-w-3xl text-sm text-zinc-400">Changes apply to future sales. Posted receipts, stock movements and carrying value keep their original evidence.</p></div><button type="button" className={button} disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard these unsaved catalog edits?')) onBack(); }}><ArrowLeft size={16} />{backLabel}</button></header>
+    {initialBarcode&&<p role="status" className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-100">Scanned barcode <strong>{initialBarcode}</strong> needs a catalogue decision. Search for an existing item and edit it to link this barcode, or choose Add item to create a stocked-good record. Nothing is created or linked automatically.</p>}
     {onImport && <button type="button" className={button} disabled={busy} onClick={onImport}>Import products</button>}
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
     {notice && <p role={unknown ? 'alert' : 'status'} className="rounded-lg border border-blue-800 p-3 text-sm text-blue-200">{notice}</p>}

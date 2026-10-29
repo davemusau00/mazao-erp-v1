@@ -20,6 +20,11 @@ test('commerce-only operator creates sells refunds and closes a service without 
   await page.setViewportSize({width:1024,height:600});
   await page.goto('/');await page.getByLabel('Email',{exact:true}).fill(email);await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await expect(page.getByLabel('Signed in as Service Browser Admin')).toBeVisible();
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await page.getByRole('button',{name:/Business and outlets/}).click();
+  await expect(page.getByLabel('Business name',{exact:true})).toHaveValue('Disposable service business');
+  await expect(page.getByRole('button',{name:'Stock exceptions',exact:true})).toBeDisabled();
+  await expect(page.getByText('Enable inventory to review stock exception settings.',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Items and services',exact:true}).click();
   await page.getByRole('button',{name:'Add item',exact:true}).click();
   const create=page.getByRole('dialog',{name:'Create item',exact:true});

@@ -4,7 +4,7 @@ import { pool, inReadSnapshot } from './db.js';
 import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 import { DomainError, ROLE_PERMISSIONS, type ApiSession, type CommandEnvelope } from './contracts.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
-import { readBusinessProfile } from './configuration.js';
+import { readBusinessProfile, readOutletProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
 import { resolveCatalogCategory } from './catalogMaintenance.js';
@@ -186,9 +186,10 @@ export function validateProductCsv(source:string,mapping:ProductImportMapping,mo
 }
 
 async function configuration(client:PoolClient,session:ApiSession,lock=false):Promise<ConfigurationSnapshot>{
-  const result=await client.query<{version:string;currency:string;business_profile:unknown}>(`SELECT version,currency,business_profile FROM core.tenants WHERE id=$1${lock?' FOR SHARE':''}`,[session.tenantId]);
+  const result=await client.query<{version:string;currency:string;business_profile:unknown;outlet_profile:unknown}>(`SELECT t.version,t.currency,t.business_profile,o.outlet_profile FROM core.tenants t
+    JOIN core.outlets o ON o.tenant_id=t.id AND o.id=$2 AND o.active WHERE t.id=$1${lock?' FOR SHARE OF t,o':''}`,[session.tenantId,session.outletId]);
   if(!result.rowCount)throw new DomainError('NOT_FOUND','Tenant was not found.',404);
-  return {businessVersion:Number(result.rows[0].version),currency:result.rows[0].currency,taxRateBps:readBusinessProfile(result.rows[0].business_profile).taxPolicy.defaultRateBps};
+  return {businessVersion:Number(result.rows[0].version),currency:result.rows[0].currency,taxRateBps:(readOutletProfile(result.rows[0].outlet_profile).taxPolicy??readBusinessProfile(result.rows[0].business_profile).taxPolicy).defaultRateBps};
 }
 async function catalogSnapshot(client:PoolClient,session:ApiSession,lock=false):Promise<ExistingProduct[]>{
   const result=await client.query<ExistingProduct>(`SELECT id,sku,name,base_unit,item_kind,currency,selling_price_minor::text,cost_price_minor::text,tax_rate_bps,barcode,category,reorder_level::text,version::text,active FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 ORDER BY id${lock?' FOR UPDATE':''}`,[session.tenantId,session.outletId]);

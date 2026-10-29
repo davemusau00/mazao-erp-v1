@@ -116,6 +116,14 @@ export function PointOfSaleView({ onOrderCompleted }: { onOrderCompleted: (order
     mounted.current = true; void refresh(); void loadRecovery();
     return () => { mounted.current = false; refreshController.current?.abort(); ++customerGeneration.current; };
   }, [session.tenant.id, session.outlet.id, session.deviceId]);
+  useEffect(()=>{
+    const guard=(event:Event)=>{
+      if(!basket.length&&!paymentOpen)return;
+      if(!window.confirm('This sale basket and its payment details are not saved. Switching workspaces will clear them. Continue?'))event.preventDefault();
+    };
+    window.addEventListener('mazao:before-context-switch',guard);
+    return()=>window.removeEventListener('mazao:before-context-switch',guard);
+  },[basket.length,paymentOpen]);
   const loadCustomers = async (options: HistoryOptions, append = false) => {
     const generation = ++customerGeneration.current;
     setCustomersBusy(true); setCustomerError('');

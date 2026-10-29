@@ -27,6 +27,7 @@ Read-only PR reconciliation confirmed #13, #14, #15 and #16 are still open again
 | S00-06 / G17 | Manage/Purchasing route to implemented Money workflows; availability labels describe their actual limits | [Feature and history navigation](52-FEATURE-AVAILABILITY-HISTORY-NAVIGATION.md) and [completion register](27-V1-COMPLETION-REGISTER.md) |
 | S01-01 / G08 | Versioned product metadata/lifecycle and category master with exact-label rename/merge/archive, shared CSV validation and scoped reads | [Catalog maintenance](55-CATALOG-MAINTENANCE.md); locally verified database/fresh-upgrade-rerun/browser/recovery behavior; exact-head hosted CI and release gates pending |
 | S01-02 / G08 | Explicit stocked/service/prepared kinds, service-only commerce, reviewed kind changes, original sale-kind snapshots and persisted command capability requirements | [Item kinds and service sales](56-ITEM-KINDS-SERVICE-SALES.md); focused domain/CSV/recovery/upgrade checks passed, combined API and browser verification in progress |
+| S01-03 / G06 | Separate count-recovery worktree prepared from the frozen S01-02 follow-up snapshot; reviewed baseline/recount and immutable-evidence design selected | [Count recovery](57-COUNT-RECOVERY.md); isolated implementation in progress, no count recovery integrated or accepted in this checkout |
 
 ## 25 October continuation checkpoint
 
@@ -101,6 +102,51 @@ Combined API and fresh-build browser acceptance remain in progress; docs/56
 records exact evidence and limits. Count conflict recovery, local draft
 persistence, count review/valuation and scoped counts remain S01-03–07.
 
+## 27 October item-kind acceptance follow-up
+
+The shared checkout now contains user-authored checkpoint
+`f36509061cf0f8a69319b11dea6a5ae920dd4a06`, preserving the preceding S01-02 source,
+tests and documentation. This agent did not create or push it. Current follow-up
+fixes remain reviewable above that checkpoint; no reset or deployment occurred.
+
+The complete sequential API rerun finished **217 passed, 2 failed, 0 skipped**
+(219 tests, 399.27 seconds). Both failed scenarios are under review as fixture
+drift: an invalid-capability list still rejects commerce alone, and an
+unsupported customer-credit refund supplies an unrelated random line ID before
+the trusted planner can reach its tender guard. The runtime acceptance rules
+remain unchanged while those scenarios are corrected and rerun.
+
+The preceding full real API browser run completed **18 passed, 1 failed** (19
+tests, 3.0 minutes). Its failure was the configured inventory-to-sale journey:
+after a confirmed settings save, the UI still marked the form dirty until a
+refresh finished, so an immediate Stock navigation opened a discard prompt.
+A held-refresh browser regression reproduced that blocked navigation on the
+unchanged static artifact (1 failed, retained trace). Confirmed settings now
+clear their unsaved marker before refreshing. Failed runs are preserved under
+`dist-artifacts/playwright-s01-item-kinds-real-all` and
+`dist-artifacts/playwright-s01-settings-nav-repro-2026-10-27`.
+
+Independent review also found a synthetic terminal rejection on unauthorized
+import replay and hidden pending refund lines after a committed/lost response.
+Those fixes and their fresh evidence are recorded in docs/56. Combined API and
+rebuilt browser acceptance remain open; the preceding focused green checks do
+not establish full acceptance. S01-03–07 and S02–S11 remain in scope.
+
+The subsequent fresh artifact passed **19/19 real API/PostgreSQL browser
+workflows** in 1.8 minutes, including the corrected settings-navigation behavior
+and commerce-only Manage followed by service creation, taxed sale, refund and
+cash close. The new configuration regressions passed **2/2**, and the focused
+catalog/kind/recovery browser batch passed **29/29**. UI/API typecheck and the
+production PWA build passed. Full Chromium passed **111/111** in 9.0 minutes.
+The corrected full API rerun passed **219/219, 0 skipped**, in 417.23 seconds,
+using unchanged sequential standard isolation. The first Firefox batch finished
+**110/111**. Its catalog-creation failure was traced to delayed dialog focus
+stealing active typing; two deterministic regressions reproduced that defect.
+The shared focus/cleanup correction passed three focused cases in each browser
+and **19/19 real browser workflows** again on new artifact `index-cBYBUKkU.js`.
+Full 113-case Chromium/Firefox acceptance of this artifact remains pending; the
+slice is not yet fully locally accepted. Exact evidence belongs to docs/56.
+
 ## Complete history and eligible evidence (S00-04)
 
 The old limits were terminal caps: 250 stock movements, 50 counts/imports/close reports, 100 till cash movements and 100 eligible positive evidence movements. They are now bounded page sizes with `page.nextCursor`, `page.hasMore`, `page.totalCount`, `page.limit` and `page.asOf`. `q` searches the full authorized result before page slicing. Counts search area/status/operator; imports search filename/mode/status/reference; close reports search operator/business date/shift/reference; till movements search reason/reference/type/operator; stock movements search SKU/name/reference/type; evidence searches reference/type/movement ID.
@@ -163,4 +209,193 @@ The task-owned PostgreSQL container was found stopped after Docker Desktop resta
 
 ## Remaining delivery gates
 
-R1 is not yet accepted. S00 governance/live identity and exact-head hosted/release acceptance remain open; S01 item types and count recovery/review semantics are still required after the locally verified S01-01 slice. R2 and R3 remain open in full, including business-policy choices, offline/device authority, physical profiles, independent recovery context, and all A–H exact-artifact gates. No completion percentage is inferred from files or tests.
+R1 is not yet accepted. S00 governance/live identity and exact-head hosted/release acceptance remain open. S01-01 through S01-06 have local slice evidence recorded above; S01-07 selected/blind implementation is present but its newest API acceptance could not be rerun after the isolated PostgreSQL container stopped. Location-scoped counts remain open behind S03-02's stock-location authority. R2 and R3 remain open in full, including business-policy choices, offline/device authority, physical profiles, independent recovery context, and all A–H exact-artifact gates. No completion percentage is inferred from files or tests.
+
+## 29 October 2026 local S01 acceptance follow-up
+
+The system-font artifact now passes the full intercepted browser regression in
+both engines: **113/113 Firefox** and **113/113 Chromium**. The prior Firefox
+109/113 failure was tied by traces to externally hosted font requests blocking
+`load`; the remote dependency was removed and the regression rerun on the rebuilt
+artifact. S01-02's full locally required browser matrix is now green. Its
+219/219 API run, 19/19 real API browser workflows, focused configuration tests,
+typecheck and production build are recorded in [docs/56](56-ITEM-KINDS-SERVICE-SALES.md).
+Hosted exact-head CI, production, backup/restore, installed-device and
+performance gates remain separate.
+
+S01-03 count recovery is now integrated as uncommitted changes in the primary
+`feat/codebase-truth-s01` worktree. Its intercepted suite passed **12/12**, the
+real API/PostgreSQL browser suite passed **2/2** at desktop and mobile viewports,
+and the final sequential API run passed **239/239, 0 skipped** in 426.5 seconds.
+The four migration/route compatibility test files passed **16/16** on focused
+rerun. Migration 026 checksum is
+`13a318cfc63f5fbcc4e340fc02168ac28e406f7810f60e12283db6588572f407`.
+`mazao_test` remains at `025_command_capability_evidence`; only generated
+`mazao_api_<uuid>` and `mazao_count_e2e_<uuid>` databases received migration 026.
+The final full API reporter and exact browser/database evidence are detailed in
+[docs/57](57-COUNT-RECOVERY.md). S01-03 has local slice acceptance; exact-head
+hosted CI, release, backup/restore, production, physical-device and performance
+gates remain open. No commit, merge or deployment was performed.
+
+After integration, primary-worktree typecheck and production build both pass.
+The primary count-review browser suite passed **12/12**, and its new generated
+database migrated through 026 before the real API/PostgreSQL browser suite passed
+**2/2**. Existing count UI coverage passed **2/2** and the other real count API
+and posting workflows passed **3/3** on the same fresh generated database. The
+final primary artifact is `index-Cvreg54l.js` with 22 precache entries. Full run
+details and retained logs are in docs/57; no generated migration-026 database
+replaced or migrated the named `mazao_test` fixture.
+
+S01-04 local unsent count recovery is implemented in the primary worktree.
+Unsent quantities/reasons are stored separately from server-saved count data
+and the command journal, scoped by tenant/actor/outlet/count, and tagged with
+server count version plus an IndexedDB compare-and-swap revision. Matching
+drafts restore after reload; stale versions open for explicit review. Storage
+quota/open errors and cross-tab revision conflicts remain visible and retryable.
+Terminal command confirmation is required before local recovery data is cleared.
+The focused new browser suite passed **8/8**, including reload, stale review,
+quota/blocked storage, two tabs, actor change, lost save acknowledgement and
+cancellation recovery. The prior recovery-readiness navigation assertion was
+updated to expect persistence. Primary typecheck and PWA build passed; the final
+entry is 523.88 kB / 142.95 kB gzip with 22 precache entries / 879.71 KiB.
+The chunk-size warning remains informational, not a performance result. S01-04
+has local slice acceptance only; hosted CI, installed-PWA, release and
+production evidence remain open.
+
+S01-05 readiness guidance is implemented and locally accepted. The new count
+readiness browser cases passed **4/4** at 1024x600 and 390x844. They verify
+missing/invalid quantities and variance reasons, direct keyboard focus links,
+barcode scanner focus, explicit zero semantics, saved reason restoration,
+server-saved line totals, filtered hidden-line totals and visible posting
+confirmation. `npm run typecheck` and `npm run build` passed on artifact
+`index-BI4q23jy.js` (527.79 kB / 143.66 kB gzip; 22 PWA entries / 883.53 KiB).
+The existing chunk warning does not establish performance acceptance. S01-05
+is locally accepted; exact-head hosted CI, production and release gates remain
+open.
+
+## S01-06 valuation review implementation, 29 October 2026
+
+Positive count gains from a zero-quantity baseline now display the proposed
+unit cost and extended value from the reference cost captured when that count
+opened. The review identifies that source as an estimate. A count approver with
+catalog or finance cost access must acknowledge the estimate and enter a
+valuation reason before posting. The API enforces the same requirement, so a
+direct command cannot bypass the review. If the opening reference cost is zero,
+the explicit policy is to retain a zero-valued gain only after manager review
+and a reason explaining that treatment; it is not treated as verified purchase
+cost.
+
+The approval reason is stored in the immutable POSTED count event and in the
+audit record. Audit line evidence stores the opening-cost origin, proposed unit cost,
+proposed extended value and whether the cost was zero. Existing exact movement,
+weighted-average balance, gross gain/shrinkage journal and subsequent sale
+valuation paths remain in use. This workflow does not change provisional COGS
+for stock exceptions. No migration is needed because count-event reasons and
+movement values already have durable storage.
+
+S01-06 local acceptance now passes. The generated disposable PostgreSQL
+integration run passed **10/10** in
+`apps/api/test/count-recovery.integration.test.ts`; this includes the exact
+zero-baseline estimate, required reason, no-effect rejection, count movement,
+balance, gain journal and subsequent sale COGS reconciliation, plus explicit
+zero-reference-cost behavior. Supporting mixed gain/shrinkage and separate
+stock-exception provisional-COGS suites passed **8/8**. The focused valuation
+browser suite passed **2/2**, checking the visible estimate, zero-cost policy,
+acknowledgement gate and exact reason payload. `npm run typecheck` passes. The
+production PWA build is `index-B0hTPVqF.js` (531.56 kB / 144.77 kB gzip) with
+22 precache entries (887.35 KiB); its existing chunk-size warning is not
+performance acceptance. Tests used only generated `mazao_api_<uuid>` databases
+on the local disposable PostgreSQL container; no named fixture or production
+database was migrated. Exact-head CI, release, backup/restore, production and
+physical-device evidence remain separate gates.
+
+## S01-07 dependency finding, 29 October 2026
+
+S01-07 requires location-scoped counts, but the current inventory schema has no
+stock-location entity or per-location balance. The existing count `areaLabel`
+is descriptive text only and cannot safely filter outlet-level quantities.
+S03-02 is the roadmap ticket that introduces locations and transfers, which
+provides the stock-location authority required by S01-07. Implementing location
+counts before that stock model would compare a local physical quantity to an
+outlet-wide balance. Resolve the dependency by delivering the location authority from
+S03-02 before location-scoped count modes. Do not treat free text as a stock
+location. Selected-item and blind-count behavior can proceed independently.
+
+## S02-01 tenant bootstrap and reviewed go-live implementation, 29 October 2026
+
+Migration 028 persists tenant onboarding state and backfills existing tenants
+as `LEGACY_ACTIVE` without inventing past review evidence. The supported
+bootstrap command now requires an interactive terminal, hidden owner-password
+entry and an explicit confirmation. It uses random identities and a reusable
+request UUID for safe recovery, and only creates a tenant in an empty business
+database. New tenants remain in `SETUP`.
+
+The API limits pending tenants to setup reads and commands; ordinary business
+routes and command submissions are rejected server-side. The owner can approve
+go-live only after supplying a reason and confirming the setup. The command
+locks and recomputes first-sale checks transactionally, records audit/outbox
+evidence and makes a one-time `LIVE` transition. The setup workspace and
+operator docs expose the pending state and review process. Physical terminal
+pairing remains separate work. Detailed behavior is in
+[tenant onboarding](58-TENANT-ONBOARDING.md).
+
+`npm run typecheck` passed after implementation. The focused onboarding
+integration case is present but was not rerun: the disposable PostgreSQL
+service is unavailable. Do not substitute the named `mazao_truth` fixture.
+Migration, tenant-isolation, route-gating and go-live database acceptance,
+exact-head CI, release and production evidence remain open.
+
+## S02-02 outlet lifecycle and local defaults implementation, 29 October 2026
+
+Manage now reads a tenant-scoped outlet directory and supports owner/admin
+creation, versioned profile edits, tax defaults and safe activation/deactivation.
+The business reporting time zone stays tenant-wide. An outlet can inherit the
+business tax default or keep its own reviewed rate and label. New items, rooms
+and imports read the selected outlet policy; receipt snapshots and existing
+product/room rates remain unchanged.
+
+Closure refuses active assignments, open tills/counts, stock quantity/value,
+confirmed reservations and checked-in stays. It also requires another active
+outlet with an active owner/admin workspace. The existing versioned outlet
+profile and command journal support the feature, so no schema migration was
+needed. See [outlet lifecycle](59-OUTLET-LIFECYCLE.md).
+
+`npm run typecheck` passed. The PWA bundle built for the outlet lifecycle slice
+as `index-Ch6bpAI1.js` (538.07 kB / 146.12 kB gzip; 22 precache entries /
+904.61 KiB). Database and browser acceptance remain pending because the
+isolated PostgreSQL service is unavailable. Authenticated outlet switching is
+source-implemented in S02-03, but still needs isolated database/browser
+acceptance; physical terminal enrollment, hosted CI and production evidence
+remain open.
+
+## S02-03 authenticated context switching implementation, 29 October 2026
+
+The API lists only the current operator's active assignments. The switch input
+contains only the selected device ID; server-side identity determines all other
+scope. A serializable transaction locks the current session and active target
+assignment, changes tenant/outlet/device on the existing session, increments
+its version and writes an audit event in the prior tenant/outlet. The session
+token and CSRF value remain stable so `/auth/me` can resolve a lost response.
+An unauthorized or stale target leaves the current session in place. No new
+business command is sent or replayed during context change.
+
+The browser preserves the existing sign-in assignment picker and adds an
+authenticated **Switch workspace** dialog. It checks current-device unknown
+commands, import validation, password operation and local count-draft recovery
+before enabling a switch. Local storage errors fail closed. A POS basket asks
+before it is cleared. Pending reads are aborted; uncertain responses resolve
+through `/auth/me`; a context identity key resets outlet-local workspace and
+receipt state. A BroadcastChannel transition hides old workspace data in other
+tabs until they reload the authoritative session.
+
+The API integration and browser regression cases are included. `npm run
+typecheck` passed for UI and API projects. `npm run build` passed with artifact
+`index-BIxqB31C.js` (540.70 kB / 146.05 kB gzip; 22 PWA entries / 914.51 KiB).
+The focused intercepted browser regression passed 1/1, including POS basket
+confirmation and source/target catalog isolation. The PostgreSQL API test did
+not run locally because the disposable PostgreSQL service is unavailable; do
+not restart the unrelated stopped Docker stack or use the named `mazao_truth`
+database. Exact-head hosted CI, isolated API/migration acceptance, real API/browser
+acceptance, and release checks remain open. This slice is source/build and
+browser-fixture checked, not database-accepted or deployed. See
+[context switching](60-CONTEXT-SWITCHING.md).
