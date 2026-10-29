@@ -4,6 +4,7 @@ import {importValidationJournal,type ImportValidationRecovery} from './importVal
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
 import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
+import type { RestaurantConfiguration, RestaurantProduct } from '../types/restaurant';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
 import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
 import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
@@ -150,6 +151,18 @@ const READ_TIMEOUT_MS = 20_000;
 const READ_SLOW_WARNING_MS = 10_000;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function restaurantProduct(value:unknown):boolean {
+  return isRecord(value)&&typeof value.id==='string'&&typeof value.name==='string'&&typeof value.sku==='string'
+    &&['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(value.itemKind))&&typeof value.active==='boolean'
+    &&Number.isSafeInteger(value.version)&&Number(value.version)>=1&&typeof value.currency==='string'
+    &&Number.isSafeInteger(value.sellingPriceMinor)&&Number(value.sellingPriceMinor)>=0
+    &&Number.isSafeInteger(value.taxRateBps)&&Number(value.taxRateBps)>=0&&Number(value.taxRateBps)<=10000;
+}
+function restaurantProductPage(value:unknown):boolean {
+  return isRecord(value)&&typeof value.asOf==='string'&&Number.isSafeInteger(value.totalCount)&&Number(value.totalCount)>=0
+    &&Number.isSafeInteger(value.limit)&&Number(value.limit)>=1&&typeof value.hasMore==='boolean'
+    &&(value.hasMore?typeof value.nextCursor==='string'&&value.nextCursor.length>0:value.nextCursor===null);
 }
 function isTerminalCredentialOutcome(result:unknown,operation:SecretOperationRecovery):boolean{
   if(!isTerminalOutcome(result,operation.commandId,operation.kind)||!isRecord(result))return false;
@@ -442,6 +455,33 @@ class ApiClient {
     configuration.outlets=normalizedOutlets;
     const currentTaxPolicy=isRecord(currentOutlet.taxPolicy)&&typeof currentOutlet.taxPolicy.defaultRateBps==='number'&&typeof currentOutlet.taxPolicy.label==='string'&&typeof currentOutlet.taxPolicy.reviewed==='boolean'?currentOutlet.taxPolicy:null;
     configuration.outlet={...currentOutlet,active:typeof currentOutlet.active==='boolean'?currentOutlet.active:true,taxPolicy:currentTaxPolicy};
+    return result;
+  }
+  async getRestaurantConfiguration(signal?:AbortSignal){
+    const result=await this.request<{configuration:RestaurantConfiguration}>('/restaurant/configuration',{signal});
+    const configuration:unknown=result.configuration;
+    const versioned=(row:unknown):row is Record<string,unknown>=>isRecord(row)&&typeof row.version==='number'&&Number.isSafeInteger(row.version)&&row.version>=1;
+    const directory=(row:unknown)=>versioned(row)&&typeof row.id==='string'&&row.id.length>0&&typeof row.name==='string'&&typeof row.active==='boolean';
+    const ids=(value:unknown)=>Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.length>0)&&new Set(value).size===value.length;
+    const unavailable=(value:unknown)=>isRecord(value)&&['ordering','fire','kds','printing','roomCharge','recipeConsumption'].every(key=>value[key]===false);
+    const validLimits=(value:unknown)=>isRecord(value)&&['sections','tables','stations','menuRoutes'].every(key=>Number.isSafeInteger(value[key])&&Number(value[key])>0);
+    if(!isRecord(configuration)
+      ||!Array.isArray(configuration.sections)||!configuration.sections.every(directory)
+      ||!Array.isArray(configuration.tables)||!configuration.tables.every(row=>directory(row)&&isRecord(row)&&(row.sectionId===null||typeof row.sectionId==='string')&&Number.isInteger(row.seats)&&Number(row.seats)>=1&&Number(row.seats)<=100)
+      ||!Array.isArray(configuration.stations)||!configuration.stations.every(row=>directory(row)&&isRecord(row)&&['KITCHEN','BAR','EXPO'].includes(String(row.kind))&&Number.isInteger(row.charactersPerLine)&&Number(row.charactersPerLine)>=32&&Number(row.charactersPerLine)<=64)
+      ||!Array.isArray(configuration.menuRoutes)||!configuration.menuRoutes.every(row=>versioned(row)&&typeof row.productId==='string'&&ids(row.stationIds)&&typeof row.preparationLabel==='string'&&typeof row.instructions==='string'&&typeof row.available==='boolean'&&typeof row.effectiveAvailable==='boolean'&&(!row.effectiveAvailable||row.available&&row.productActive)&&restaurantProduct({...row,id:row.productId,name:row.productName,version:row.productVersion,active:row.productActive}))
+      ||!Array.isArray(configuration.stationAssignments)||!configuration.stationAssignments.every(row=>versioned(row)&&typeof row.deviceId==='string'&&ids(row.stationIds)&&Number.isSafeInteger(row.deviceVersion)&&Number(row.deviceVersion)>=1&&typeof row.effectiveActive==='boolean')
+      ||!Array.isArray(configuration.devices)||!configuration.devices.every(row=>versioned(row)&&typeof row.id==='string'&&typeof row.label==='string'&&typeof row.active==='boolean')
+      ||!Array.isArray(configuration.products)||!configuration.products.every(restaurantProduct)
+      ||!isRecord(configuration.permissions)||typeof configuration.permissions.manage!=='boolean'||typeof configuration.permissions.assignDevices!=='boolean'
+      ||!(configuration.permissions.manage?restaurantProductPage(configuration.productPage):configuration.productPage===null)
+      ||!unavailable(configuration.availability)||!validLimits(configuration.limits))
+      throw new ApiClientError('Restaurant setup was returned without its required directories, permissions or availability. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantProducts(options:HistoryOptions={},signal?:AbortSignal){
+    const result=await this.requestArray<{products:RestaurantProduct[];page:HistoryPage}>(historyUrl('/restaurant/products',options),'products',signal);
+    if(!result.products.every(restaurantProduct)||!restaurantProductPage(result.page))throw new ApiClientError('The menu item search response is incomplete. Retry this search.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
   async getStockSalePolicy(signal?:AbortSignal){

@@ -57,7 +57,7 @@ if (!databaseUrl) {
       assert.equal(legacyImage.statusCode,200,legacyImage.body);assert.equal(legacyImage.rawPayload.length,512*1024);
       assert.equal(legacyImage.headers['cache-control'],'private, no-store');
       assert.equal(initial.currencyLocked, false); assert.equal(initial.readiness.readyForFirstSale, false);
-      assert.deepEqual(initial.supportedCapabilities, ['commerce', 'inventory', 'hospitality', 'retail']);
+      assert.deepEqual(initial.supportedCapabilities, ['commerce', 'inventory', 'hospitality', 'retail', 'restaurant']);
       const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
       const businessInput = { ...initial.business, name: 'Configured resort', legalName: 'Configured Resort Limited', address: 'Nairobi\nKenya', phone: '+254 700 123 456', email: 'CONTACT@EXAMPLE.INVALID', website: 'https://example.invalid', logoUrl: png, receiptQrImage: png, showQrOnReceipt: true, registrationNumber: 'B1234', taxRegistrationNumber: 'P1234', receiptHeader: 'Welcome to the resort', receiptFooter: 'Original receipt footer', taxPolicy: { calculation: 'exclusive', defaultRateBps: 1600, label: 'VAT', reviewed: true } };
       const save = command('configuration.business.update', businessInput, { [`business:${tenantId}`]: 1 });

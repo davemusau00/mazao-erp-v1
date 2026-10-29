@@ -9,6 +9,7 @@ export function workspaceInitialReads(tab: ActiveTab, session: BackendSession, a
     case 'today': return session.tenant.capabilities.includes('commerce') && (permissions.has('shift.open') || permissions.has('shift.close')) ? ['/shifts/current'] : [];
     case 'sell': return ['/catalog/items', '/shifts/current'];
     case 'sales': return ['/sales/orders'];
+    case 'service': return ['/restaurant/configuration'];
     case 'hotel': return ['/hospitality/rooms', '/hospitality/reservations', '/hospitality/stays'];
     case 'reservations': return ['/hospitality/rooms', '/hospitality/reservations', '/hospitality/stays'];
     case 'catalog': return ['/catalog/items', '/catalog/categories'];

@@ -13,7 +13,7 @@ export type ActiveTab=WorkspaceId;
 const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,catalog:<Package/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,'stock-exceptions':<PackageSearch/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
 const workspaceItems=workspaceFeatures.map(feature=>({...feature,icon:workspaceIcons[feature.id]}));
 const groups=[{id:'work',label:'WORK'},{id:'money',label:'MONEY'},{id:'manage',label:'MANAGE'},{id:'support',label:'SUPPORT'}] as const;
-const setupWorkspaces=new Set<WorkspaceId>(['onboarding','manage','catalog','stock','stock-count','help']);
+const setupWorkspaces=new Set<WorkspaceId>(['onboarding','manage','catalog','stock','stock-count','service','help']);
 
 export function canOpenWorkspace(session:BackendSession,workspace:WorkspaceId):boolean {
   if(session.onboardingStatus==='SETUP'&&!setupWorkspaces.has(workspace))return false;
@@ -67,7 +67,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     void apiClient.listImportValidationRecovery().then(setImportRecoveries).catch(()=>setImportRecoveries([]));
     return apiClient.subscribeImportRecovery(setImportRecoveries);
   },[session?.tenant.id,session?.user.id,session?.deviceId]);
-  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
+  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>(item.discoverability==='all'||featureState(session,item)!=='insufficient_permission')&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
   const available=useMemo(()=>session?discoverable.filter(item=>canOpenWorkspace(session,item.id)):[],[session,discoverable]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
@@ -116,7 +116,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     finally{setCheckingCommand('');}
   };
   const openCommandWorkspace=(type:string)=>{
-    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('finance.')?'money':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'catalog':'shifts';
+    const destination:WorkspaceId=type.startsWith('restaurant.')?'service':type.startsWith('configuration.')?'manage':type.startsWith('finance.')?'money':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'catalog':'shifts';
     setRecoveryOpen(false);selectWorkspace(destination);
   };
   return <div className="app-shell">

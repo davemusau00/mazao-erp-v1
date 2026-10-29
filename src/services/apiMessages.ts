@@ -25,6 +25,9 @@ const messages: Record<string, string> = {
   COUNT_REVIEW_BLOCKED: 'This count needs an administrator to review its item or stock evidence before a new baseline can be accepted.',
   COUNT_RECOUNT_REQUIRED: 'Physically recount the affected items and save their fresh quantities before posting.',
   COUNT_CAPACITY_EXCEEDED: 'This full count exceeds the supported capacity. Ask an administrator to review its scope; no items have been omitted.',
+  RESTAURANT_RESOURCE_IN_USE: 'Move or remove this entry’s active tables, menu routes or station access before deactivating it.',
+  RESTAURANT_IDENTITY_CONFLICT: 'That name already exists in this outlet. Edit the existing entry or choose another name.',
+  RESTAURANT_CAPACITY_EXCEEDED: 'This outlet has reached its setup capacity. Review existing entries before adding another.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
@@ -102,6 +105,24 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
   const value = outcome.value as Record<string, unknown>;
   const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
   const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if (commandType?.startsWith('restaurant.')) {
+    const contracts:Record<string,[string,string]>={
+      'restaurant.section.save':['sectionId','section'],
+      'restaurant.table.save':['tableId','table'],
+      'restaurant.station.save':['stationId','station'],
+      'restaurant.menu.save':['productId','menu'],
+      'restaurant.station.assign':['deviceId','stationAssignment'],
+    };
+    const contract=contracts[commandType];
+    if(!contract)return false;
+    const [idKey,versionKey]=contract;
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if(!identifier(idKey)||!uuid.test(String(value[idKey]))||!version('version'))return false;
+    if(['sectionId','tableId','stationId'].includes(idKey)&&(typeof value.active!=='boolean'||value.active!==commandPayload?.active))return false;
+    const requestedId=commandPayload?.[idKey];
+    const originalVersion=typeof requestedId==='string'?expectedVersions?.[`${versionKey}:${requestedId}`]:undefined;
+    return value.version===(originalVersion===undefined?1:originalVersion+1);
+  }
   if (commandType === 'inventory.count.review') {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const requested = commandPayload?.affectedProductIds, affected = value.affectedProductIds;

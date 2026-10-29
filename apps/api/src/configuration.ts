@@ -7,7 +7,7 @@ import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
 import { lockCatalogOutlet } from './catalogMaintenance.js';
 
-export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail'] as const;
+export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail', 'restaurant'] as const;
 export interface TaxPolicy { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean }
 export interface BusinessProfile {
   legalName: string; registrationNumber: string; taxRegistrationNumber: string;
@@ -232,9 +232,10 @@ export function validateOutletInput(payload: Record<string, unknown>, currentPro
   return { name: text(payload.name, 'name', 160, true), timeZone: validateTimeZone(payload.timeZone), profile };
 }
 export function validateCapabilities(value: unknown): string[] {
-  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names. Restaurant service is not connected.');
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names.');
   if (value.includes('retail') && (!value.includes('commerce')||!value.includes('inventory'))) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
   if (value.includes('hospitality') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Hospitality checkout requires commerce.');
+  if (value.includes('restaurant') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Restaurant setup requires commerce. Ordering and preparation are not available yet.');
   return [...value].sort();
 }
 async function currencyLocked(client: PoolClient, tenantId: string): Promise<boolean> {

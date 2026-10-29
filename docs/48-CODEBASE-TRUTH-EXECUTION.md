@@ -4,6 +4,58 @@ Execution started 20 October 2026 (Africa/Nairobi). The user requires every fix 
 
 This is an execution register for [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md), not a full-v1 completion claim. The S00 local checkpoint is preserved and S01 catalog maintenance is in progress. S01–S11 retain their original acceptance gates and dependencies.
 
+## 29 October hospitality priority and P1.1 continuation
+
+The user invoked the hospitality-first
+[P0–P4 master instruction](../MAZAO_ERP_P0-P4_MASTER_DEVELOPMENT_INSTRUCTION_2026-10-29.md).
+It supersedes the older delivery order after a verified green baseline. Remote
+main remains `6119ee2d2043afca38b764b5a0750dd9cf75908c`; PR #24 is open/unmerged
+at `e595d9789270192bcf6f37a28e8346b055e3c59d`. Its exact-head CI run
+[40917747989](https://github.com/davemusau00/mazao-erp-v1/actions/runs/40917747989)
+completed successfully: **244 API (zero skips), 140 Chromium, 36 browser matrix
+and 21 real PostgreSQL/browser journeys**, plus fresh/checksum-rerun migration
+and API container checks. Older pending or failed-CI notes below remain
+historical evidence. [The P0 checkpoint](61-HOSPITALITY-P0-BASELINE-2026-10-29.md)
+records reviewed migration/recovery limits and recommended duplicate-PR
+disposition; no remote PR or governance change occurred.
+
+Created `feat/hospitality-p1-configuration` from that exact green head, with an
+explicit dependency on unmerged PR #24. P1.1 adds migration 029 and the connected
+restaurant configuration slice: sections/tables/stations, paged menu routing,
+logical station assignments, strict versioned commands and scoped roles. The
+new workspace is setup only. Orders, KOT/BOT, print delivery, KDS, serving,
+restaurant settlement and room charges are unavailable. Prepared settlement
+retains its recipe-consumption rejection. [Focused evidence](62-RESTAURANT-CONFIGURATION.md)
+contains contracts, side effects, source gaps, concurrency fixes and validation.
+No stock/accounting history is rewritten by this configuration slice.
+
+Expanded setup testing reproduced HTTP 500 under ten
+simultaneous creates, including after transaction-scoped pre-ledger locking.
+Same-client advisory admission before the serializable transaction fixes that
+snapshot timing; the subsequent expanded API run passed **13/13**, including
+concurrent creates, conflicting edits, lifecycle cleanup, first-use restrictions,
+full-directory pagination and original-command recovery. The final full isolated
+API run passed **267/267, zero skipped**. Final artifact `index-B5uKh6ah.js`
+passed **159/159 Chromium**, **112/112 Chromium/Firefox desktop/mobile matrix**
+and **22/22 real Fastify/PostgreSQL browser workflows**. Full typecheck and PWA
+build passed; the pinned Bun 1.4.3 production API container passed all 29 fresh
+migrations, checksum rerun, configuration/authentication/readiness and throttle
+checks. [Container evidence](63-HOSPITALITY-LOCAL-CONTAINER-2026-10-29.md) preserves
+the exact image/context identity separately from hosted CI and deployment.
+
+Independent review added six regressions for retained menu/product/device/
+assignment authority after reconnect. A stale-menu overwrite reproduced on the
+earlier artifact; editors now retain the versions or absence explicitly reviewed
+instead of adopting a newer read while preserving older form contents. All 19
+focused restaurant browser cases and the final complete suites passed. Earlier
+fixture navigation races, the upgrade-probe omission and workstation browser/
+compiler memory failures are preserved in docs/62 with their corrections.
+
+This is locally verified configuration source, not operational restaurant or
+full-v1 acceptance. New-head hosted CI/PR review, release gates, physical device
+acceptance and production identity remain open. No push, remote PR change, merge,
+production database access or deployment occurred.
+
 ## Integration and release identity (S00-01 / G02)
 
 - Original checkout: `fix/release-gate-reliability` at `75d7011`; clean worktree. That commit contains the user-supplied plan and `docs/sale.md`.
