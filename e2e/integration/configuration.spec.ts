@@ -56,8 +56,8 @@ test('real login, business/outlet saves, refresh and capabilities persist in Pos
   expect(business.business_profile.taxPolicy.defaultRateBps).toBe(1600);
   expect(Number(business.version)).toBe(2);
   await page.getByRole('button', { name: 'Outlet and receipts', exact: true }).click();
-  await page.getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet');
-  await page.getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
+  await page.getByRole('group').getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet');
+  await page.getByRole('group').getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
   await page.getByLabel('Outlet receipt header', { exact: true }).fill('Configured outlet receipt');
   await page.getByRole('button', { name: 'Save outlet settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
@@ -122,8 +122,8 @@ test('configured outlet adds and receives inventory, confirms a taxed sale and r
   await page.getByRole('button', { name: 'Save business settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
   await page.getByRole('button', { name: 'Outlet and receipts', exact: true }).click();
-  await page.getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet for sale');
-  await page.getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
+  await page.getByRole('group').getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet for sale');
+  await page.getByRole('group').getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
   await page.getByLabel('Outlet receipt header', { exact: true }).fill('Configured outlet receipt');
   await page.getByRole('button', { name: 'Save outlet settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
