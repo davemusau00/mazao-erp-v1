@@ -434,6 +434,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     envelope.tenantId=s.tenantId;
     const digest=hashCommand(envelope); const hashText=digest.toString('hex');
     const outcome=await inTransaction(async client=>{
+      // Serialize account-label edits before their command-ledger insert. Each
+      // edit locks the tenant version later in the transaction, and a racing
+      // ledger FK check can otherwise form an SSI pivot before the version
+      // guard has a chance to return the expected stale-edit conflict.
+      if(envelope.type==='finance.account.label')await client.query("SELECT pg_advisory_xact_lock(hashtextextended('account-catalog:'||$1::text,9037))",[s.tenantId]);
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
