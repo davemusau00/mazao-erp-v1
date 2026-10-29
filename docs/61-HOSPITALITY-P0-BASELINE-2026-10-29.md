@@ -4,6 +4,13 @@ Verified **29 October 2026, Africa/Nairobi**, at approximately **20:16 EAT**.
 This records the starting evidence for the [hospitality-first master instruction](../MAZAO_ERP_P0-P4_MASTER_DEVELOPMENT_INSTRUCTION_2026-10-29.md).
 It is a development baseline, not a production check or full-v1 acceptance.
 
+**Refresh, 30 October 2026 02:05:41 EAT / 29 October 23:05:41 UTC:** live
+`git ls-remote`, PR #24 metadata and latest exact-head/main workflow reads confirm
+both heads and successful runs below are unchanged. Both required candidate jobs
+remain successful. The same-run test logs were not decoded again. Local P1.1
+commit `92e2597` and the dependent P1.2 worktree are not covered by that hosted
+run; [orders/fire evidence](64-RESTAURANT-ORDERS-FIRE.md) records their own gates.
+
 ## Exact source and CI identity
 
 | Item | Live observation |

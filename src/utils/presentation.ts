@@ -33,6 +33,9 @@ export function operationLabel(type: string): string {
     'restaurant.section.save': 'Save restaurant area', 'restaurant.table.save': 'Save restaurant table',
     'restaurant.station.save': 'Save preparation station', 'restaurant.menu.save': 'Save menu routing',
     'restaurant.station.assign': 'Assign preparation stations',
+    'restaurant.order.create': 'Open restaurant order', 'restaurant.order.save': 'Save restaurant draft',
+    'restaurant.order.hold': 'Hold or resume restaurant order', 'restaurant.order.fire': 'Create station tickets',
+    'restaurant.order.cancel': 'Discard unfired restaurant order',
   };
   return labels[type] ?? 'Business action';
 }
@@ -67,6 +70,8 @@ export function permissionLabel(code: string): string {
     'hotel.manage': 'Manage rooms', 'hotel.housekeeping': 'Update room cleaning',
     'audit.view': 'View business activity',
     'restaurant.view': 'View restaurant setup', 'restaurant.manage': 'Manage restaurant setup',
+    'restaurant.order.view': 'View restaurant orders', 'restaurant.order': 'Save and fire restaurant orders',
+    'restaurant.ticket.view': 'View assigned station tickets',
   } as Record<string, string>)[code] ?? 'Additional business access';
 }
 

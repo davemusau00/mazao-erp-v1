@@ -3,7 +3,11 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   testIgnore: '**/integration/**',
-  testMatch: /(?:account-catalog|accounting-statement-race|customer-language|operational-analytics|pos-manual-mpesa-discounts|recovery-center|hotel-guest-registration|restaurant-configuration)\.spec\.ts/,
+<<<<<<< HEAD
+  testMatch: /(?:account-catalog|accounting-statement-race|customer-language|operational-analytics|pos-manual-mpesa-discounts|recovery-center|hotel-guest-registration|restaurant-configuration|restaurant-orders)\.spec\.ts/,
+=======
+  testMatch: /(?:account-catalog|accounting-statement-race|customer-language|operational-analytics|pos-manual-mpesa-discounts|recovery-center|restaurant-configuration|restaurant-orders)\.spec\.ts/,
+>>>>>>> 3adc220 (feat: persist restaurant orders and immutable fire tickets)
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,

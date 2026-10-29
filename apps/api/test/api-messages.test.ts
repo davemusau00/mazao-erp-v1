@@ -3,6 +3,13 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from '../../../src/services/apiMessages.js';
 
+test('a cancelled restaurant draft cannot retire recovery with an impossible held result', () => {
+  const commandId=randomUUID(),orderId=randomUUID(),payload={orderId,reason:'Discard unfired draft'},versions={['order:'+orderId]:3};
+  const confirmed={commandId,status:'CONFIRMED',value:{orderId,version:4,status:'CANCELLED',held:false,fireRevision:0}};
+  assert.equal(isTerminalOutcome(confirmed,commandId,'restaurant.order.cancel',payload,versions),true);
+  assert.equal(isTerminalOutcome({...confirmed,value:{...confirmed.value,held:true}},commandId,'restaurant.order.cancel',payload,versions),false);
+});
+
 test('uncertain changes direct the operator to status recovery without implying failure', () => {
   const message = unconfirmedActionMessage('/commands');
   assert.match(message, /Check its status before repeating/);

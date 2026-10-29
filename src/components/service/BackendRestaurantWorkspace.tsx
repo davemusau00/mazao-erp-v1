@@ -13,6 +13,7 @@ type View='areas'|'tables'|'stations'|'menu'|'access';
 type Editor={kind:'area';record?:RestaurantSection}|{kind:'table';record?:RestaurantTable}|{kind:'station';record?:RestaurantStation}|{kind:'menu';record?:RestaurantMenuRoute}|{kind:'access';record?:RestaurantStationAssignment};
 const inputClass='mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100';
 const actionClass='min-h-11 rounded-lg border border-zinc-700 px-3 text-sm font-semibold disabled:opacity-50';
+const setupCommands=['restaurant.section.save','restaurant.table.save','restaurant.station.save','restaurant.menu.save','restaurant.station.assign'] as const;
 
 export function BackendRestaurantWorkspace(){
   const session=apiClient.getSession()!;
@@ -31,7 +32,7 @@ export function BackendRestaurantWorkspace(){
   const reviewedMenu=useRef<{productId:string;productVersion:number;routeVersion:number|null}|null>(null);
   const reviewedAccess=useRef<{deviceId:string;deviceVersion:number;assignmentVersion:number|null}|null>(null);
   const pending=useRef<BackendCommand|null>(null),mounted=useRef(true),loadGeneration=useRef(0),productGeneration=useRef(0),controller=useRef<AbortController|null>(null),loadValid=useRef(false);
-  const recovery=useCommandRecoveryReadiness('restaurant.',command=>{pending.current=command;setUnknownId(command.commandId);setNotice('A restaurant setup change needs review. Check its status before making another change.');});
+  const recovery=useCommandRecoveryReadiness('restaurant.',command=>{pending.current=command;setUnknownId(command.commandId);setNotice('A restaurant setup change needs review. Check its status before making another change.');},setupCommands);
   const canManage=Boolean(configuration?.permissions.manage)&&session.user.permissions.includes('restaurant.manage');
   const canAssign=canManage&&Boolean(configuration?.permissions.assignDevices)&&session.user.permissions.includes('devices.manage');
   const locked=loading||!!loadError||!configuration||!recovery.ready||busy||!!unknownId||!online;
@@ -150,7 +151,7 @@ export function BackendRestaurantWorkspace(){
   const listClass='rounded-xl border border-zinc-800 bg-zinc-950 p-4';
   return <div className="page-stack">
     <WorkspaceHeading eyebrow={session.outlet.name} title="Restaurant setup" description="Prepare service areas, tables, kitchen and bar stations, and menu routing." action={<button type="button" className={`${actionClass} flex items-center gap-2`} disabled={busy||loading||!!unknownId||!online||!!editor} onClick={()=>void refresh()}><RefreshCw size={16}/>Refresh setup</button>}/>
-    <p className="rounded-xl border border-amber-800 bg-amber-950/20 p-3 text-sm leading-6 text-amber-100">Setup only. Taking table orders, sending kitchen or bar tickets, printing, live kitchen preparation and room charges are unavailable. Prepared items cannot be sold until recipe consumption is supported.</p>
+    <p className="rounded-xl border border-amber-800 bg-amber-950/20 p-3 text-sm leading-6 text-amber-100">{configuration?.availability.ordering?"Configuration view. Table orders and saved station tickets are available in Orders. Kitchen delivery, printing, preparation, payment and room charges are unavailable.":"Setup only. Taking table orders, sending kitchen or bar tickets, printing, live kitchen preparation and room charges are unavailable. Prepared items cannot be sold until recipe consumption is supported."}</p>
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={()=>void recovery.inspect()}/>
     {!online&&<p role="alert" className="rounded-lg border border-amber-700 p-3 text-sm text-amber-100">Restaurant setup is out of date while offline. Reconnect and refresh before making changes.</p>}
     {loadError&&<p role="alert" className="rounded-lg border border-rose-800 p-3 text-sm text-rose-200">{loadError}</p>}

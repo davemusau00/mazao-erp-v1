@@ -10,7 +10,7 @@ const BackendManageWorkspace = lazy(() => import('./components/manage/BackendMan
 const MoneyWorkspace = lazy(() => import('./components/finance/MoneyWorkspace').then(module => ({ default: module.MoneyWorkspace })));
 const StockExceptionsWorkspace = lazy(() => import('./components/inventory/StockExceptionsWorkspace').then(module => ({ default: module.StockExceptionsWorkspace })));
 const CatalogWorkspace = lazy(() => import('./components/inventory/CatalogWorkspace').then(module => ({ default: module.CatalogWorkspace })));
-const BackendRestaurantWorkspace = lazy(() => import('./components/service/BackendRestaurantWorkspace').then(module => ({ default: module.BackendRestaurantWorkspace })));
+const BackendRestaurantWorkspace = lazy(() => import('./components/service/RestaurantWorkspace').then(module => ({ default: module.RestaurantWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';

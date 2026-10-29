@@ -12,7 +12,10 @@ async function openRestaurant(page:Page){
   await expect(page.getByLabel('Signed in as Restaurant Browser Admin')).toBeVisible();
   const button=page.getByRole('button',{name:/Tables & kitchen/});
   if(!await button.first().isVisible())await page.getByRole('button',{name:'More',exact:true}).click();
-  await button.last().click();await expect(page.getByRole('heading',{name:'Restaurant setup',exact:true})).toBeVisible();
+  await button.last().click();
+  const setup=page.getByRole('button',{name:'Restaurant setup',exact:true});
+  await expect(setup).toBeVisible();await setup.click();
+  await expect(page.getByRole('heading',{name:'Restaurant setup',exact:true})).toBeVisible();
 }
 
 test('real restaurant configuration persists after reload while posted stock sales receipts and journals remain unchanged',async({page},testInfo)=>{

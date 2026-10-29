@@ -148,6 +148,18 @@ test('a dropped setup response retries the exact original envelope only after a 
   const original=structuredClone(posts[0]);state.statusNotFound=true;state.postMode='normal';await dialog.getByRole('button',{name:'Check setup change status',exact:true}).click();await expect(dialog).toHaveCount(0);expect(posts).toEqual([original,original]);expect(config.sections).toHaveLength(1);expect(await retained(page)).toEqual([]);
 });
 
+test('setup recovery never offers or resubmits an unresolved restaurant fire as a setup change',async({page})=>{
+  const {posts,reads}=await connect(page);await openRestaurant(page);await expect(page.getByRole('button',{name:'Add service area',exact:true})).toBeEnabled();
+  const orderId=randomUUID(),original:BackendCommand={protocolVersion:1,commandId:randomUUID(),tenantId,deviceId,type:'restaurant.order.fire',occurredAt:'2026-10-29T17:00:00.000Z',expectedVersions:{['order:'+orderId]:2},payload:{orderId}};
+  await page.evaluate(async({command,actorId})=>{
+    const db=await new Promise<IDBDatabase>((resolve,reject)=>{const request=indexedDB.open('mazao-v1-command-journal',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    try{await new Promise<void>((resolve,reject)=>{const tx=db.transaction('commands','readwrite');tx.objectStore('commands').put({command,actorId,state:'outcome_unknown',savedAt:'2026-10-29T17:00:00.000Z'});tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});}finally{db.close();}
+  },{command:original,actorId:userId});
+  await openRestaurant(page);await expect(page.getByRole('button',{name:'Add service area',exact:true})).toBeEnabled();await expect(page.getByRole('button',{name:'Check setup change status',exact:true})).toHaveCount(0);
+  const dialog=await addArea(page,'Independent setup area');await dialog.getByRole('button',{name:'Save area',exact:true}).click();await expect(dialog).toHaveCount(0);
+  expect(posts.map(command=>command.type)).toEqual(['restaurant.section.save']);expect(reads).not.toContain('/commands/'+original.commandId);expect((await retained(page)).map(record=>record.command)).toEqual([original]);
+});
+
 test('failed or malformed setup refreshes and an offline connection block writes until a fresh read',async({page,context})=>{
   const {state,posts}=await connect(page);await openRestaurant(page);await expect(page.getByRole('button',{name:'Add service area',exact:true})).toBeEnabled();
   state.configurationStatus=503;await page.getByRole('button',{name:'Refresh setup',exact:true}).click();await expect(page.getByRole('alert').filter({hasText:/temporarily unavailable/})).toBeVisible();await expect(page.getByRole('button',{name:'Add service area',exact:true})).toBeDisabled();

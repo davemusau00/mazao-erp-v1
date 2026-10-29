@@ -60,7 +60,13 @@ async function saveDirectory(client:PoolClient,session:ApiSession,envelope:Comma
     const used=await client.query('SELECT id FROM restaurant.tables WHERE tenant_id=$1 AND outlet_id=$2 AND section_id=$3 AND active LIMIT 1',[session.tenantId,session.outletId,recordId]);
     if(used.rowCount)throw new DomainError('RESTAURANT_RESOURCE_IN_USE','Move or deactivate the active tables before deactivating their section.',409);
   }
+  if(kind==='table'&&!active) {
+    const used=await client.query("SELECT id FROM restaurant.orders WHERE tenant_id=$1 AND outlet_id=$2 AND table_id=$3 AND status<>'CANCELLED' LIMIT 1",[session.tenantId,session.outletId,recordId]);
+    if(used.rowCount)throw new DomainError('RESTAURANT_RESOURCE_IN_USE','Resolve open tabs before deactivating their table.',409);
+  }
   if(kind==='station'&&!active) {
+    const pending=await client.query('SELECT id FROM restaurant.tickets WHERE tenant_id=$1 AND outlet_id=$2 AND station_id=$3 LIMIT 1',[session.tenantId,session.outletId,recordId]);
+    if(pending.rowCount)throw new DomainError('RESTAURANT_RESOURCE_IN_USE','This station has sent tickets. Preparation completion and safe station retirement are not available yet.',409);
     const used=await client.query(`SELECT EXISTS(SELECT 1 FROM restaurant.menu_route_stations l JOIN restaurant.menu_routes m USING(tenant_id,outlet_id,product_id)
       WHERE l.tenant_id=$1 AND l.outlet_id=$2 AND l.station_id=$3 AND m.available)
       OR EXISTS(SELECT 1 FROM restaurant.station_assignment_links l JOIN identity.devices d ON d.tenant_id=l.tenant_id AND d.outlet_id=l.outlet_id AND d.id=l.device_id
@@ -197,7 +203,7 @@ export async function getRestaurantConfiguration(session:ApiSession) {
       stationAssignments:assignments.rows.map(row=>({deviceId:row.device_id,stationIds:row.station_ids,version:Number(row.version),deviceVersion:Number(row.device_version),effectiveActive:row.effective_active})),
       devices:devices.rows.map(row=>({id:row.id,label:row.label,active:row.active,version:Number(row.version)})),
       products:candidates?.products??[],productPage:candidates?.page??null,
-      permissions:{manage,assignDevices},limits:RESTAURANT_LIMITS,availability:RESTAURANT_AVAILABILITY,
+      permissions:{manage,assignDevices},limits:RESTAURANT_LIMITS,availability:session.onboardingStatus==='SETUP'?{...RESTAURANT_AVAILABILITY,ordering:false,fire:false}:RESTAURANT_AVAILABILITY,
     }};
   });
 }
