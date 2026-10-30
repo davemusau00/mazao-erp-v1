@@ -57,6 +57,11 @@ jobs:
           VITE_API_BASE_URL=https://api.mazaoyako.co.ke bun run build -- --outDir dist-mazaoyako
           grep -Rq 'https://api.mazaoyako.co.ke' dist-mazaoyako/assets
           grep -Rq '/api/v1' dist-mazaoyako/assets
+      - name: Validate isolated Mazao Yako deployment configuration
+        run: |
+          bash -n infra/mazaoyako/prepare-host.sh infra/mazaoyako/install-nginx-sites.sh infra/mazaoyako/activate-release.sh infra/mazaoyako/bootstrap-initial-tenant.sh
+          python -B -c "import ast,pathlib; ast.parse(pathlib.Path('infra/mazaoyako/verify-proxy-peer.py').read_text())"
+          docker compose --project-name mazaoyako --env-file infra/mazaoyako/.env.example -f infra/mazaoyako/compose.yml config --quiet
       - name: Preserve disposable browser acceptance screenshots and failure traces
         if: always()
         uses: actions/upload-artifact@v4
