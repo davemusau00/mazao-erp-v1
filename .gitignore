@@ -1,7 +1,9 @@
 node_modules/
 build/
 dist/
+dist-mazaoyako/
 coverage/
+__pycache__/
 test-results/
 test-results-*/
 playwright-report/

@@ -6,6 +6,7 @@
 
 import { SaleOrder, Shift, TenantProfile, Room } from '../types/erp';
 import { escapeHtml, safeRasterImageSource } from '../utils/html';
+import { apiAssetUsesCredentials, resolveApiAssetUrl } from './apiOrigin';
 
 class HardwareService {
   /** A drawer requires a separately paired and authorized hardware service. */
@@ -79,14 +80,16 @@ class HardwareService {
     }
 
     const widthStyle = tenant.paperWidth === '58mm' ? 'width: 54mm; max-width: 58mm;' : 'width: 76mm; max-width: 80mm;';
-    const logoSource = tenant.logoImage && tenant.showLogoOnReceipt !== false ? safeRasterImageSource(tenant.logoImage) : '';
-    const qrSource = tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? safeRasterImageSource(tenant.receiptQrImage) : '';
+    const logoSource = tenant.logoImage && tenant.showLogoOnReceipt !== false ? safeRasterImageSource(resolveApiAssetUrl(tenant.logoImage)) : '';
+    const qrSource = tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? safeRasterImageSource(resolveApiAssetUrl(tenant.receiptQrImage)) : '';
+    const logoCredentials = tenant.logoImage && apiAssetUsesCredentials(tenant.logoImage) ? 'crossorigin="use-credentials"' : '';
+    const qrCredentials = tenant.receiptQrImage && apiAssetUsesCredentials(tenant.receiptQrImage) ? 'crossorigin="use-credentials"' : '';
     printContainer.setAttribute('style', `${widthStyle} padding: 4mm; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;`);
 
     printContainer.innerHTML = `
       ${logoSource ? `
         <div style="text-align: center; margin-bottom: 6px;">
-          <img src="${logoSource}" style="max-height: 48px; max-width: 140px; filter: grayscale(100%) contrast(150%); display: inline-block;" alt="Logo" />
+          <img ${logoCredentials} src="${logoSource}" style="max-height: 48px; max-width: 140px; filter: grayscale(100%) contrast(150%); display: inline-block;" alt="Logo" />
         </div>
       ` : ''}
       <div style="text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 2px;">
@@ -158,7 +161,7 @@ class HardwareService {
       ` : ''}
       ${qrSource ? `
         <div style="text-align: center; margin: 8px 0 4px 0;">
-          <img src="${qrSource}" style="width: 80px; height: 80px; display: inline-block; filter: grayscale(100%);" alt="Payment QR" />
+          <img ${qrCredentials} src="${qrSource}" style="width: 80px; height: 80px; display: inline-block; filter: grayscale(100%);" alt="Payment QR" />
           <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">SCAN TO PAY</div>
           ${tenant.tillNumber ? `<div style="font-size: 9px; font-family: monospace;">TILL NO: ${escapeHtml(tenant.tillNumber)}</div>` : ''}
         </div>

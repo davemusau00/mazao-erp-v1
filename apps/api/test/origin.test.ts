@@ -43,6 +43,37 @@ test('production unsafe requests fail closed unless the exact configured origin 
     });
     assert.equal(allowedOrigin.statusCode, 400);
     assert.equal(allowedOrigin.json().error.code, 'VALIDATION_FAILED');
+    assert.equal(allowedOrigin.headers['access-control-allow-origin'], 'https://erp.example.invalid');
+    assert.equal(allowedOrigin.headers['access-control-allow-credentials'], 'true');
+
+    const preflight = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/auth/login',
+      headers: {
+        origin: 'https://erp.example.invalid',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, x-request-id, x-csrf-token',
+      },
+    });
+    assert.equal(preflight.statusCode, 204, preflight.body);
+    assert.equal(preflight.headers['access-control-allow-origin'], 'https://erp.example.invalid');
+    assert.equal(preflight.headers['access-control-allow-credentials'], 'true');
+    assert.match(preflight.headers['access-control-allow-headers'] ?? '', /x-csrf-token/i);
+
+    const rejectedOriginPreflight = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://attacker.example.invalid', 'access-control-request-method': 'POST' },
+    });
+    assert.equal(rejectedOriginPreflight.statusCode, 403);
+    assert.equal(rejectedOriginPreflight.headers['access-control-allow-origin'], undefined);
+
+    const rejectedHeaderPreflight = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://erp.example.invalid', 'access-control-request-method': 'POST', 'access-control-request-headers': 'x-unapproved' },
+    });
+    assert.equal(rejectedHeaderPreflight.statusCode, 403);
   } finally {
     await app.close();
     await db.pool.end();
