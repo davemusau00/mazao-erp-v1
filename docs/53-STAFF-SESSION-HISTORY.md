@@ -1,0 +1,15 @@
+# Staff, workspace assignment and session history
+
+Date: 20 October 2026, Africa/Nairobi. S00-05 UI continuation for G04.
+
+The staff directory, assignment list and operator session list previously ended at their server caps. These screens now show the loaded/matching record count, search server records and append older pages without discarding the records already shown. The assignment form can search the full staff directory before choosing its operator. Directory metrics explicitly describe the operators shown rather than claiming complete business totals.
+
+An operator being edited or provisioned may fall outside the first page or a new search result. The staff workspace separately looks up that operator by UUID and retains the selected details and provisioning guide. Restored setup resumes the saved operator rather than choosing the first directory result. Missing from one page never cancels setup. If an exact UUID lookup cannot find the selected account, the screen keeps the setup reference, shows an unavailable warning and renders no other operator password panel. Editing an older assignment separately retains its operator in the assignee choices. Searching assignment operators preserves the loaded assignment list and its edit form; searching assignment history preserves the loaded operator choices.
+
+Session reads cancel when the target changes and use a generation guard, so a delayed response for a previous operator cannot replace the current operator's sessions. Both directory and session searches apply their query only after the server returns successfully. A failed search leaves the previous displayed records, applied filter and continuation cursor together; loading another page continues the successful query. Search buttons and continuation controls respect active reads, and staff selection/search respect an active password operation.
+
+These changes use the shared `HistoryNavigation` controls and existing authenticated API methods. They add no mutations, database authority, permissions, financial/stock effects or password persistence. The API's scoped cursor/search contract and real database boundary coverage are documented with the directory pagination slice.
+
+Fresh-build Chromium acceptance: **3 passed, 0 failed** in `e2e/staff-history.spec.ts`, within the shared **23 passed** browser run. Coverage includes directory search and continuation beyond the first page, session continuation after a failed search, saved provisioning outside the first page and full-directory lookup for assignment selection while preserving an older assignment edit form. Native select controls are addressed by their accessible combobox names. Artifacts use `dist-artifacts/playwright-s00-directories`, separate from concurrent real-API browser acceptance; the exact shared command is recorded in [directory continuation evidence](54-DIRECTORY-CONTINUATION.md).
+
+Local `npm run typecheck` passes. Hosted CI, production schema/API identity, installed-PWA behavior and physical hardware remain unverified by this document.

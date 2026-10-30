@@ -1,3 +1,5 @@
+import {HistoryNavigation} from '../common/HistoryNavigation';
+import type {HistoryPage} from '../../types/history';
 import { actionStatusLabel } from '../../utils/presentation';
 import React, { useEffect, useRef, useState } from 'react';
 import { apiClient, type BackendCommand, type BackendShift, type BackendShiftCloseReport } from '../../services/apiClient';
@@ -14,6 +16,14 @@ export const ShiftManagerView: React.FC = () => {
   const currency = session.tenant.currency;
   const [shift, setShift] = useState<BackendShift|null>(null);
   const [closeReports, setCloseReports] = useState<BackendShiftCloseReport[]>([]);
+  const [reportPage,setReportPage]=useState<HistoryPage>();
+  const [reportSearch,setReportSearch]=useState(''),[cashSearch,setCashSearch]=useState('');
+  const [historyBusy,setHistoryBusy]=useState(false),[historyError,setHistoryError]=useState(''),[selectedReportId,setSelectedReportId]=useState('');
+  const activeReport=closeReports.find(report=>report.id===selectedReportId)??closeReports[0];
+  const historyRead=useRef<AbortController|null>(null);const historyAttempt=useRef<{kind:'cash'|'reports';search:string;append:boolean}>({kind:'reports',search:'',append:false});
+  useEffect(()=>()=>historyRead.current?.abort(),[]);
+  const loadReports=async(search=reportSearch,append=false)=>{historyRead.current?.abort();const controller=new AbortController();historyRead.current=controller;historyAttempt.current={kind:'reports',search,append};setHistoryBusy(true);setHistoryError('');try{const next=await apiClient.listShiftCloseReports(controller.signal,{q:search,after:append?reportPage?.nextCursor??undefined:undefined});if(controller.signal.aborted)return;setCloseReports(previous=>append?[...previous,...next.reports]:next.reports);setReportPage(next.page);setReportSearch(search);}catch(cause){if(!controller.signal.aborted)setHistoryError(cause instanceof Error?cause.message:'Close report history could not be loaded. Retry this search or older page.');}finally{if(!controller.signal.aborted)setHistoryBusy(false);}};
+  const loadCash=async(search=cashSearch,append=false)=>{if(!shift)return;const id=shift.id;historyRead.current?.abort();const controller=new AbortController();historyRead.current=controller;historyAttempt.current={kind:'cash',search,append};setHistoryBusy(true);setHistoryError('');try{const next=await apiClient.listShiftCashMovements(id,controller.signal,{q:search,after:append?shift.cashMovementPage?.nextCursor??undefined:undefined});if(controller.signal.aborted)return;setShift(previous=>previous?.id===id?{...previous,cashMovements:append?[...previous.cashMovements,...next.movements]:next.movements,cashMovementPage:next.page}:previous);setCashSearch(search);}catch(cause){if(!controller.signal.aborted)setHistoryError(cause instanceof Error?cause.message:'Till cash history could not be loaded. Retry this search or older page.');}finally{if(!controller.signal.aborted)setHistoryBusy(false);}};
   const [float, setFloat] = useState('0');
   const [counted, setCounted] = useState('0');
   const [movementType, setMovementType] = useState<ShiftCashMovementType|null>(null);
@@ -41,11 +51,11 @@ export const ShiftManagerView: React.FC = () => {
   const locked = loading || !!loadError || !recovery.ready || busy || !!unknownCommandId;
 
   const refresh = async () => {
-    setLoading(true); setLoadError('');
+    historyRead.current?.abort();setHistoryBusy(false);setHistoryError('');setLoading(true); setLoadError('');
     try {
       const [current, reports] = await Promise.all([apiClient.getCurrentShift(), apiClient.listShiftCloseReports()]);
       setShift(current.shift);
-      setCloseReports(reports.reports);
+      setCloseReports(reports.reports);setReportPage(reports.page);setReportSearch('');setCashSearch('');setSelectedReportId('');
     }
     catch (error) { setLoadError(error instanceof Error ? error.message : 'We could not load your till. Try again.'); }
     finally { setLoading(false); }
@@ -186,28 +196,31 @@ export const ShiftManagerView: React.FC = () => {
         {message && <div role={unknownCommandId?'alert':'status'} className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-200"><span>{message}</span>{unknownCommandId&&<button type="button" onClick={()=>void checkUnknown()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check status</button>}</div>}
       </section>
 
-      {closeReports[0] && <section className="rounded-2xl border border-emerald-900/70 bg-zinc-950 p-5 sm:p-6" aria-labelledby="z-report-title">
+      {historyError&&<p role="alert" className="rounded-lg border border-rose-900 p-3 text-sm text-rose-200">{historyError}<button type="button" disabled={historyBusy} className="ml-3 min-h-11 underline" onClick={()=>{const last=historyAttempt.current;void(last.kind==='cash'?loadCash(last.search,last.append):loadReports(last.search,last.append));}}>Retry history read</button></p>}
+      {shift&&<section aria-label="Till movement history navigation" className="rounded-xl border border-zinc-800"><HistoryNavigation page={shift.cashMovementPage} loaded={shift.cashMovements.length} busy={historyBusy||loading} label="till cash movements" onMore={()=>void loadCash(cashSearch,true)} onSearch={value=>void loadCash(value)}/></section>}
+      <section aria-label="Close report history" className="rounded-xl border border-zinc-800 bg-zinc-950"><header className="p-4"><h2 className="font-semibold">Close report history</h2><p className="mt-1 text-xs text-zinc-500">Choose a report to view its immutable close evidence.</p></header><div className="max-h-72 overflow-y-auto divide-y divide-zinc-800">{closeReports.map(report=><button type="button" key={report.id} aria-pressed={activeReport?.id===report.id} onClick={()=>setSelectedReportId(report.id)} className="flex min-h-11 w-full flex-wrap justify-between gap-2 p-3 text-left text-sm hover:bg-zinc-900"><span>{report.businessDate} ? {report.operatorName}</span><span className="text-zinc-400">{new Date(report.closedAt).toLocaleString(undefined,{timeZone:report.timeZone})}</span></button>)}</div>{!closeReports.length&&<p className="p-4 text-sm text-zinc-500">No close reports match this history.</p>}<HistoryNavigation page={reportPage} loaded={closeReports.length} busy={historyBusy||loading} label="close reports" onMore={()=>void loadReports(reportSearch,true)} onSearch={value=>void loadReports(value)}/></section>
+      {activeReport && <section className="rounded-2xl border border-emerald-900/70 bg-zinc-950 p-5 sm:p-6" aria-labelledby="z-report-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><p className="text-xs uppercase tracking-widest text-emerald-300">Till close report · {closeReports[0].businessDate}</p><h2 id="z-report-title" className="mt-1 text-xl font-semibold">Z report</h2><p className="mt-1 text-sm text-zinc-400">{closeReports[0].outletName} · {closeReports[0].operatorName} · shift {closeReports[0].shiftId.slice(0,8)}</p></div>
-          <p className="text-xs text-zinc-500">Closed {new Date(closeReports[0].closedAt).toLocaleString(undefined,{timeZone:closeReports[0].timeZone})}</p>
+          <div><p className="text-xs uppercase tracking-widest text-emerald-300">Till close report · {activeReport.businessDate}</p><h2 id="z-report-title" className="mt-1 text-xl font-semibold">Z report</h2><p className="mt-1 text-sm text-zinc-400">{activeReport.outletName} · {activeReport.operatorName} · shift {activeReport.shiftId.slice(0,8)}</p></div>
+          <p className="text-xs text-zinc-500">Closed {new Date(activeReport.closedAt).toLocaleString(undefined,{timeZone:activeReport.timeZone})}</p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
           {([
-            ['Opening float', closeReports[0].openingFloatMinor],
-            ['Cash sales', closeReports[0].cashSalesMinor],
-            ['Customer collections', closeReports[0].customerCollectionsMinor],
-            ['Cash paid-in', closeReports[0].cashPaidInMinor],
-            ['Cash payouts', closeReports[0].cashPayoutMinor],
-            ['Cash refunds', closeReports[0].cashRefundsMinor],
-            ['Expected cash', closeReports[0].expectedCashMinor],
-            ['Counted cash', closeReports[0].countedCashMinor],
+            ['Opening float', activeReport.openingFloatMinor],
+            ['Cash sales', activeReport.cashSalesMinor],
+            ['Customer collections', activeReport.customerCollectionsMinor],
+            ['Cash paid-in', activeReport.cashPaidInMinor],
+            ['Cash payouts', activeReport.cashPayoutMinor],
+            ['Cash refunds', activeReport.cashRefundsMinor],
+            ['Expected cash', activeReport.expectedCashMinor],
+            ['Counted cash', activeReport.countedCashMinor],
           ] as const).map(([label, amount]) => <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3"><p className="text-xs text-zinc-400">{label}</p><p className="mt-1 text-base font-semibold">{formatMinorMoneyText(amount,currency)}</p></div>)}
         </div>
-        <p className={`mt-4 rounded-lg border p-3 text-sm ${BigInt(closeReports[0].varianceMinor)===0n?'border-emerald-900 bg-emerald-950/30 text-emerald-200':'border-amber-900 bg-amber-950/30 text-amber-200'}`}>
-          Cash variance: <strong className="font-mono">{formatMinorMoneyText(closeReports[0].varianceMinor,currency)}</strong>. This report records counted cash and all supported cash movements.
+        <p className={`mt-4 rounded-lg border p-3 text-sm ${BigInt(activeReport.varianceMinor)===0n?'border-emerald-900 bg-emerald-950/30 text-emerald-200':'border-amber-900 bg-amber-950/30 text-amber-200'}`}>
+          Cash variance: <strong className="font-mono">{formatMinorMoneyText(activeReport.varianceMinor,currency)}</strong>. This report records counted cash and all supported cash movements.
         </p>
-        <p className="mt-3 rounded-lg border border-blue-900 p-3 text-sm text-blue-200">M-Pesa sales {closeReports[0].mpesaSalesMinor === undefined ? 'not included in this older report' : formatMinorMoneyText(closeReports[0].mpesaSalesMinor,currency)} · separate from counted cash</p>
-        <details className="mt-3 text-xs text-zinc-500"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all">{closeReports[0].id}</p><p className="break-all">{closeReports[0].commandId}</p></details>
+        <p className="mt-3 rounded-lg border border-blue-900 p-3 text-sm text-blue-200">M-Pesa sales {activeReport.mpesaSalesMinor === undefined ? 'not included in this older report' : formatMinorMoneyText(activeReport.mpesaSalesMinor,currency)} · separate from counted cash</p>
+        <details className="mt-3 text-xs text-zinc-500"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all">{activeReport.id}</p><p className="break-all">{activeReport.commandId}</p></details>
       </section>}
 
       {movementType && shift && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy&&!unknownCommandId)setMovementType(null)}}>

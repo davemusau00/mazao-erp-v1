@@ -3,9 +3,9 @@
 @layer base {
   :root {
     color-scheme: dark;
-    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
-    --font-body: 'Public Sans', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --font-display: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --surface-app: #080b10;
     --surface-sidebar: #0b0f15;
     --surface-raised: #111720;

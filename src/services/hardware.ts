@@ -81,7 +81,7 @@ class HardwareService {
     const widthStyle = tenant.paperWidth === '58mm' ? 'width: 54mm; max-width: 58mm;' : 'width: 76mm; max-width: 80mm;';
     const logoSource = tenant.logoImage && tenant.showLogoOnReceipt !== false ? safeRasterImageSource(tenant.logoImage) : '';
     const qrSource = tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? safeRasterImageSource(tenant.receiptQrImage) : '';
-    printContainer.setAttribute('style', `${widthStyle} padding: 4mm; font-family: 'JetBrains Mono', monospace; font-size: 11px;`);
+    printContainer.setAttribute('style', `${widthStyle} padding: 4mm; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;`);
 
     printContainer.innerHTML = `
       ${logoSource ? `

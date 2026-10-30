@@ -331,7 +331,8 @@ if (!databaseUrl) {
         occurredAt: new Date().toISOString(), expectedVersions: { [`count:${conflictedCountId}`]: 2 }, payload: { countId: conflictedCountId },
       });
       assert.equal(staleCountPost.json().status, 'CONFLICT');
-      assert.equal(staleCountPost.json().code, 'VERSION_CONFLICT');
+      assert.equal(staleCountPost.json().code, 'COUNT_REVIEW_REQUIRED');
+      assert.deepEqual(staleCountPost.json().details.changedProductIds, [productId]);
       const conflictedCountState = await db.pool.query<{status:string;quantity:string;inventory_value_minor:string;movement_count:string}>(`SELECT
         (SELECT status FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3) status,
         (SELECT quantity::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND product_id=$4) quantity,
@@ -617,13 +618,27 @@ if (!databaseUrl) {
       assert.equal(excessCreditSale.json().status, 'REJECTED');
       assert.equal(excessCreditSale.json().code, 'CUSTOMER_CREDIT_LIMIT_EXCEEDED');
 
-      const creditRefund = await app.inject({ method: 'POST', url: '/api/v1/commands', headers: { ...headers, 'content-type': 'application/json' }, payload: JSON.stringify({
+      const creditRefundEvidence = async () => {
+        const snapshot: Record<string, unknown> = {};
+        for (const table of ['commerce.orders', 'commerce.order_lines', 'commerce.payments', 'commerce.refunds', 'commerce.refund_lines', 'commerce.shifts', 'inventory.balances', 'inventory.movements', 'finance.customer_accounts', 'finance.customer_charges', 'finance.journal_entries', 'finance.journal_lines']) {
+          snapshot[table] = (await db.pool.query(`SELECT to_jsonb(e) evidence FROM ${table} e WHERE tenant_id=$1 ORDER BY to_jsonb(e)::text`, [tenantId])).rows;
+        }
+        return snapshot;
+      };
+      const beforeCreditRefund = await creditRefundEvidence();
+      const creditRefundCommand = {
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'sales.order.refund',
         occurredAt: new Date().toISOString(), expectedVersions: { [`shift:${shiftId}`]: 5 },
-        payload: { orderId: creditOrderId, shiftId, reason: 'Credit refund guard', lines: [{ orderLineId: randomUUID(), quantity: '1', restock: true }] },
-      }) });
+        payload: { orderId: creditOrderId, shiftId, reason: 'Credit refund guard', lines: [{ orderLineId: creditReceipt.json().lines[0].lineId, quantity: '1', restock: true }] },
+      };
+      const missingCreditRefundLine = await postCommand({ ...creditRefundCommand, commandId: randomUUID(), payload: { ...creditRefundCommand.payload, lines: [{ orderLineId: randomUUID(), quantity: '1', restock: true }] } });
+      assert.equal(missingCreditRefundLine.json().status, 'REJECTED');
+      assert.equal(missingCreditRefundLine.json().code, 'NOT_FOUND', 'trusted kind planning requires a scoped original sale line');
+      assert.deepEqual(await creditRefundEvidence(), beforeCreditRefund, 'an invalid selected line cannot change credit, cash, stock or journals');
+      const creditRefund = await postCommand(creditRefundCommand);
       assert.equal(creditRefund.json().status, 'REJECTED');
       assert.equal(creditRefund.json().code, 'CUSTOMER_CREDIT_REFUND_UNAVAILABLE');
+      assert.deepEqual(await creditRefundEvidence(), beforeCreditRefund, 'the valid original line still reaches the unsupported credit-refund guard without effects');
 
       const repaymentCommand = {
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId: cashierDeviceId, type: 'customers.repayment',

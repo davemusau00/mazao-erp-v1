@@ -91,7 +91,7 @@ if (!databaseUrl) {
       const foreign = await submit({ ...command('configuration.outlet.update', initial.outlet, { [`outlet:${outletId}`]: 2 }), tenantId: randomUUID() });
       assert.equal(foreign.statusCode, 403);
 
-      for (const capabilities of [['restaurant'], ['commerce'], ['inventory', 'hospitality'], ['commerce', 'inventory', 'inventory']]) {
+      for (const capabilities of [['restaurant'], ['commerce', 'retail'], ['inventory', 'retail'], ['inventory', 'hospitality'], ['commerce', 'inventory', 'inventory']]) {
         const failed = await submit(command('configuration.capabilities.update', { capabilities }, { [`business:${tenantId}`]: 3 }));
         assert.equal(failed.json().status, 'REJECTED'); assert.equal(failed.json().code, 'VALIDATION_FAILED');
       }
@@ -148,7 +148,8 @@ if (!databaseUrl) {
       assert.equal(receiptBefore.json().receiptProfile.showQrOnReceipt, true);
       const newerBusiness = await submit(command('configuration.business.update', { ...businessInput, name: 'Later business identity', legalName: 'Later legal identity', receiptFooter: 'Later business footer', logoUrl: '', receiptQrImage: '', showQrOnReceipt: false, taxPolicy: { ...businessInput.taxPolicy, defaultRateBps: 800, label: 'Later tax label' } }, { [`business:${tenantId}`]: 4 }));
       assert.equal(newerBusiness.json().status, 'CONFIRMED', newerBusiness.body);
-      const newerOutlet = await submit(command('configuration.outlet.update', { ...initial.outlet, name: 'Later outlet', receiptFooter: 'Later outlet footer' }, { [`outlet:${outletId}`]: 2 }));
+      const currentOutlet=(await read()).outlet;
+      const newerOutlet = await submit(command('configuration.outlet.update', { ...currentOutlet, name: 'Later outlet', receiptFooter: 'Later outlet footer' }, { [`outlet:${outletId}`]: currentOutlet.version }));
       assert.equal(newerOutlet.json().status, 'CONFIRMED', newerOutlet.body);
       assert.deepEqual((await app.inject({ url: `/api/v1/sales/orders/${orderId}/receipt`, headers })).json(), receiptBefore.json(), 'reprint must preserve all original identities and configuration despite later changes');
       const status = await app.inject({ url: `/api/v1/commands/${newerBusiness.json().commandId}`, headers });
@@ -175,14 +176,15 @@ if (!databaseUrl) {
         const forbidden = await app.inject({ url: path, headers }); assert.equal(forbidden.statusCode, 403, forbidden.body); assert.equal(forbidden.json().error.code, 'CAPABILITY_DISABLED');
       }
       const disabledSalePayload = { shiftId, lines: [{ productId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 11600, currency: 'KES' }] };
-      for (const [type, payload] of [['catalog.product.create', {}], ['inventory.receive', {}], ['inventory.count.open', {}], ['shift.open', { openingFloatMinor: 0 }], ['hotel.room.create', {}], ['sales.order.settle', disabledSalePayload], ['sales.order.settle', { ...disabledSalePayload, customerId: randomUUID(), tenders: [] }], ['sales.order.refund', { orderId, shiftId, reason: 'Disabled capability acceptance' }]] as Array<[string, Record<string, unknown>]>) {
+      const disabledRefundPayload = { orderId, shiftId, reason: 'Disabled capability acceptance', lines: [{ orderLineId: receiptBefore.json().lines[0].lineId, quantity: '1', restock: false }] };
+      for (const [type, payload] of [['catalog.product.create', {}], ['inventory.receive', {}], ['inventory.count.open', {}], ['shift.open', { openingFloatMinor: 0 }], ['hotel.room.create', {}], ['sales.order.settle', disabledSalePayload], ['sales.order.settle', { ...disabledSalePayload, customerId: randomUUID(), tenders: [] }], ['sales.order.refund', disabledRefundPayload]] as Array<[string, Record<string, unknown>]>) {
         const forbidden = await submit(command(type, payload)); assert.equal(forbidden.json().status, 'REJECTED', forbidden.body); assert.equal(forbidden.json().code, 'CAPABILITY_DISABLED');
       }
-      // Legacy or externally provisioned capability rows must never allow a
-      // sale to mutate stock when only commerce is enabled.
+      // Commerce alone supports services; original stocked sale/refund lines
+      // still require inventory, including a refund without restocking.
       await db.pool.query('INSERT INTO core.tenant_capabilities(tenant_id,capability) VALUES($1,\'commerce\')', [tenantId]);
       for (const type of ['sales.order.settle', 'sales.order.refund']) {
-        const deniedWithoutInventory = await submit(command(type, type === 'sales.order.settle' ? disabledSalePayload : { orderId, shiftId, reason: 'Missing inventory acceptance' }));
+        const deniedWithoutInventory = await submit(command(type, type === 'sales.order.settle' ? disabledSalePayload : disabledRefundPayload));
         assert.equal(deniedWithoutInventory.json().status, 'REJECTED', deniedWithoutInventory.body);
         assert.equal(deniedWithoutInventory.json().code, 'CAPABILITY_DISABLED');
         assert.match(deniedWithoutInventory.json().message, /inventory/);
@@ -231,6 +233,33 @@ if (!databaseUrl) {
       }
       assert.deepEqual(await financialEvidenceSnapshot(), evidenceBeforeRead, 'receipt and image reads must not mutate sale, line, payment or snapshot evidence');
       assert.equal((await app.inject({ url: `/api/v1/sales/orders/${randomUUID()}/receipt/assets/logo`, headers })).statusCode, 404, 'receipt images remain scoped to an existing sale in the operator outlet');
+
+      const beforeServiceSetup = await read();
+      const serviceOnly = command('configuration.capabilities.update', { capabilities: ['commerce'] }, { [`business:${tenantId}`]: beforeServiceSetup.business.version });
+      const serviceOnlyResult = await submit(serviceOnly);
+      assert.equal(serviceOnlyResult.json().status, 'CONFIRMED', serviceOnlyResult.body);
+      assert.equal(serviceOnlyResult.json().value.version, beforeServiceSetup.business.version + 1);
+      assert.deepEqual((await submit(serviceOnly)).json(), serviceOnlyResult.json(), 'service-only capability setup replays without another version change');
+      const serviceConfiguration = await read();
+      assert.deepEqual(serviceConfiguration.capabilities, ['commerce']);
+      assert.deepEqual((await app.inject({ url: '/api/v1/auth/me', headers })).json().tenant.capabilities, ['commerce']);
+      assert.equal(serviceConfiguration.readiness.readyForFirstSale, false);
+      assert.equal(serviceConfiguration.readiness.checks.find((check: { key: string }) => check.key === 'catalog').complete, false, 'stocked goods do not make a commerce-only catalogue sale-ready');
+      const service = await submit(command('catalog.product.create', { sku: 'CONFIG-SERVICE', name: 'Configured service', itemKind: 'SERVICE', baseUnit: 'each', currency: 'KES', sellingPriceMinor: 1000, costPriceMinor: 5000, taxRateBps: 0 }));
+      assert.equal(service.json().status, 'CONFIRMED', service.body);
+      const serviceProductId = service.json().value.productId;
+      assert.equal((await read()).readiness.readyForFirstSale, true, 'a configured service needs no receipt of physical stock');
+      const serviceSale = command('sales.order.settle', { shiftId: largeShiftId, lines: [{ productId: serviceProductId, quantity: '1' }], tenders: [{ method: 'CASH', amountMinor: 1000, currency: 'KES' }] }, { [`shift:${largeShiftId}`]: 2 });
+      const serviceSold = await submit(serviceSale);
+      assert.equal(serviceSold.json().status, 'CONFIRMED', serviceSold.body);
+      assert.equal(serviceSold.json().value.totalMinor, 1000);
+      const serviceEvidence = (await db.pool.query(`SELECT
+        (SELECT count(*)::int FROM inventory.balances WHERE tenant_id=$1 AND product_id=$2) balances,
+        (SELECT count(*)::int FROM inventory.movements WHERE tenant_id=$1 AND product_id=$2) movements,
+        (SELECT required_capabilities FROM system.commands WHERE tenant_id=$1 AND command_id=$3) required_capabilities,
+        (SELECT jsonb_build_object('kind',item_kind_snapshot,'cost',cost_price_minor::text,'cogs',cogs_minor::text) FROM commerce.order_lines WHERE tenant_id=$1 AND product_id=$2) sale_line`, [tenantId, serviceProductId, serviceSale.commandId])).rows[0];
+      assert.deepEqual(serviceEvidence, { balances: 0, movements: 0, required_capabilities: ['commerce'], sale_line: { kind: 'SERVICE', cost: '0', cogs: '0' } });
+      assert.deepEqual(await financialEvidenceSnapshot(), evidenceBeforeRead, 'service setup and checkout preserve the previous stocked sale and its stock/COGS evidence');
     } finally { await app.close(); await db.pool.end(); }
   });
 }

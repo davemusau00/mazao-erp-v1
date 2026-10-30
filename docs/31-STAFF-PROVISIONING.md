@@ -38,4 +38,6 @@ Restaurant roles such as waiter, cook, and bartender are not assignable through 
 
 - Staff directory and workspace assignments: `GET /api/v1/staff`, `GET /api/v1/devices`.
 - Credential endpoints: `POST /api/v1/staff/{userId}/password` and `POST /api/v1/auth/password`.
+- Never-received/lost-response recovery: metadata-only `POST /api/v1/auth/password/reconcile`; see [migration 022 and terminal fencing](50-CREDENTIAL-OPERATION-FENCING.md). A 404 alone never clears an operation.
+- Directory/assignment/session continuation and complete server search: [directory contracts](54-DIRECTORY-CONTINUATION.md) and [staff UI acceptance](53-STAFF-SESSION-HISTORY.md).
 - API implementation and permission map: `apps/api/src/staff.ts`, `apps/api/src/credentials.ts`, and `apps/api/src/contracts.ts`.

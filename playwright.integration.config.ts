@@ -3,8 +3,10 @@ import { defineConfig } from '@playwright/test';
 const databaseUrl = process.env.MAZAO_E2E_DATABASE_URL;
 if (!databaseUrl) throw new Error('MAZAO_E2E_DATABASE_URL must identify a disposable, migrated local test database.');
 const database = new URL(databaseUrl);
-if (!['127.0.0.1', 'localhost'].includes(database.hostname) || !['/mazao_test', '/mazao_configuration_test'].includes(database.pathname)) {
-  throw new Error('Browser integration fixtures may only use the named disposable localhost test databases.');
+const namedTestDatabase = ['/mazao_test', '/mazao_configuration_test'].includes(database.pathname);
+const generatedCountDatabase = /^\/mazao_count_e2e_[0-9a-f]{32}$/.test(database.pathname);
+if (!['127.0.0.1', 'localhost'].includes(database.hostname) || (!namedTestDatabase && !generatedCountDatabase)) {
+  throw new Error('Browser integration fixtures require a named disposable localhost test database or a generated mazao_count_e2e UUID database.');
 }
 
 export default defineConfig({

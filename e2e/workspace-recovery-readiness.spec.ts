@@ -153,12 +153,13 @@ for (const workspace of workspaces) {
   });
 }
 
-test('unsaved count edits require leave confirmation and guard browser unload; saved draft remains available', async ({ page }) => {
+test('unsent count edits persist locally across navigation and a browser restart', async ({ page }) => {
   await session(page, true); await page.goto('/'); await navigate(page, 'count');
   await expect(page.getByLabel('Counted quantity', { exact: true })).toBeEnabled();
   await page.getByLabel('Counted quantity', { exact: true }).fill('9');
   await page.getByLabel('Reason for difference').fill('Damaged bag');
-  expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); return !window.dispatchEvent(event); })).toBe(true);
+  await expect(page.getByText(/Unsent changes are saved on this device/)).toBeVisible();
+  expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); return !window.dispatchEvent(event); })).toBe(false);
   page.once('dialog', dialog => dialog.dismiss());
   await page.getByRole('button', { name: 'Shifts', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Outlet count in progress' })).toBeVisible();
@@ -168,5 +169,6 @@ test('unsaved count edits require leave confirmation and guard browser unload; s
   await expect(page.getByRole('heading', { name: 'Cash control' })).toBeVisible();
   await navigate(page, 'count');
   await expect(page.getByRole('heading', { name: 'Outlet count in progress' })).toBeVisible();
-  await expect(page.getByLabel('Counted quantity', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Counted quantity', { exact: true })).toHaveValue('9');
+  await expect(page.getByLabel('Reason for difference')).toHaveValue('Damaged bag');
 });

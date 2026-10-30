@@ -10,6 +10,8 @@ import {
 import { formatBasisPoints, formatMinorMoney, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
 import { useCommandRecoveryReadiness } from '../../hooks/useCommandRecoveryReadiness';
 import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
+import { HistoryNavigation } from '../common/HistoryNavigation';
+import type { HistoryPage, HistoryOptions } from '../../types/history';
 
 type HotelView = 'rooms' | 'reservations' | 'stays' | 'housekeeping';
 type DialogState =
@@ -53,6 +55,10 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const [view, setView] = useState<HotelView>(initialView);
   const [rooms, setRooms] = useState<BackendRoom[]>([]);
   const [reservations, setReservations] = useState<BackendReservation[]>([]);
+  const [reservationPage, setReservationPage] = useState<HistoryPage>();
+  const [reservationsBusy, setReservationsBusy] = useState(false);
+  const reservationSearch = useRef('');
+  const reservationGeneration = useRef(0);
   const [stays, setStays] = useState<BackendStay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -79,6 +85,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const [tendered, setTendered] = useState('');
 
   const refresh = useCallback(async () => {
+    const reservationRequest = ++reservationGeneration.current;
     setLoading(true);
     setError('');
     try {
@@ -86,9 +93,12 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       setRooms(roomResult.rooms);
       if (canFrontdesk) {
         const [reservationResult, stayResult] = await Promise.all([
-          apiClient.listHotelReservations(), apiClient.listHotelStays(),
+          apiClient.listHotelReservations(undefined,{q:reservationSearch.current}), apiClient.listHotelStays(),
         ]);
-        setReservations(reservationResult.reservations);
+        if (reservationRequest === reservationGeneration.current) {
+          setReservations(reservationResult.reservations);
+          setReservationPage(reservationResult.page);
+        }
         setStays(stayResult.stays);
       } else {
         setReservations([]);
@@ -102,6 +112,21 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   }, [canFrontdesk]);
 
   useEffect(() => { void refresh(); }, [refresh, session.tenant.id]);
+
+  const loadReservations = async (options: HistoryOptions, append = false) => {
+    const generation = ++reservationGeneration.current;
+    setReservationsBusy(true); setError('');
+    try {
+      const result = await apiClient.listHotelReservations(undefined, options);
+      if (generation !== reservationGeneration.current) return;
+      reservationSearch.current = options.q ?? '';
+      setReservationPage(result.page);
+      setReservations(current => append ? [...current,...result.reservations.filter(row=>!current.some(item=>item.id===row.id))] : result.reservations);
+    } catch (cause) {
+      if (generation === reservationGeneration.current) setError(cause instanceof Error ? cause.message : 'Reservations could not be loaded. Retry the read.');
+    } finally { if (generation === reservationGeneration.current) setReservationsBusy(false); }
+  };
+  useEffect(()=>()=>{++reservationGeneration.current;},[]);
 
   const confirmation = (type: string, value: Record<string, unknown>) => {
     if (type === 'hotel.checkout') {
@@ -291,6 +316,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
           <div className="mt-4 flex flex-wrap justify-end gap-2">{canFrontdesk && room.status === 'READY' && <button onClick={() => openWalkin(room)} disabled={locked} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs font-semibold">Walk-in check-in</button>}{canHousekeep && room.status === 'DIRTY' && <button onClick={() => void markReady(room)} disabled={locked} className="min-h-11 rounded-lg border border-emerald-800 px-3 text-xs text-emerald-200">Mark room ready</button>}</div>
         </article>)}</section> : view === 'reservations' ?
       <section className="space-y-4">
+        <HistoryNavigation page={reservationPage} loaded={reservations.length} busy={reservationsBusy||loading} label="reservations" onMore={()=>void loadReservations({q:reservationSearch.current,after:reservationPage?.nextCursor??undefined},true)} onSearch={q=>void loadReservations({q})}/>
         <div className="flex justify-end"><button onClick={() => { setGuestName(''); setGuestContact(''); setRoomId(rooms.find(room => room.status !== 'MAINTENANCE')?.id ?? ''); setCheckInDate(today); setCheckOutDate(addDays(today, 1)); setDialog({ type: 'reservation' }); }} disabled={locked} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-semibold">New reservation</button></div>
         {reservations.length === 0 ? <Empty title="No confirmed reservations" detail="Create a reservation to hold a room across the requested dates." /> : <div className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">{reservations.map(reservation => {
           const room = rooms.find(item => item.id === reservation.roomId);

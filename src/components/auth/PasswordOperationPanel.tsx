@@ -35,7 +35,7 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
       if(result.value?.reauthenticate===true||operation.kind==='auth.password.change'){apiClient.clearAuthenticatedSession();return;}
       setVersion(Number(result.value?.credentialVersion??version));await onConfirmed?.();
     }else if(result.status==='CONFLICT'){setConflict(true);setError(result.message??'This password was changed elsewhere. Refresh before trying again.');}
-    else if(result.status==='REJECTED'){setError(result.message??'The password was not changed. Review the details and enter it again.');}
+    else if(result.status==='REJECTED'){if(result.code==='CREDENTIAL_OPERATION_FENCED')setNotice(result.message??'The earlier password request was safely stopped. Enter a new password to continue.');else setError(result.message??'The password was not changed. Review the details and enter it again.');}
     else{setPending(operation);setNotice('We could not confirm the password change. Check its status before trying again. Password fields have been cleared.');}
   };
   const submit=async(event:React.FormEvent<HTMLFormElement>)=>{
@@ -58,8 +58,8 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
   const check=async()=>{
     if(!pending||inFlight.current)return;
     setOperationBusy(true);setError('');
-    try{const result=await apiClient.checkSecretOperationStatus(pending.commandId);await complete({commandId:pending.commandId,status:result.status,...result.response},pending);}
-    catch(cause){setError((cause as {status?:number}).status===404?'No completed password operation was found yet. Check again; passwords cannot be replayed from this device.':cause instanceof Error?cause.message:'Password status could not be checked.');}
+    try{const result=await apiClient.reconcileSecretOperation(pending);await complete({commandId:pending.commandId,status:result.status,...result.response},pending);}
+    catch(cause){setError((cause as {status?:number}).status===404?'Password recovery is not available in this workspace or server version. Keep this reference and ask your administrator to restore access.':cause instanceof Error?cause.message:'Password status could not be checked.');}
     finally{setOperationBusy(false);}
   };
   const reload=async()=>{

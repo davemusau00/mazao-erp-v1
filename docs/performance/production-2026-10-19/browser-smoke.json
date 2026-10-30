@@ -1,0 +1,64 @@
+﻿{
+    "capturedAt":  "2026-10-19",
+    "origin":  "https://mazao.davemusau.co.ke",
+    "mode":  "signed-out, no financial mutations",
+    "note":  "Chromium reports an expected 401 from the signed-out auth/me request; no page errors, 5xx responses, or horizontal overflow.",
+    "cases":  [
+                  {
+                      "width":  1440,
+                      "height":  1000,
+                      "pageErrors":  0,
+                      "rootMounted":  true,
+                      "expectedAuthMe401":  true,
+                      "browser":  "chromium",
+                      "serverErrors":  0,
+                      "screenshot":  "chromium-desktop.png",
+                      "viewport":  "desktop",
+                      "status":  200,
+                      "visibleControls":  4,
+                      "horizontalOverflow":  false
+                  },
+                  {
+                      "width":  390,
+                      "height":  844,
+                      "pageErrors":  0,
+                      "rootMounted":  true,
+                      "expectedAuthMe401":  true,
+                      "browser":  "chromium",
+                      "serverErrors":  0,
+                      "screenshot":  "chromium-mobile.png",
+                      "viewport":  "mobile",
+                      "status":  200,
+                      "visibleControls":  4,
+                      "horizontalOverflow":  false
+                  },
+                  {
+                      "width":  1440,
+                      "height":  1000,
+                      "pageErrors":  0,
+                      "rootMounted":  true,
+                      "expectedAuthMe401":  true,
+                      "browser":  "firefox",
+                      "serverErrors":  0,
+                      "screenshot":  "firefox-desktop.png",
+                      "viewport":  "desktop",
+                      "status":  200,
+                      "visibleControls":  4,
+                      "horizontalOverflow":  false
+                  },
+                  {
+                      "width":  390,
+                      "height":  844,
+                      "pageErrors":  0,
+                      "rootMounted":  true,
+                      "expectedAuthMe401":  true,
+                      "browser":  "firefox",
+                      "serverErrors":  0,
+                      "screenshot":  "firefox-mobile.png",
+                      "viewport":  "mobile",
+                      "status":  200,
+                      "visibleControls":  4,
+                      "horizontalOverflow":  false
+                  }
+              ]
+}

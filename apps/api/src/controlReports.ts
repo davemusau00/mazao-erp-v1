@@ -67,9 +67,10 @@ const stockCte=`WITH movements AS (
     sum(CASE WHEN quantity_delta<0 THEN -value_minor ELSE value_minor END) value_minor
   FROM inventory.movements WHERE tenant_id=$1 GROUP BY outlet_id,product_id
 ), balances AS (
-  SELECT b.*,coalesce(m.quantity,0) movement_quantity,coalesce(m.value_minor,0) movement_value_minor,
+  SELECT b.*,p.item_kind,coalesce(m.quantity,0) movement_quantity,coalesce(m.value_minor,0) movement_value_minor,
     b.quantity-coalesce(m.quantity,0) quantity_difference,b.inventory_value_minor-coalesce(m.value_minor,0) value_difference
-  FROM inventory.balances b LEFT JOIN movements m ON m.outlet_id=b.outlet_id AND m.product_id=b.product_id WHERE b.tenant_id=$1
+  FROM inventory.balances b JOIN catalog.products p ON p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.id=b.product_id
+  LEFT JOIN movements m ON m.outlet_id=b.outlet_id AND m.product_id=b.product_id WHERE b.tenant_id=$1
 )`;
 export async function getInventoryValueReport(session:ApiSession,query:{limit?:unknown;after?:unknown;revision?:unknown}={}){
   requireFinanceView(session);const pagination=page(query);
@@ -77,7 +78,7 @@ export async function getInventoryValueReport(session:ApiSession,query:{limit?:u
   if(pagination.after&&!query.revision)throw new DomainError('VALIDATION_FAILED','Refresh the stock report before continuing to another page.');
   return inReadSnapshot(async client=>{
     const totals=await client.query(`${stockCte} SELECT
-      (SELECT count(*)::text FROM balances WHERE outlet_id=$2) total,
+      (SELECT count(*)::text FROM balances WHERE outlet_id=$2 AND item_kind='STOCKED_GOOD') total,
       coalesce((SELECT sum(inventory_value_minor)::text FROM balances WHERE outlet_id=$2),'0') outlet_value_minor,
       (SELECT count(*)::text FROM balances WHERE outlet_id=$2 AND (quantity_difference<>0 OR value_difference<>0)) outlet_mismatch_count,
       coalesce((SELECT sum(inventory_value_minor)::text FROM balances),'0') tenant_value_minor,
@@ -94,7 +95,7 @@ export async function getInventoryValueReport(session:ApiSession,query:{limit?:u
     const pageResult=await client.query(`${stockCte} SELECT p.id,p.sku,p.name,p.base_unit,p.active,b.quantity::text,b.inventory_value_minor::text,
       b.movement_quantity::text,b.movement_value_minor::text,b.quantity_difference::text,b.value_difference::text
       FROM balances b JOIN catalog.products p ON p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.id=b.product_id
-      WHERE b.outlet_id=$2 AND ($3::uuid IS NULL OR p.id>$3::uuid) ORDER BY p.id LIMIT $4`,[session.tenantId,session.outletId,pagination.after,pagination.limit+1]);
+      WHERE b.outlet_id=$2 AND p.item_kind='STOCKED_GOOD' AND ($3::uuid IS NULL OR p.id>$3::uuid) ORDER BY p.id LIMIT $4`,[session.tenantId,session.outletId,pagination.after,pagination.limit+1]);
     const r=totals.rows[0],hasMore=pageResult.rows.length>pagination.limit,items=hasMore?pageResult.rows.slice(0,pagination.limit):pageResult.rows;
     const difference=(BigInt(r.ledger_value_minor)-BigInt(r.tenant_value_minor)).toString();
     return{reportType:'INVENTORY_VALUE',scope:'OUTLET',tenantName:session.tenantName,outletName:session.outletName,currency:session.currency,generatedAt:r.generated_at,

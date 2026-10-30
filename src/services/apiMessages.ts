@@ -9,7 +9,24 @@ const messages: Record<string, string> = {
   NO_ACTIVE_ASSIGNMENT: 'Your account needs an active workspace assignment. Ask your administrator for help.',
   VALIDATION_FAILED: 'Check the amounts and required details, then try again.',
   VERSION_CONFLICT: 'This information changed on another device. Refresh and review the latest details.',
+  PRODUCT_ARCHIVE_STOCK_REMAINING: 'This item still has recorded quantity or value. Sell or reconcile its stock before archiving.',
+  PRODUCT_ARCHIVE_UNRESOLVED_SHORTFALL: 'Resolve this item’s stock exceptions before archiving.',
+  CATEGORY_IN_USE: 'Move the active items to another category before archiving this category.',
+  CATEGORY_MERGED: 'This category was merged. Use its destination category.',
+  CATEGORY_ARCHIVED: 'Restore the category or choose an active category before continuing.',
+  CATEGORY_NAME_CONFLICT: 'That exact category name already exists. Choose its existing record or another name.',
+  CATALOG_IDENTITY_CONFLICT: 'That SKU or barcode belongs to another item. Review the existing item.',
+  ITEM_KIND_STOCK_REMAINING: 'Correct the recorded quantity and stock value before changing this item type.',
+  ITEM_KIND_UNRESOLVED_SHORTFALL: 'Resolve this item’s stock exceptions before changing its type.',
+  NOT_STOCKED_ITEM: 'Choose a stocked good for receiving physical inventory.',
+  OPEN_COUNT_CONFLICT: 'Finish or cancel the open outlet count before changing its catalog baseline.',
+  COUNT_REVIEW_REQUIRED: 'Stock changed during this count. Review the changed items and count them again before posting.',
+  COUNT_REVIEW_STALE: 'Stock or this draft changed after the review opened. Refresh the changed-item review before continuing.',
+  COUNT_REVIEW_BLOCKED: 'This count needs an administrator to review its item or stock evidence before a new baseline can be accepted.',
+  COUNT_RECOUNT_REQUIRED: 'Physically recount the affected items and save their fresh quantities before posting.',
+  COUNT_CAPACITY_EXCEEDED: 'This full count exceeds the supported capacity. Ask an administrator to review its scope; no items have been omitted.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
+  CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
   INSUFFICIENT_CASH: 'There is not enough cash in this till for this action. Review the cash-up details.',
   NOT_FOUND: 'This record could not be found in your workspace. Refresh and try again.',
@@ -75,13 +92,65 @@ export function presentOutcome<T extends { status?: unknown; code?: unknown; mes
 }
 
 /** An incomplete acknowledgement must never cause retained financial evidence to be deleted. */
-export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string): boolean {
+export function isTerminalOutcome(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string,unknown>, expectedVersions?: Record<string,number>): boolean {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
   const outcome = result as Record<string, unknown>;
   if (outcome.commandId !== commandId || !['CONFIRMED', 'REJECTED', 'CONFLICT'].includes(String(outcome.status))) return false;
-  if (outcome.status !== 'CONFIRMED') return typeof outcome.code === 'string';
+  if (outcome.status !== 'CONFIRMED') return typeof outcome.code === 'string'
+    && outcome.code.trim().length > 0 && outcome.code.trim() !== 'IDEMPOTENCY_MISMATCH';
   if (!outcome.value || typeof outcome.value !== 'object' || Array.isArray(outcome.value)) return false;
   const value = outcome.value as Record<string, unknown>;
+  const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
+  const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if (commandType === 'inventory.count.review') {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const requested = commandPayload?.affectedProductIds, affected = value.affectedProductIds;
+    const requestedCountId = typeof commandPayload?.countId === 'string' && uuid.test(commandPayload.countId) ? commandPayload.countId.toLowerCase() : undefined;
+    const originalVersion = requestedCountId ? expectedVersions?.[`count:${requestedCountId}`] : undefined;
+    const ids = (input: unknown): input is string[] => Array.isArray(input) && input.length > 0 && input.length <= 5000
+      && input.every(item => typeof item === 'string' && uuid.test(item)) && new Set(input.map(item => item.toLowerCase())).size === input.length;
+    return typeof value.countId === 'string' && uuid.test(value.countId) && value.countId.toLowerCase() === requestedCountId
+      && typeof value.reviewId === 'string' && uuid.test(value.reviewId) && version('revision') && version('version')
+      && typeof originalVersion === 'number' && Number.isSafeInteger(originalVersion) && originalVersion >= 1 && value.version === originalVersion + 1
+      && ids(requested) && ids(affected) && requested.length === affected.length
+      && requested.every(id => affected.some(other => other.toLowerCase() === id.toLowerCase()));
+  }
+  if (commandType === 'catalog.product.create') {
+    return typeof value.productId === 'string' && value.productId.trim().length > 0
+      && typeof value.sku === 'string' && value.sku.trim().length > 0
+      && (commandPayload?.sku === undefined || typeof commandPayload.sku === 'string' && value.sku === commandPayload.sku.trim());
+  }
+  if (commandType === 'catalog.product.change_kind') {
+    return identifier('productId') && version('version')
+      && ['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(value.itemKind))
+      && (commandPayload?.itemKind === undefined || value.itemKind === commandPayload.itemKind)
+      && value.stockTracked === (value.itemKind === 'STOCKED_GOOD');
+  }
+  if (commandType === 'catalog.product.update' || commandType === 'catalog.product.set_active') {
+    return identifier('productId') && version('version') && typeof value.active === 'boolean'
+      && (commandType !== 'catalog.product.set_active' || commandPayload?.active === undefined || value.active === commandPayload.active);
+  }
+  if (['catalog.category.create','catalog.category.update','catalog.category.set_active'].includes(commandType ?? '')) {
+    return identifier('categoryId') && version('version') && typeof value.active === 'boolean'
+      && (commandType !== 'catalog.category.set_active' || commandPayload?.active === undefined || value.active === commandPayload.active);
+  }
+  if (commandType === 'catalog.category.merge') {
+    return identifier('sourceCategoryId') && identifier('targetCategoryId') && value.sourceCategoryId !== value.targetCategoryId
+      && version('sourceVersion') && version('targetVersion') && typeof value.updatedProducts === 'number'
+      && Number.isSafeInteger(value.updatedProducts) && value.updatedProducts >= 0;
+  }
   const idField = commandType === 'sales.order.settle' ? 'saleId' : commandType === 'sales.order.refund' ? 'refundId' : undefined;
   return !idField || typeof value[idField] === 'string' && value[idField] !== '';
+}
+
+/** Status transport may omit the nested ID, but must never contradict it. */
+export function isTerminalCommandStatus(result: unknown, commandId: string, commandType?: string, commandPayload?: Record<string, unknown>, expectedVersions?: Record<string,number>): result is {
+  commandId: string; status: string; response: Record<string, unknown>;
+} {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  const status = result as Record<string, unknown>;
+  if (status.commandId !== commandId || !status.response || typeof status.response !== 'object' || Array.isArray(status.response)) return false;
+  const response = status.response as Record<string, unknown>;
+  if (response.status !== status.status || Object.hasOwn(response, 'commandId') && response.commandId !== commandId) return false;
+  return isTerminalOutcome({ ...response, commandId }, commandId, commandType, commandPayload, expectedVersions);
 }

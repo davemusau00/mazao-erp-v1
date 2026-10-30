@@ -5,6 +5,7 @@ import { pool } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
+import { lockCatalogOutlet } from './catalogMaintenance.js';
 
 export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail'] as const;
 export interface TaxPolicy { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean }
@@ -13,16 +14,17 @@ export interface BusinessProfile {
   address: string; phone: string; email: string; website: string; logoUrl: string; receiptQrImage: string; showQrOnReceipt: boolean;
   receiptHeader: string; receiptFooter: string; taxPolicy: TaxPolicy;
 }
-export interface OutletProfile { address: string; phone: string; email: string; receiptHeader: string; receiptFooter: string }
+export interface OutletProfile { address: string; phone: string; email: string; receiptHeader: string; receiptFooter: string; taxPolicy: Omit<TaxPolicy,'calculation'>|null }
 export interface BusinessConfiguration extends BusinessProfile { id: string; name: string; currency: string; timeZone: string; version: number }
-export interface OutletConfiguration extends OutletProfile { id: string; name: string; timeZone: string; version: number }
+export interface OutletConfiguration extends OutletProfile { id: string; name: string; timeZone: string; version: number; active: boolean }
 export interface BusinessUpdateInput extends BusinessProfile { name: string; currency: string; timeZone: string }
 export interface OutletUpdateInput extends OutletProfile { name: string; timeZone: string }
 export interface CapabilitiesUpdateInput { capabilities: Array<typeof SUPPORTED_CAPABILITIES[number]> }
 export type ConfigurationUpdateOutcome = { tenantId: string; version: number; capabilities?: string[] } | { outletId: string; version: number };
 export interface ConfigurationRead {
-  business: BusinessConfiguration; outlet: OutletConfiguration; capabilities: string[];
+  business: BusinessConfiguration; outlet: OutletConfiguration; outlets: OutletConfiguration[]; capabilities: string[];
   supportedCapabilities: typeof SUPPORTED_CAPABILITIES; currencyLocked: boolean;
+  onboarding: { status: 'SETUP'|'LIVE'|'LEGACY_ACTIVE'; reviewedAt: string|null; reviewedByName: string|null; reviewReason: string|null };
   readiness: { readyForFirstSale: boolean; checks: Array<{ key: string; label: string; complete: boolean; detail: string }> };
 }
 
@@ -30,7 +32,7 @@ const businessDefaults: BusinessProfile = {
   legalName: '', registrationNumber: '', taxRegistrationNumber: '', address: '', phone: '', email: '', website: '', logoUrl: '', receiptQrImage: '', showQrOnReceipt: true, receiptHeader: '', receiptFooter: '',
   taxPolicy: { calculation: 'exclusive', defaultRateBps: 0, label: 'Tax', reviewed: false },
 };
-const outletDefaults: OutletProfile = { address: '', phone: '', email: '', receiptHeader: '', receiptFooter: '' };
+const outletDefaults: OutletProfile = { address: '', phone: '', email: '', receiptHeader: '', receiptFooter: '', taxPolicy:null };
 export function readTaxPolicy(value: unknown): TaxPolicy {
   const candidate = value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<TaxPolicy> : {};
   return { ...businessDefaults.taxPolicy, ...candidate };
@@ -40,7 +42,11 @@ export function readBusinessProfile(value: unknown): BusinessProfile {
   return { ...businessDefaults, ...profile, taxPolicy: readTaxPolicy(profile.taxPolicy) };
 }
 export function readOutletProfile(value: unknown): OutletProfile {
-  return { ...outletDefaults, ...(value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<OutletProfile> : {}) };
+  const profile=value&&typeof value==='object'&&!Array.isArray(value)?value as Partial<OutletProfile>:{};
+  const raw=profile.taxPolicy;
+  const taxPolicy=raw&&typeof raw==='object'&&typeof raw.defaultRateBps==='number'&&Number.isInteger(raw.defaultRateBps)&&raw.defaultRateBps>=0&&raw.defaultRateBps<=10000&&typeof raw.label==='string'&&typeof raw.reviewed==='boolean'
+    ?{defaultRateBps:raw.defaultRateBps,label:raw.label,reviewed:raw.reviewed}:null;
+  return { ...outletDefaults, ...profile, taxPolicy };
 }
 function requireConfigurationAccess(session: ApiSession, write = false) {
   if (!ROLE_PERMISSIONS[session.role].includes(write ? 'config.manage' : 'config.view')) throw new DomainError('FORBIDDEN', 'Your role cannot access this business configuration operation.', 403);
@@ -210,14 +216,24 @@ export function validateBusinessInput(payload: Record<string, unknown>, currentP
   };
   return { name, currency, timeZone, profile, imageActions };
 }
-export function validateOutletInput(payload: Record<string, unknown>) {
-  const profile: OutletProfile = { address: text(payload.address, 'address', 500, false, true), phone: phone(payload.phone), email: email(payload.email, 'email'), receiptHeader: text(payload.receiptHeader, 'receiptHeader', 500, false, true), receiptFooter: text(payload.receiptFooter, 'receiptFooter', 500, false, true) };
+export function validateOutletInput(payload: Record<string, unknown>, currentProfile?:OutletProfile) {
+  let taxPolicy=currentProfile?.taxPolicy??null;
+  if(Object.hasOwn(payload,'taxPolicy')) {
+    const raw=payload.taxPolicy;
+    if(raw===null)taxPolicy=null;
+    else {
+      if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new DomainError('VALIDATION_FAILED','Outlet taxPolicy must be null or an exclusive default policy.');
+      const policy=raw as Record<string,unknown>;
+      if(policy.calculation!==undefined&&policy.calculation!=='exclusive'||typeof policy.defaultRateBps!=='number'||!Number.isInteger(policy.defaultRateBps)||policy.defaultRateBps<0||policy.defaultRateBps>10000||typeof policy.reviewed!=='boolean')throw new DomainError('VALIDATION_FAILED','Outlet tax policy must use exclusive tax with a reviewed rate from 0 to 10000 basis points.');
+      taxPolicy={defaultRateBps:policy.defaultRateBps,label:text(policy.label,'taxPolicy.label',40,true),reviewed:policy.reviewed};
+    }
+  }
+  const profile: OutletProfile = { address: text(payload.address, 'address', 500, false, true), phone: phone(payload.phone), email: email(payload.email, 'email'), receiptHeader: text(payload.receiptHeader, 'receiptHeader', 500, false, true), receiptFooter: text(payload.receiptFooter, 'receiptFooter', 500, false, true),taxPolicy };
   return { name: text(payload.name, 'name', 160, true), timeZone: validateTimeZone(payload.timeZone), profile };
 }
 export function validateCapabilities(value: unknown): string[] {
   if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names. Restaurant service is not connected.');
-  if (value.includes('commerce') && !value.includes('inventory')) throw new DomainError('VALIDATION_FAILED', 'Commerce requires inventory.');
-  if (value.includes('retail') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
+  if (value.includes('retail') && (!value.includes('commerce')||!value.includes('inventory'))) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
   if (value.includes('hospitality') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Hospitality checkout requires commerce.');
   return [...value].sort();
 }
@@ -274,7 +290,7 @@ export async function getConfiguration(session: ApiSession): Promise<{ configura
       CASE WHEN t.business_profile->>'logoUrl' LIKE 'data:image/png;base64,%' THEN true ELSE false END has_legacy_logo,
       CASE WHEN t.business_profile->>'receiptQrImage' LIKE 'data:image/png;base64,%' THEN true ELSE false END has_legacy_receipt_qr,
       logo.id logo_asset_id,receipt_qr.id receipt_qr_asset_id,
-      o.id outlet_id,o.name outlet_name,o.time_zone outlet_time_zone,o.version outlet_version,o.outlet_profile
+      o.id outlet_id,o.name outlet_name,o.time_zone outlet_time_zone,o.version outlet_version,o.outlet_profile,o.active outlet_active
       FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id
       LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='logo' AND status='ACTIVE' LIMIT 1) logo ON true
       LEFT JOIN LATERAL (SELECT id FROM core.configuration_assets WHERE tenant_id=t.id AND kind='receipt_qr' AND status='ACTIVE' LIMIT 1) receipt_qr ON true
@@ -288,25 +304,35 @@ export async function getConfiguration(session: ApiSession): Promise<{ configura
       logoUrl: row.logo_asset_id ? `/api/v1/configuration/assets/${row.logo_asset_id}` : row.has_legacy_logo ? '/api/v1/configuration/assets/legacy/logo' : (row.business_logo_url ?? baseProfile.logoUrl),
       receiptQrImage: row.receipt_qr_asset_id ? `/api/v1/configuration/assets/${row.receipt_qr_asset_id}` : row.has_legacy_receipt_qr ? '/api/v1/configuration/assets/legacy/receipt_qr' : baseProfile.receiptQrImage,
     };
-    const outlet: OutletConfiguration = { id: row.outlet_id, name: row.outlet_name, timeZone: row.outlet_time_zone, version: Number(row.outlet_version), ...readOutletProfile(row.outlet_profile) };
+    const outlet: OutletConfiguration = { id: row.outlet_id, name: row.outlet_name, timeZone: row.outlet_time_zone, version: Number(row.outlet_version), active:row.outlet_active, ...readOutletProfile(row.outlet_profile) };
+    const outletsResult = await client.query(`SELECT id,name,time_zone,version,active,outlet_profile
+      FROM core.outlets WHERE tenant_id=$1 ORDER BY active DESC,name,id`, [session.tenantId]);
+    const outlets: OutletConfiguration[] = outletsResult.rows.map(item => ({ id:item.id,name:item.name,timeZone:item.time_zone,version:Number(item.version),active:item.active,...readOutletProfile(item.outlet_profile) }));
     const capabilitiesResult = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1 ORDER BY capability', [session.tenantId]);
     const capabilities = capabilitiesResult.rows.map(item => item.capability);
-    const counts = await client.query<{ products: number; stocked: number; staff: number; devices: number }>(`SELECT
-      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active) products,
-      (SELECT count(*)::int FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND quantity>0) stocked,
+    const counts = await client.query<{ products: number; services:number;stocked: number; staff: number; devices: number }>(`SELECT
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND (item_kind='SERVICE' OR (item_kind='STOCKED_GOOD' AND $3::boolean))) products,
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND item_kind='SERVICE') services,
+      (SELECT count(*)::int FROM inventory.balances b JOIN catalog.products p ON p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.id=b.product_id WHERE b.tenant_id=$1 AND b.outlet_id=$2 AND p.active AND p.item_kind='STOCKED_GOOD' AND b.quantity>0 AND $3::boolean) stocked,
       (SELECT count(*)::int FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.active AND u.active) staff,
-      (SELECT count(*)::int FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) devices`, [session.tenantId, session.outletId]);
+      (SELECT count(*)::int FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) devices`, [session.tenantId, session.outletId,capabilities.includes('inventory')]);
     const totals = counts.rows[0];
     const checks = [
       { key: 'business', label: 'Business identity', complete: !!business.name && !!business.currency && !!business.timeZone, detail: `${business.name} · ${business.currency} · ${business.timeZone}` },
       { key: 'outlet', label: 'Outlet identity', complete: !!outlet.name && !!outlet.timeZone, detail: `${outlet.name} · ${outlet.timeZone}` },
-      { key: 'tax', label: 'Tax policy reviewed', complete: business.taxPolicy.reviewed, detail: 'The default rate applies to new item setup; posted lines retain their tax snapshots.' },
-      { key: 'commerce', label: 'Selling capability enabled', complete: capabilities.includes('commerce') && capabilities.includes('inventory'), detail: 'Cash checkout needs commerce and inventory.' },
+      { key: 'tax', label: 'Tax policy reviewed', complete: (outlet.taxPolicy??business.taxPolicy).reviewed, detail: outlet.taxPolicy?'This outlet override applies to new items, rooms and imports; posted lines retain their tax snapshots.':'The business default applies to new items, rooms and imports; posted lines retain their tax snapshots.' },
+      { key: 'commerce', label: 'Selling capability enabled', complete: capabilities.includes('commerce'), detail: 'Service checkout needs commerce; stocked goods also require inventory.' },
       { key: 'catalog', label: 'Items available', complete: totals.products > 0, detail: `${totals.products} active catalogue items` },
-      { key: 'stock', label: 'Stock received', complete: totals.stocked > 0, detail: `${totals.stocked} items with stock available` },
+      { key: 'stock', label: 'Stock or service available', complete: totals.stocked > 0||totals.services>0, detail: `${totals.stocked} goods with stock available · ${totals.services} services ready without physical stock` },
       { key: 'staff', label: 'Active operator and device', complete: totals.staff > 0 && totals.devices > 0, detail: `${totals.staff} active staff · ${totals.devices} active outlet devices` },
     ];
-    const configuration: ConfigurationRead = { business, outlet, capabilities, supportedCapabilities: SUPPORTED_CAPABILITIES, currencyLocked: await currencyLocked(client, session.tenantId), readiness: { readyForFirstSale: checks.every(check => check.complete), checks } };
+    const onboardingResult = await client.query(`SELECT o.status,o.reviewed_at,o.review_reason,u.full_name reviewed_by_name
+      FROM core.tenant_onboarding o LEFT JOIN identity.users u ON u.id=o.reviewed_by WHERE o.tenant_id=$1`, [session.tenantId]);
+    const onboardingRow=onboardingResult.rows[0];
+    const onboarding: ConfigurationRead['onboarding'] = onboardingRow
+      ? { status:onboardingRow.status, reviewedAt:onboardingRow.reviewed_at?.toISOString?.()??null, reviewedByName:onboardingRow.reviewed_by_name??null, reviewReason:onboardingRow.review_reason??null }
+      : { status:'LEGACY_ACTIVE', reviewedAt:null, reviewedByName:null, reviewReason:null };
+    const configuration: ConfigurationRead = { business, outlet, outlets, capabilities, supportedCapabilities: SUPPORTED_CAPABILITIES, onboarding, currencyLocked: await currencyLocked(client, session.tenantId), readiness: { readyForFirstSale: checks.every(check => check.complete), checks } };
     await client.query('COMMIT');
     return { configuration };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
@@ -347,14 +373,115 @@ async function applyImageAction(client: PoolClient, session: ApiSession, action:
 }
 export async function executeConfigurationCommand(client: PoolClient, session: ApiSession, envelope: CommandEnvelope) {
   requireCommandAuthority(session,envelope.type);
+  if(envelope.type==='configuration.go_live.approve') {
+    if(session.role!=='owner')throw new DomainError('FORBIDDEN','Only the business owner can review and approve first use.',403);
+    const reason=text(envelope.payload.reason,'review reason',500,true);
+    const expected=expectedVersion(envelope,`business:${session.tenantId}`);
+    await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[session.tenantId]);
+    await lockCatalogOutlet(client,session);
+    const businessResult=await client.query('SELECT name,currency,time_zone,business_profile,version FROM core.tenants WHERE id=$1',[session.tenantId]);
+    const outletResult=await client.query('SELECT name,time_zone,outlet_profile FROM core.outlets WHERE tenant_id=$1 AND id=$2 AND active',[session.tenantId,session.outletId]);
+    if(!businessResult.rowCount||!outletResult.rowCount)throw new DomainError('NOT_FOUND','Business or active outlet was not found.',404);
+    if(Number(businessResult.rows[0].version)!==expected)throw new DomainError('VERSION_CONFLICT','Business settings changed. Refresh and review setup again.',409,{currentVersion:Number(businessResult.rows[0].version)});
+    const profile=readBusinessProfile(businessResult.rows[0].business_profile);
+    const capabilitiesResult=await client.query<{capability:string}>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1 ORDER BY capability',[session.tenantId]);
+    const capabilities=capabilitiesResult.rows.map(row=>row.capability);
+    const totalsResult=await client.query<{products:number;services:number;stocked:number;staff:number;devices:number}>(`SELECT
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND (item_kind='SERVICE' OR (item_kind='STOCKED_GOOD' AND $3::boolean))) products,
+      (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2 AND active AND item_kind='SERVICE') services,
+      (SELECT count(*)::int FROM inventory.balances b JOIN catalog.products p ON p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.id=b.product_id WHERE b.tenant_id=$1 AND b.outlet_id=$2 AND p.active AND p.item_kind='STOCKED_GOOD' AND b.quantity>0 AND $3::boolean) stocked,
+      (SELECT count(*)::int FROM identity.memberships m JOIN identity.users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.active AND u.active) staff,
+      (SELECT count(*)::int FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) devices`,[session.tenantId,session.outletId,capabilities.includes('inventory')]);
+    const totals=totalsResult.rows[0];
+    const checks=[
+      ['business',!!businessResult.rows[0].name&&!!businessResult.rows[0].currency&&!!businessResult.rows[0].time_zone],
+      ['outlet',!!outletResult.rows[0].name&&!!outletResult.rows[0].time_zone],
+      ['tax',(readOutletProfile(outletResult.rows[0].outlet_profile).taxPolicy??profile.taxPolicy).reviewed],
+      ['commerce',capabilities.includes('commerce')],
+      ['catalog',totals.products>0],
+      ['stock',totals.stocked>0||totals.services>0],
+      ['staff',totals.staff>0&&totals.devices>0],
+    ] as const;
+    const incomplete=checks.filter(([,complete])=>!complete).map(([key])=>key);
+    if(incomplete.length)throw new DomainError('ONBOARDING_INCOMPLETE','Complete and review every required first-sale setup check before go-live.',409,{incompleteChecks:incomplete});
+    const current=await client.query('SELECT status FROM core.tenant_onboarding WHERE tenant_id=$1 FOR UPDATE',[session.tenantId]);
+    if(!current.rowCount)throw new DomainError('ONBOARDING_STATE_UNAVAILABLE','Business setup status is unavailable. Contact an administrator.',503);
+    if(current.rows[0].status!=='SETUP')throw new DomainError('ONBOARDING_ALREADY_LIVE','This business has already completed its first-use review.',409,{status:current.rows[0].status});
+    const updated=await client.query(`UPDATE core.tenant_onboarding SET status='LIVE',reviewed_by=$2,reviewed_at=clock_timestamp(),review_reason=$3,go_live_command_id=$4
+      WHERE tenant_id=$1 AND status='SETUP' RETURNING reviewed_at`,[session.tenantId,session.userId,reason,envelope.commandId]);
+    if(!updated.rowCount)throw new DomainError('ONBOARDING_ALREADY_LIVE','This business has already completed its first-use review.',409);
+    const reviewedAt=updated.rows[0].reviewed_at.toISOString();
+    const value={tenantId:session.tenantId,status:'LIVE',reviewedAt};
+    await recordEvidence(client,session,envelope,{status:'SETUP'}, {...value,reviewedBy:session.userId,reason,checks});
+    return value;
+  }
+  if(envelope.type==='configuration.outlet.create') {
+    const expected=expectedVersion(envelope,`business:${session.tenantId}`);
+    const input=validateOutletInput(envelope.payload);
+    const tenant=await client.query('SELECT version FROM core.tenants WHERE id=$1 FOR UPDATE',[session.tenantId]);
+    if(!tenant.rowCount)throw new DomainError('NOT_FOUND','Business was not found.',404);
+    if(Number(tenant.rows[0].version)!==expected)throw new DomainError('VERSION_CONFLICT','Business settings changed. Review them before creating an outlet.',409,{currentVersion:Number(tenant.rows[0].version)});
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended('outlet-name:'||$1::text,0))",[session.tenantId]);
+    const duplicate=await client.query('SELECT id FROM core.outlets WHERE tenant_id=$1 AND lower(btrim(name))=lower($2) LIMIT 1',[session.tenantId,input.name]);
+    if(duplicate.rowCount)throw new DomainError('DUPLICATE_OUTLET_NAME','An outlet with this name already exists for the business.',409,{outletId:duplicate.rows[0].id});
+    const outletId=randomUUID();
+    await client.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone,outlet_profile) VALUES($1,$2,$3,$4,$5::jsonb)',[outletId,session.tenantId,input.name,input.timeZone,JSON.stringify(input.profile)]);
+    const updated=await client.query('UPDATE core.tenants SET version=version+1 WHERE id=$1 RETURNING version',[session.tenantId]);
+    const value={outletId,version:1,active:true,businessVersion:Number(updated.rows[0].version)};
+    await recordEvidence(client,session,envelope,{outlets:'unchanged',businessVersion:expected},{...input,...value});
+    return value;
+  }
+  if(envelope.type==='configuration.outlet.set_active') {
+    const outletId=text(envelope.payload.outletId,'outletId',36,true);
+    if(!UUID_PATTERN.test(outletId))throw new DomainError('VALIDATION_FAILED','outletId must be a UUID.');
+    if(typeof envelope.payload.active!=='boolean')throw new DomainError('VALIDATION_FAILED','active must be a boolean.');
+    const active=envelope.payload.active;
+    const reason=text(envelope.payload.reason,'reason',500,true);
+    const expected=expectedVersion(envelope,`outlet:${outletId}`);
+    await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[session.tenantId]);
+    const current=await client.query('SELECT id,name,active,version FROM core.outlets WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[session.tenantId,outletId]);
+    if(!current.rowCount)throw new DomainError('NOT_FOUND','Outlet was not found for this business.',404);
+    if(Number(current.rows[0].version)!==expected)throw new DomainError('VERSION_CONFLICT','Outlet settings changed. Review this outlet before changing its status.',409,{currentVersion:Number(current.rows[0].version)});
+    if(current.rows[0].active===active){
+      const value={outletId,version:expected,active};
+      await recordEvidence(client,session,envelope,current.rows[0],{...value,reason});
+      return value;
+    }
+    if(!active) {
+      const ownerElsewhere=await client.query(`SELECT 1 FROM identity.devices d JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=d.assigned_user_id
+        JOIN identity.users u ON u.id=m.user_id JOIN core.outlets o ON o.tenant_id=d.tenant_id AND o.id=d.outlet_id
+        WHERE d.tenant_id=$1 AND d.outlet_id<>$2 AND d.active AND m.active AND u.active AND o.active AND m.role IN ('owner','admin') LIMIT 1`,[session.tenantId,outletId]);
+      if(!ownerElsewhere.rowCount)throw new DomainError('LAST_ADMIN_OUTLET','Keep an active owner or administrator workspace in another active outlet before closing this outlet.',409);
+      const resources=await client.query(`SELECT
+        EXISTS(SELECT 1 FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND status='OPEN') open_shift,
+        EXISTS(SELECT 1 FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status='OPEN') open_count,
+        EXISTS(SELECT 1 FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND (quantity<>0 OR inventory_value_minor<>0)) stock,
+        EXISTS(SELECT 1 FROM hospitality.stays WHERE tenant_id=$1 AND outlet_id=$2 AND status='CHECKED_IN') active_stay,
+        EXISTS(SELECT 1 FROM hospitality.reservations WHERE tenant_id=$1 AND outlet_id=$2 AND status='CONFIRMED') active_reservation,
+        EXISTS(SELECT 1 FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) active_assignment`,[session.tenantId,outletId]);
+      const blocked=Object.entries(resources.rows[0]).filter(([,present])=>present).map(([key])=>key);
+      if(blocked.length)throw new DomainError('OUTLET_HAS_OPEN_RESOURCES','Close this outlet’s active shifts and counts, resolve stays and reservations, clear stock and revoke workspace assignments before deactivation.',409,{resources:blocked});
+    }
+    const updated=await client.query('UPDATE core.outlets SET active=$3,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING version',[session.tenantId,outletId,active]);
+    const value={outletId,version:Number(updated.rows[0].version),active};
+    await recordEvidence(client,session,envelope,current.rows[0],{...value,reason});
+    return value;
+  }
   if (envelope.type === 'configuration.outlet.update') {
-    const expected = expectedVersion(envelope, `outlet:${session.outletId}`);
-    const input = validateOutletInput(envelope.payload);
-    const current = await client.query('SELECT name,time_zone,version,outlet_profile FROM core.outlets WHERE tenant_id=$1 AND id=$2 AND active FOR UPDATE', [session.tenantId, session.outletId]);
-    if (!current.rowCount) throw new DomainError('NOT_FOUND', 'Current outlet was not found.', 404);
+    const outletId=typeof envelope.payload.outletId==='string'?envelope.payload.outletId:session.outletId;
+    if(!UUID_PATTERN.test(outletId))throw new DomainError('VALIDATION_FAILED','outletId must be a UUID.');
+    const expected = expectedVersion(envelope, `outlet:${outletId}`);
+    if(envelope.payload.id!==undefined&&envelope.payload.id!==outletId)throw new DomainError('VALIDATION_FAILED','Outlet identity does not match the requested outlet.');
+    if(envelope.payload.version!==undefined&&envelope.payload.version!==expected)throw new DomainError('VERSION_CONFLICT','Outlet settings version does not match the expected version.',409,{currentVersion:expected});
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended('outlet-name:'||$1::text,0))",[session.tenantId]);
+    const current = await client.query('SELECT name,time_zone,version,outlet_profile,active FROM core.outlets WHERE tenant_id=$1 AND id=$2 FOR UPDATE', [session.tenantId, outletId]);
+    if (!current.rowCount) throw new DomainError('NOT_FOUND', 'Outlet was not found for this business.', 404);
     if (Number(current.rows[0].version) !== expected) throw new DomainError('VERSION_CONFLICT', 'Outlet configuration changed. Review current settings before saving.', 409, { currentVersion: Number(current.rows[0].version) });
-    const result = await client.query('UPDATE core.outlets SET name=$3,time_zone=$4,outlet_profile=$5::jsonb,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING version', [session.tenantId, session.outletId, input.name, input.timeZone, JSON.stringify(input.profile)]);
-    const value = { outletId: session.outletId, version: Number(result.rows[0].version) };
+    const input = validateOutletInput(envelope.payload,readOutletProfile(current.rows[0].outlet_profile));
+    const duplicate=await client.query('SELECT id FROM core.outlets WHERE tenant_id=$1 AND id<>$2 AND lower(btrim(name))=lower($3) LIMIT 1',[session.tenantId,outletId,input.name]);
+    if(duplicate.rowCount)throw new DomainError('DUPLICATE_OUTLET_NAME','An outlet with this name already exists for the business.',409,{outletId:duplicate.rows[0].id});
+    const result = await client.query('UPDATE core.outlets SET name=$3,time_zone=$4,outlet_profile=$5::jsonb,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING version', [session.tenantId, outletId, input.name, input.timeZone, JSON.stringify(input.profile)]);
+    const value = { outletId, version: Number(result.rows[0].version) };
     await recordEvidence(client, session, envelope, current.rows[0], { ...input, ...value });
     return value;
   }
@@ -409,6 +536,6 @@ export function receiptConfigurationSnapshot(businessValue: unknown, outletValue
     website: business.website, logoUrl: assets.logoId ? `/api/v1/configuration/assets/${assets.logoId}` : business.logoUrl,
     receiptQrImage: assets.receiptQrId ? `/api/v1/configuration/assets/${assets.receiptQrId}` : business.receiptQrImage, showQrOnReceipt: business.showQrOnReceipt,
     receiptHeader: outlet.receiptHeader || business.receiptHeader,
-    receiptFooter: outlet.receiptFooter || business.receiptFooter, taxLabel: business.taxPolicy.label, taxCalculation: 'exclusive',
+    receiptFooter: outlet.receiptFooter || business.receiptFooter, taxLabel: outlet.taxPolicy?.label || business.taxPolicy.label, taxCalculation: 'exclusive',
   };
 }

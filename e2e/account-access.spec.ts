@@ -26,6 +26,7 @@ async function routeAccount(page: Page, role = 'cashier') {
   await page.route('**/api/v1/auth/me', route => route.fulfill({ json: session(role) }));
   await page.route('**/api/v1/shifts/current', route => route.fulfill({ json: { shift: null } }));
   await page.route('**/api/v1/auth/sessions', route => route.fulfill({ json: { userId, credentialVersion: 4, sessions: sessionRows() } }));
+  await page.route('**/api/v1/configuration/stock-sale-policy',route=>route.fulfill({json:{policy:{outletId:'account-outlet',enabled:false,allowZeroReferenceCost:false,version:1,requirePhysicalConfirmation:true,requireReason:true}}}));
 }
 
 async function openAccount(page: Page) {
@@ -62,9 +63,12 @@ for (const [role, viewport] of [
   await expect(dialog.getByRole('button', { name: 'Close dialog' })).toBeFocused();
   const closeBounds = await dialog.getByRole('button', { name: 'Close dialog' }).boundingBox();
   const triggerBounds = await trigger.boundingBox();
-  expect(closeBounds!.height).toBeGreaterThanOrEqual(44);
-  expect(closeBounds!.width).toBeGreaterThanOrEqual(44);
-  expect(triggerBounds!.height).toBeGreaterThanOrEqual(44);
+  // Firefox may serialize a 44px box as 43.999992px; normalize only the
+  // subpixel representation while retaining the 44 CSS-pixel target minimum.
+  const cssPixels=(value:number)=>Math.round(value*1000)/1000;
+  expect(cssPixels(closeBounds!.height)).toBeGreaterThanOrEqual(44);
+  expect(cssPixels(closeBounds!.width)).toBeGreaterThanOrEqual(44);
+  expect(cssPixels(triggerBounds!.height)).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const screenshot = testInfo.outputPath(`${role}-account-${viewport.width}x${viewport.height}.png`);
   await page.screenshot({ path: screenshot });
@@ -84,7 +88,7 @@ test('self-service password request uses the current server version and blocks d
     requestBody = route.request().postDataJSON();
     expect(route.request().headers()['x-csrf-token']).toBe('account-csrf');
     await held;
-    await route.fulfill({ json: { commandId: requestBody!.commandId, status: 'CONFIRMED', value: { credentialVersion: 5, sessionsRevoked: 2, reauthenticate: true } } });
+    await route.fulfill({ json: { commandId: requestBody!.commandId, status: 'CONFIRMED', value: { userId, credentialVersion: 5, sessionsRevoked: 2, reauthenticate: true } } });
   });
   await page.goto('/');
   const dialog = await openAccount(page);
@@ -107,10 +111,11 @@ test('unknown password outcome survives closing the account and retains no passw
   let commandId = '', posts = 0, checkedId = '';
   await page.route('**/api/v1/auth/password', route => { posts++; commandId = route.request().postDataJSON().commandId; return route.abort('failed'); });
   let confirmed = false;
-  await page.route('**/api/v1/commands/*', route => {
-    checkedId = route.request().url().split('/').at(-1)!;
+  await page.route('**/api/v1/auth/password/reconcile', route => {
+    const metadata=route.request().postDataJSON();checkedId=metadata.commandId;
+    expect(metadata).toEqual({protocolVersion:1,commandId,kind:'auth.password.change',targetUserId:userId,expectedCredentialVersion:4});
     return confirmed
-      ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: { commandId, status: 'CONFIRMED', value: { reauthenticate: true, credentialVersion: 5 } } } })
+      ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: { commandId, status: 'CONFIRMED', value: { userId, reauthenticate: true, credentialVersion: 5, sessionsRevoked:2 } } } })
       : route.fulfill({ status: 404, json: { error: { message: 'Command not found' } } });
   });
   await page.goto('/');
@@ -134,13 +139,59 @@ test('unknown password outcome survives closing the account and retains no passw
   await expect(dialog.getByLabel('New password', { exact: true })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: 'Change my password', exact: true })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Check password change status' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('No completed password operation was found yet');
+  await expect(dialog.getByRole('alert')).toContainText('Password recovery is not available in this workspace or server version');
   expect(checkedId).toBe(commandId);
   expect(posts).toBe(1);
   confirmed = true;
   await dialog.getByRole('button', { name: 'Check password change status' }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   expect(posts).toBe(1);
+});
+
+test('a safely fenced original unlocks a new password operation only after a matching terminal reply',async({page})=>{
+  await routeAccount(page);
+  const ids:string[]=[];let terminal=false;
+  await page.route('**/api/v1/auth/password',route=>{ids.push(route.request().postDataJSON().commandId);return route.abort('failed');});
+  await page.route('**/api/v1/auth/password/reconcile',route=>{
+    const metadata=route.request().postDataJSON();
+    expect(JSON.stringify(metadata)).not.toContain(newPassword);expect(JSON.stringify(metadata)).not.toContain(currentPassword);
+    return route.fulfill({json:{commandId:terminal?ids[0]:'another-operation',status:'REJECTED',response:{status:'REJECTED',code:'CREDENTIAL_OPERATION_FENCED'}}});
+  });
+  await page.goto('/');const dialog=await openAccount(page);
+  await fillOwnPassword(page);await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
+  await dialog.getByRole('button',{name:'Check password change status'}).click();
+  await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
+  terminal=true;await dialog.getByRole('button',{name:'Check password change status'}).click();
+  await expect(dialog.getByRole('status').filter({hasText:'The earlier password request was safely stopped'})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeEnabled();
+  await fillOwnPassword(page);await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
+  await expect.poll(()=>ids.length).toBe(2);expect(ids[0]).not.toBe(ids[1]);
+});
+
+test('an HTTP rejection keeps original recovery metadata until authoritative reconciliation',async({page})=>{
+  await routeAccount(page);
+  await page.route('**/api/v1/auth/password',route=>route.fulfill({status:400,json:{error:{code:'VALIDATION_FAILED'}}}));
+  await page.goto('/');const dialog=await openAccount(page);await fillOwnPassword(page);
+  await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Check password change status'})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
+});
+
+test('incomplete or mismatched credential confirmations keep the original operation pending',async({page})=>{
+  await routeAccount(page);let commandId='',next=0;
+  await page.route('**/api/v1/auth/password',route=>{commandId=route.request().postDataJSON().commandId;return route.fulfill({json:{commandId,status:'CONFIRMED',value:{}}});});
+  const confirmed={userId,credentialVersion:5,sessionsRevoked:2,reauthenticate:true};
+  const invalid=[{status:'CONFIRMED',value:{}},{status:'CONFIRMED',value:{...confirmed,userId:'another-operator'}},{status:'CONFIRMED',value:{...confirmed,credentialVersion:0}},{status:'CONFIRMED',value:{...confirmed,sessionsRevoked:-1}},{status:'CONFIRMED',value:{...confirmed,reauthenticate:false}},{status:'REJECTED',code:''}];
+  await page.route('**/api/v1/auth/password/reconcile',route=>{const response=invalid[next++];return route.fulfill({json:{commandId,status:response.status,response}});});
+  await page.goto('/');const dialog=await openAccount(page);await fillOwnPassword(page);
+  await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Check password change status'})).toBeVisible();
+  for(let index=0;index<invalid.length;index++){
+    await dialog.getByRole('button',{name:'Check password change status'}).click();
+    await expect.poll(()=>next).toBe(index+1);
+    await expect(dialog.getByRole('button',{name:'Check password change status'})).toBeEnabled();
+    await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
+  }
 });
 
 async function openAccountAfterPending(page: Page) {

@@ -7,6 +7,7 @@ export type WorkspaceId =
   | 'sales'
   | 'service'
   | 'stock'
+  | 'catalog'
   | 'purchasing'
   | 'hotel'
   | 'reservations'

@@ -37,7 +37,12 @@ export const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
     const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     ) ?? []);
-    requestAnimationFrame(() => focusable()[0]?.focus());
+    const focusFrame = requestAnimationFrame(() => {
+      // An operator may focus a field before this scheduled initial focus runs.
+      // Preserve that focus so their first keystrokes stay in the chosen field.
+      const dialog = dialogRef.current;
+      if (dialog && !dialog.contains(document.activeElement)) focusable()[0]?.focus();
+    });
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); return; }
       if (e.key !== 'Tab') return;
@@ -50,6 +55,7 @@ export const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
+      cancelAnimationFrame(focusFrame);
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
       previousFocus.current?.focus();

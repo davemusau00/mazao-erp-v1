@@ -16,9 +16,9 @@ The command journal retains its version-1 database/store and existing records. F
 
 ## Full-count navigation
 
-An edited count prompts before leaving through the existing cancelable `mazao:before-navigate` event. Dismissing the prompt keeps the quantities/reasons intact. Explicitly accepting discards only unsaved screen edits; the durable server draft remains available when the operator returns.
+The original 16 October behavior prompted before leaving and discarded edits held only in the screen when the operator accepted. S01-04 on 29 October supersedes that behavior: unsent count quantities/reasons are now stored in a separate, actor/tenant/outlet/count-scoped IndexedDB draft. They restore after workspace navigation, page refresh and browser restart when the server count version still matches. They remain local and unposted until the operator saves the server draft.
 
-Unsaved edits also install a native browser unload guard. An in-flight count operation blocks in-app navigation until its current attempt finishes, retaining its original command controls. A saved draft or a durably retained unresolved posting can still be reloaded and recovered. These guards do not rewrite a server count or discard a journal record.
+An in-app leave prompt explains that edits are saved only on this device and are not yet on the server. A native browser unload guard remains active while local persistence is pending or failed; a confirmed local save can safely survive unload without blocking it. Stale-version edits open for review and cannot be submitted until explicitly restored. Compare-and-swap revisions stop a second tab from overwriting another tab's saved local edits. Storage errors keep values on screen, report that they are not durable, and offer retry. An in-flight count operation still blocks in-app navigation until its original attempt can be checked.
 
 ## Implementation boundaries
 
@@ -58,3 +58,26 @@ Observed checks:
 Local tests used temporary ports **3004/4104** and the explicitly owned disposable PostgreSQL 16 instance at loopback **55437**. Its existing migrated test database was retained; no hosted database, SSH or deployment was used. Temporary test configuration files are excluded from the committed slice.
 
 The focused tests use real IndexedDB with controlled open/quota failures and mocked business API outcomes; the separate count journey supplies real server/database recovery evidence. Chromium service workers are blocked by the existing test configurations. Full installed-PWA upgrade/storage-loss acceptance, all business workflows, the full accessibility/viewport matrix and physical hardware remain broader release gates.
+
+### S01-04 local unsent count recovery, 29 October 2026
+
+`src/services/countDraftStore.ts` stores only the count ID/version and per-product
+quantity/reason values. Its key includes tenant, actor, outlet and count; its
+revision is checked in the IndexedDB write transaction so another tab cannot
+silently replace newer edits. This store is separate from the command journal
+and never grants offline posting authority. A current-version draft restores as
+unsent edits. A changed count version or line set opens a review dialog; the
+operator must explicitly restore the values, after which nothing is sent or
+posted automatically. Quota/open failures leave the current values on screen,
+show that persistence failed and allow a retry.
+
+`e2e/count-local-draft.spec.ts` passed **8/8** in Chromium. It covers reload,
+server-save transition, stale review, quota failure, blocked-store retry,
+two-tab revision conflict, actor isolation, lost save acknowledgement and
+cancellation recovery. `e2e/workspace-recovery-readiness.spec.ts` also updates
+the earlier navigation case to expect local restoration rather than screen-only
+discard. UI/API typecheck and the production PWA build passed. The built entry
+is 523.77 kB / 142.88 kB gzip with 22 PWA entries / 879.60 KiB; Vite's existing
+over-500-kB warning remains and no performance acceptance is inferred. These
+are local browser/build checks; exact-head CI, installed-PWA storage behavior,
+production and release gates remain separate.

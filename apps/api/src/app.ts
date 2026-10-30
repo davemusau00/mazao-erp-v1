@@ -5,6 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { pool, inTransaction } from './db.js';
 import type { ApiSession, CommandEnvelope } from './contracts.js';
 import { DomainError } from './contracts.js';
+import { parseCommandEnvelope, parseLoginInput, parseContextSwitchInput, validateRequestIdentifiers } from './publicInputs.js';
+import { listCatalogCategories, readIncludeArchived } from './catalogMaintenance.js';
+import { isStockTracked, requireCatalogCapability } from './itemKinds.js';
 import { executeCommand, hashCommand } from './commands.js';
 import { hashToken, randomToken, safeEqual, verifyPassword } from './security.js';
 import { ROLE_PERMISSIONS } from './contracts.js';
@@ -12,26 +15,44 @@ import { getJournalLines, getProfitLoss, getTrialBalance } from './financeReport
 import { getOperationalAnalytics } from './operationalAnalytics.js';
 import { getItemReport, getItemReportCsv, getItemEvents } from './itemReports.js';
 import { getJournalSource } from './journalSources.js';
-import { getAccountingControls, listAccountingRecords } from './accounting.js';
+import { getAccountingControls, guardFinancialCommand, listAccountingRecords } from './accounting.js';
 import { getCustomerBalanceReport, getInventoryValueReport } from './controlReports.js';
 import { getAccountCatalog } from './accountCatalog.js';
 import { getSaleReceipt, getSaleReceiptAsset } from './receipts.js';
 import { getCustomerStatement, listCustomerAccounts } from './customerAccounts.js';
+import { listHotelReservations } from './hospitalityDirectory.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
 import { getStockExceptionReport, getStockSalePolicy, getStockShortfallDetail, getStockShortfallEvidence, getStockShortfalls, getStockShortfallsCsv } from './stockShortfalls.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
-import { changeCredential } from './credentials.js';
-import type { CredentialInput } from './credentials.js';
+import { changeCredential, reconcileCredentialOperation } from './credentials.js';
+import type { CredentialInput, CredentialReconciliationInput } from './credentials.js';
+import { listInventoryMovements, listInventoryCounts, listShiftCashMovements } from './inventoryHistory.js';
+import type { HistoryQuery } from './historyPagination.js';
 import { listAssignments, listOperatorSessions, listStaff, STAFF_COMMANDS } from './staff.js';
 import { revalidateOperator } from './identityAuthority.js';
 import { readRuntimeConfig } from './runtimeConfig.js';
 import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
+import { initializeCommandRequirements, prepareCommandRequirements } from './commandRequirements.js';
+import { getCount, getCountEvent, getCountEvents, getCountReview, getCountReviewMovements } from './countRecovery.js';
 import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
+const setupCommandTypes = new Set(['configuration.business.update','configuration.outlet.create','configuration.outlet.update','configuration.outlet.set_active','configuration.capabilities.update','configuration.stock_exception_policy.update','configuration.go_live.approve','inventory.receive','inventory.count.open','inventory.count.save','inventory.count.review','inventory.count.post','inventory.count.cancel','staff.member.create','staff.member.update','staff.member.set_active','staff.sessions.revoke','staff.password.set','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','auth.session.revoke']);
+function setupCommandAllowed(type: unknown): boolean {
+  return typeof type==='string'&&(setupCommandTypes.has(type)||type.startsWith('catalog.product.')||type.startsWith('catalog.category.')||type.startsWith('catalog.import.'));
+}
+function setupRequestAllowed(method: string, url: string, body: unknown): boolean {
+  const path=url.split('?',1)[0];
+  if(method==='GET')return path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
+  if(method==='POST') {
+    if(['/api/v1/auth/logout','/api/v1/auth/password','/api/v1/auth/password/reconcile','/api/v1/auth/context','/api/v1/configuration/assets'].includes(path)||/^\/api\/v1\/staff\/[0-9a-f-]{36}\/password$/i.test(path))return true;
+    if(path==='/api/v1/commands'&&body&&typeof body==='object'&&!Array.isArray(body))return setupCommandAllowed((body as Record<string,unknown>).type);
+  }
+  return false;
+}
 
 export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   const { production, allowedOrigins, trustedProxyIps } = readRuntimeConfig();
@@ -45,6 +66,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     trustProxy: address => trustedProxyIps.includes(address.toLowerCase()) });
   app.register(cookie);
   app.register(rateLimit, { global: false });
+  app.addHook('preValidation', async request => validateRequestIdentifiers(request.params, request.query));
   app.addHook('onRequest', (request, _reply, done) => {
     const metrics: RequestMetrics = {
       requestId: request.id,
@@ -125,6 +147,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (error instanceof DomainError) return reply.code(error.statusCode).send({ error:{code:error.code,message:error.message,details:error.details} });
     if ((error as { statusCode?: number }).statusCode === 429) return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many sign-in attempts. Try again shortly.' } });
     if((error as {code?:string}).code==='FST_ERR_CTP_BODY_TOO_LARGE')return reply.code(413).send({error:{code:'PAYLOAD_TOO_LARGE',message:'The request exceeds the upload limit. CSV source must be 512 KiB or smaller.'}});
+    if (['FST_ERR_CTP_INVALID_JSON_BODY', 'FST_ERR_CTP_EMPTY_JSON_BODY'].includes((error as { code?: string }).code ?? '')) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request body must contain valid JSON.' } });
     request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'The request could not be completed.' } });
@@ -137,20 +160,18 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
 
   const registerLogin = () => app.post<{ Body: { email: string; password: string; deviceId?: string } }>('/api/v1/auth/login', { config: { rateLimit: { max: 8, timeWindow: '1 minute' } } }, async (request, reply) => {
-    const email = request.body?.email?.trim().toLowerCase();
-    const password = request.body?.password;
-    if (!email || typeof password !== 'string') throw new DomainError('VALIDATION_FAILED', 'Email and password are required.');
+    const { email, password, deviceId: selectedDevice } = parseLoginInput(request.body);
     const identity=await pool.query('SELECT u.id,u.email,u.full_name,u.password_hash FROM identity.users u WHERE lower(u.email)=lower($1) AND u.active',[email]);
     const validPassword=await verifyPassword(password,identity.rows[0]?.password_hash??'');
     if(identity.rowCount!==1||!validPassword)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
+    const assignments=await pool.query(`SELECT u.id user_id,u.email,m.display_name operator_name,u.password_hash,m.tenant_id,m.role,t.name tenant_name,t.currency,t.time_zone,CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,d.label device_label,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.users u JOIN identity.memberships m ON m.user_id=u.id JOIN core.tenants t ON t.id=m.tenant_id
+      LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
       JOIN identity.devices d ON d.tenant_id=m.tenant_id AND d.assigned_user_id=u.id AND d.active
       JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id AND o.active
       WHERE u.id=$1 AND u.active AND m.active ORDER BY t.name,o.name,d.label,d.id`,[identity.rows[0].id]);
     if(!assignments.rowCount)throw new DomainError('UNAUTHENTICATED','Email or password is incorrect, or the account has no unique active device assignment.',401);
-    const selectedDevice=request.body.deviceId;
     let row;
     if(selectedDevice!==undefined){
       row=assignments.rows.find(assignment=>assignment.device_id===selectedDevice);
@@ -163,7 +184,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8::text||' hours')::interval)`, [sessionId,hashToken(sessionToken),hashToken(csrfToken),row.user_id,row.tenant_id,row.outlet_id,row.device_id,sessionHours]);
     const secure = production ? '; Secure' : '';
     reply.header('set-cookie', [`${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`, `maz_csrf=${csrfToken}; SameSite=Strict; Path=/; Max-Age=${sessionHours*3600}${secure}`]);
-    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readTaxPolicy(row.tax_policy),capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, csrfToken };
+    return { user: { id:row.user_id,name:row.operator_name,email:row.email,role:row.role,permissions:ROLE_PERMISSIONS[row.role as keyof typeof ROLE_PERMISSIONS] }, tenant: { id:row.tenant_id,name:row.tenant_name,currency:row.currency,timeZone:row.time_zone,taxPolicy:readTaxPolicy(row.tax_policy),capabilities:row.capabilities }, outlet: { id:row.outlet_id,name:row.outlet_name,timeZone:row.outlet_time_zone }, deviceId:row.device_id, onboardingStatus:row.onboarding_status, csrfToken };
   });
   // The plugin installs an onRoute hook during boot. Defer route registration
   // until then, while keeping buildApp's synchronous public interface.
@@ -176,33 +197,82 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!request.url.startsWith('/api/v1/') || ['/api/v1/auth/login','/api/v1/health/live','/api/v1/health/ready'].includes(request.url)) return;
     const token = request.cookies?.[cookieName];
     if (!token) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Sign in to continue.' } });
-    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,t.business_profile->'taxPolicy' AS tax_policy,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
+    const result = await pool.query(`SELECT s.id session_id,s.user_id,m.display_name operator_name,u.email,s.tenant_id,t.name tenant_name,t.currency,t.time_zone tenant_time_zone,CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.id outlet_id,o.name outlet_name,o.time_zone,s.device_id,m.role,s.expires_at,s.csrf_hash,
       COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
       FROM identity.sessions s JOIN identity.users u ON u.id=s.user_id JOIN identity.memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
       JOIN core.tenants t ON t.id=s.tenant_id JOIN core.outlets o ON o.id=s.outlet_id AND o.tenant_id=s.tenant_id
+      LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
       JOIN identity.devices d ON d.id=s.device_id AND d.tenant_id=s.tenant_id AND d.outlet_id=s.outlet_id
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.active AND m.active AND d.active AND o.active AND d.assigned_user_id=s.user_id`, [hashToken(token)]);
     if (!result.rowCount) return reply.code(401).send({ error:{ code:'UNAUTHENTICATED',message:'Session is expired or access was revoked.' } });
     const r = result.rows[0];
-    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readTaxPolicy(r.tax_policy),timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,expiresAt:r.expires_at };
+    request.operator = { sessionId:r.session_id,userId:r.user_id,fullName:r.operator_name,email:r.email,tenantId:r.tenant_id,tenantName:r.tenant_name,currency:r.currency,outletId:r.outlet_id,outletName:r.outlet_name,tenantTimeZone:r.tenant_time_zone,taxPolicy:readTaxPolicy(r.tax_policy),timeZone:r.time_zone,deviceId:r.device_id,role:r.role,capabilities:r.capabilities,onboardingStatus:r.onboarding_status,expiresAt:r.expires_at };
     request.csrf = Buffer.from(r.csrf_hash).toString('base64url');
     if (['POST','PUT','PATCH','DELETE'].includes(request.method)) {
       const csrfCookie = request.cookies?.maz_csrf; const csrfHeader = request.headers['x-csrf-token'];
       if (!csrfCookie || typeof csrfHeader !== 'string' || !safeEqual(csrfCookie,csrfHeader) || !safeEqual(hashToken(csrfHeader).toString('base64url'),Buffer.from(r.csrf_hash).toString('base64url'))) return reply.code(403).send({ error:{ code:'CSRF_FAILED',message:'Refresh the session before submitting this action.' } });
     }
+    if(r.onboarding_status==='SETUP'&&!setupRequestAllowed(request.method,request.url,request.body))return reply.code(403).send({error:{code:'ONBOARDING_REQUIRED',message:'Complete the reviewed first-use setup before opening this business workspace.'}});
   });
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
     const token = request.cookies?.[cookieName]; if (token) await pool.query('UPDATE identity.sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL',[hashToken(token)]);
     reply.header('set-cookie',[`${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`, 'maz_csrf=; SameSite=Strict; Path=/; Max-Age=0']); return { status:'signed_out' };
   });
-  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,csrfToken:request.cookies?.maz_csrf ?? '' }));
-  app.get('/api/v1/staff',async request=>listStaff(request.operator!));
-  app.get('/api/v1/devices',async request=>listAssignments(request.operator!));
-  app.get('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!));
-  app.get<{Params:{userId:string}}>('/api/v1/staff/:userId/sessions',async request=>listOperatorSessions(request.operator!,request.params.userId));
+  app.get('/api/v1/auth/assignments', async request => {
+    const result=await pool.query(`SELECT d.id device_id,d.label device_label,t.id tenant_id,t.name tenant_name,o.id outlet_id,o.name outlet_name
+      FROM identity.devices d JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=d.assigned_user_id
+      JOIN identity.users u ON u.id=d.assigned_user_id JOIN core.tenants t ON t.id=d.tenant_id
+      JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id
+      WHERE d.assigned_user_id=$1 AND d.active AND m.active AND u.active AND o.active
+      ORDER BY t.name,o.name,d.label,d.id`,[request.operator!.userId]);
+    return {assignments:result.rows.map(row=>({deviceId:row.device_id,deviceLabel:row.device_label,tenantId:row.tenant_id,tenantName:row.tenant_name,outletId:row.outlet_id,outletName:row.outlet_name}))};
+  });
+  app.post('/api/v1/auth/context', async request => {
+    const {deviceId}=parseContextSwitchInput(request.body);
+    const token=request.cookies?.[cookieName];
+    if(!token)throw new DomainError('UNAUTHENTICATED','Sign in to continue.',401);
+    const current=request.operator!;
+    const session=await inTransaction(async client=>{
+      const locked=await client.query(`SELECT s.id FROM identity.sessions s
+        WHERE s.id=$1 AND s.token_hash=$2 AND s.tenant_id=$3 AND s.outlet_id=$4 AND s.device_id=$5
+          AND s.revoked_at IS NULL AND s.expires_at>now()
+        FOR UPDATE OF s`,[current.sessionId,hashToken(token),current.tenantId,current.outletId,current.deviceId]);
+      if(!locked.rowCount)throw new DomainError('SESSION_CONTEXT_CHANGED','This browser workspace changed in another tab. Refresh and retry.',409);
+      const selected=await client.query(`SELECT u.id user_id,u.email,m.display_name operator_name,m.role,t.id tenant_id,t.name tenant_name,t.currency,t.time_zone,
+          CASE WHEN jsonb_typeof(o.outlet_profile->'taxPolicy')='object' THEN o.outlet_profile->'taxPolicy' ELSE t.business_profile->'taxPolicy' END AS tax_policy,
+          COALESCE(ob.status,'LEGACY_ACTIVE') onboarding_status,o.time_zone outlet_time_zone,o.id outlet_id,o.name outlet_name,d.id device_id,
+          COALESCE((SELECT array_agg(capability ORDER BY capability) FROM core.tenant_capabilities c WHERE c.tenant_id=t.id),'{}') capabilities
+        FROM identity.devices d JOIN identity.users u ON u.id=d.assigned_user_id
+        JOIN identity.memberships m ON m.tenant_id=d.tenant_id AND m.user_id=u.id
+        JOIN core.tenants t ON t.id=d.tenant_id JOIN core.outlets o ON o.id=d.outlet_id AND o.tenant_id=d.tenant_id
+        LEFT JOIN core.tenant_onboarding ob ON ob.tenant_id=t.id
+        WHERE d.id=$1 AND d.assigned_user_id=$2 AND d.active AND u.active AND m.active AND o.active
+        FOR SHARE OF u,m,d,t,o`,[deviceId,current.userId]);
+      if(!selected.rowCount)throw new DomainError('ASSIGNMENT_UNAVAILABLE','That workspace assignment is no longer active for your account. Refresh the choices.',409);
+      const target=selected.rows[0];
+      if(target.tenant_id===current.tenantId&&target.outlet_id===current.outletId&&target.device_id===current.deviceId)return {target,changed:false};
+      await client.query(`UPDATE identity.sessions SET tenant_id=$1,outlet_id=$2,device_id=$3,version=version+1
+        WHERE id=$4 AND tenant_id=$5 AND outlet_id=$6 AND device_id=$7`,[target.tenant_id,target.outlet_id,target.device_id,current.sessionId,current.tenantId,current.outletId,current.deviceId]);
+      await client.query(`INSERT INTO system.audit_events(id,tenant_id,outlet_id,actor_id,event_type,payload)
+        VALUES($1,$2,$3,$4,'AUTH_CONTEXT_SWITCHED',$5::jsonb)`,[randomUUID(),current.tenantId,current.outletId,current.userId,
+        JSON.stringify({from:{tenantId:current.tenantId,outletId:current.outletId,deviceId:current.deviceId},to:{tenantId:target.tenant_id,outletId:target.outlet_id,deviceId:target.device_id}})]);
+      return {target,changed:true};
+    });
+    const r=session.target;
+    return {user:{id:r.user_id,name:r.operator_name,email:r.email,role:r.role,permissions:ROLE_PERMISSIONS[r.role as keyof typeof ROLE_PERMISSIONS]},
+      tenant:{id:r.tenant_id,name:r.tenant_name,currency:r.currency,timeZone:r.time_zone,taxPolicy:readTaxPolicy(r.tax_policy),capabilities:r.capabilities},
+      outlet:{id:r.outlet_id,name:r.outlet_name,timeZone:r.outlet_time_zone},deviceId:r.device_id,
+      onboardingStatus:r.onboarding_status,csrfToken:request.cookies?.maz_csrf??''};
+  });
+  app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,onboardingStatus:request.operator!.onboardingStatus??'LEGACY_ACTIVE',csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/staff',async request=>listStaff(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/devices',async request=>listAssignments(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!,undefined,request.query));
+  app.get<{Params:{userId:string};Querystring:HistoryQuery}>('/api/v1/staff/:userId/sessions',async request=>listOperatorSessions(request.operator!,request.params.userId,request.query));
   app.post<{Body:CredentialInput;Params:{userId:string}}>('/api/v1/staff/:userId/password',async request=>changeCredential(request.operator!,request.body,request.params.userId));
   app.post<{Body:CredentialInput}>('/api/v1/auth/password',async request=>changeCredential(request.operator!,request.body));
+  app.post<{Body:CredentialReconciliationInput}>('/api/v1/auth/password/reconcile',async request=>reconcileCredentialOperation(request.operator!,request.body));
   app.get('/api/v1/configuration', async request => getConfiguration(request.operator!));
   app.get('/api/v1/configuration/stock-sale-policy', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockSalePolicy(request.operator!);});
   app.get<{ Params:{ assetId:string } }>('/api/v1/configuration/assets/:assetId', async (request, reply) => {
@@ -217,7 +287,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
   });
   app.post<{ Body:unknown }>('/api/v1/configuration/assets', async request => inTransaction(client => stageConfigurationAsset(client,request.operator!,request.body)));
-  app.get('/api/v1/catalog/imports',async request=>listProductImports(request.operator!));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/catalog/imports',async request=>listProductImports(request.operator!,request.query));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{
     const csv=await productImportErrorsCsv(request.operator!,request.params.batchId);
@@ -229,75 +299,34 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   };
   app.get('/api/v1/catalog/items', async request => {
     const operator=request.operator!;
-    requireEnabledCapability(operator, 'inventory');
+    requireCatalogCapability(operator);
     const permissions=ROLE_PERMISSIONS[operator.role];
     if (!permissions.some(permission=>['commerce.sell','catalog.manage','inventory.receive','inventory.count'].includes(permission))) throw new DomainError('FORBIDDEN','Your role cannot view the item catalog.',403);
     const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.selling_price_minor,p.category,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
-      FROM catalog.products p JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
-      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.active ORDER BY p.name`,[operator.tenantId,operator.outletId,canReadCost]);
-    return { items:result.rows.map(r=>({id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:String(r.inventory_value_minor)}:{}),taxRateBps:r.tax_rate_bps,quantity:String(r.quantity),version:Number(r.version)})) };
+    const includeArchived=readIncludeArchived(request.query as Record<string,unknown>,operator);
+    const result=await pool.query(`SELECT p.id,p.sku,p.name,p.base_unit,p.currency,p.item_kind,p.selling_price_minor,p.category,p.category_id,p.active,p.barcode,p.reorder_level::text,p.version product_version,CASE WHEN $3::boolean THEN p.cost_price_minor END cost_price_minor,CASE WHEN $3::boolean THEN b.inventory_value_minor::text END inventory_value_minor,p.tax_rate_bps,b.quantity,b.version
+      FROM catalog.products p LEFT JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
+      WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND (p.active OR $4::boolean) ORDER BY p.name,p.id`,[operator.tenantId,operator.outletId,canReadCost,includeArchived]);
+    return { items:result.rows.map(r=>{const stockTracked=isStockTracked(r.item_kind),canReadStock=stockTracked&&operator.capabilities.includes('inventory');return {id:r.id,sku:r.sku,name:r.name,unit:r.base_unit,currency:r.currency,itemKind:r.item_kind,stockTracked,sellingPriceMinor:Number(r.selling_price_minor),category:r.category,categoryId:r.category_id,active:r.active,barcode:r.barcode,reorderLevel:r.reorder_level,productVersion:Number(r.product_version),balanceVersion:r.version===null?null:Number(r.version),...(canReadCost?{costPriceMinor:Number(r.cost_price_minor),inventoryValueMinor:canReadStock&&r.inventory_value_minor!==null?String(r.inventory_value_minor):null}:{}),taxRateBps:r.tax_rate_bps,quantity:canReadStock&&r.quantity!==null?String(r.quantity):null,version:canReadStock&&r.version!==null?Number(r.version):null};}) };
   });
-  app.get('/api/v1/inventory/movements', async request => {
-    const operator=request.operator!;
-    requireEnabledCapability(operator, 'inventory');
-    const permissions=ROLE_PERMISSIONS[operator.role];
-    if(!permissions.includes('inventory.receive')) throw new DomainError('FORBIDDEN','Your role cannot review stock movements.',403);
-    const canReadCost=permissions.includes('catalog.manage')||permissions.includes('finance.view');
-    const result=await pool.query(`SELECT m.id,m.created_at,m.movement_type,m.quantity_delta,m.document_reference,CASE WHEN $3::boolean THEN m.value_minor::text END value_minor,p.sku,p.name,
-        SUM(m.quantity_delta) OVER(PARTITION BY m.product_id ORDER BY m.created_at,m.id ROWS UNBOUNDED PRECEDING) balance_after
-      FROM inventory.movements m JOIN catalog.products p ON p.id=m.product_id AND p.tenant_id=m.tenant_id AND p.outlet_id=m.outlet_id
-      WHERE m.tenant_id=$1 AND m.outlet_id=$2 ORDER BY m.created_at DESC,m.id DESC LIMIT 250`,[operator.tenantId,operator.outletId,canReadCost]);
-    return {movements:result.rows.map(r=>({id:r.id,timestamp:r.created_at,sku:r.sku,productName:r.name,type:r.movement_type==='SALE'?'sale':r.movement_type==='RECEIPT'?'restock':r.movement_type==='REFUND'?'restock':'adjustment',quantity:String(r.quantity_delta),balanceAfter:String(r.balance_after),note:r.document_reference??r.movement_type,reference:r.document_reference,...(canReadCost?{valueMinor:String(r.value_minor)}:{})}))};
-  });
+  app.get('/api/v1/catalog/categories',async request=>listCatalogCategories(request.operator!,request.query as Record<string,unknown>));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/movements',async request=>listInventoryMovements(request.operator!,request.query));
   app.get<{Querystring:{from?:string;to?:string;status?:string;productId?:string;operatorId?:string;outletId?:string;reasonCode?:string;limit?:string;after?:string}}>(
     '/api/v1/inventory/shortfalls', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfalls(request.operator!, request.query);});
   app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallDetail(request.operator!, request.params.shortfallId);});
-  app.get<{Params:{shortfallId:string}}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId);});
-  const requireInventoryCountAccess = (operator: ApiSession) => {
-    requireEnabledCapability(operator, 'inventory');
-    if (!ROLE_PERMISSIONS[operator.role].some(permission => permission === 'inventory.count' || permission === 'inventory.count.approve')) {
-      throw new DomainError('FORBIDDEN', 'Your role cannot access stock counts.', 403);
-    }
-  };
-  const readInventoryCount = async (operator: ApiSession, countId: string) => {
-    const count = await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.baseline_at,c.opened_at,c.posted_at,
-        opened.full_name opened_by_name,posted.full_name posted_by_name,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
-      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by
-      LEFT JOIN identity.users posted ON posted.id=c.posted_by
-      WHERE c.id=$1 AND c.tenant_id=$2 AND c.outlet_id=$3`, [countId, operator.tenantId, operator.outletId]);
-    if (!count.rowCount) return null;
-    const lineResult = await pool.query(`SELECT product_id,sku_snapshot,name_snapshot,base_unit_snapshot,baseline_quantity::text baseline_quantity,
-        baseline_balance_version::text baseline_balance_version,counted_quantity::text counted_quantity,variance_reason,counted_by,counted_at
-      FROM inventory.stock_count_lines WHERE tenant_id=$1 AND outlet_id=$2 AND count_id=$3 ORDER BY sku_snapshot,product_id`, [operator.tenantId, operator.outletId, countId]);
-    const c = count.rows[0];
-    return { id:c.id,status:c.status,areaLabel:c.area_label,version:Number(c.version),baselineAt:c.baseline_at,openedAt:c.opened_at,openedBy:c.opened_by_name,
-      postedAt:c.posted_at,postedBy:c.posted_by_name,lineCount:c.line_count,countedLineCount:c.counted_line_count,
-      lines:lineResult.rows.map(line=>({productId:line.product_id,sku:line.sku_snapshot,name:line.name_snapshot,unit:line.base_unit_snapshot,
-        expectedQuantity:String(line.baseline_quantity),expectedBalanceVersion:Number(line.baseline_balance_version),countedQuantity:line.counted_quantity===null?null:String(line.counted_quantity),
-        varianceReason:line.variance_reason,countedBy:line.counted_by,countedAt:line.counted_at}))};
-  };
-  app.get('/api/v1/inventory/counts', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const result=await pool.query(`SELECT c.id,c.status,c.area_label,c.version,c.opened_at,c.posted_at,opened.full_name opened_by_name,posted.full_name posted_by_name,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id) line_count,
-        (SELECT count(*)::int FROM inventory.stock_count_lines l WHERE l.tenant_id=c.tenant_id AND l.outlet_id=c.outlet_id AND l.count_id=c.id AND l.counted_quantity IS NOT NULL) counted_line_count
-      FROM inventory.stock_counts c JOIN identity.users opened ON opened.id=c.opened_by LEFT JOIN identity.users posted ON posted.id=c.posted_by
-      WHERE c.tenant_id=$1 AND c.outlet_id=$2 ORDER BY c.opened_at DESC,c.id DESC LIMIT 50`,[operator.tenantId,operator.outletId]);
-    return {counts:result.rows.map(row=>({id:row.id,status:row.status,areaLabel:row.area_label,version:Number(row.version),openedAt:row.opened_at,openedBy:row.opened_by_name,postedAt:row.posted_at,postedBy:row.posted_by_name,lineCount:row.line_count,countedLineCount:row.counted_line_count}))};
+  app.get<{Params:{shortfallId:string};Querystring:HistoryQuery}>('/api/v1/inventory/shortfalls/:shortfallId/evidence', async request => {requireEnabledCapability(request.operator!,'inventory');return getStockShortfallEvidence(request.operator!, request.params.shortfallId,request.query);});
+  app.get<{Querystring:HistoryQuery}>('/api/v1/inventory/counts',async request=>listInventoryCounts(request.operator!,request.query));
+  app.get('/api/v1/inventory/counts/current', request => getCount(request.operator!));
+  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId', request => getCount(request.operator!,request.params.countId));
+  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId/review', request => {
+    if(Object.keys(request.query as object).length)throw new DomainError('VALIDATION_FAILED','Changed-item review does not accept extra filters.');
+    return getCountReview(request.operator!,request.params.countId);
   });
-  app.get('/api/v1/inventory/counts/current', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const current=await pool.query<{id:string}>('SELECT id FROM inventory.stock_counts WHERE tenant_id=$1 AND outlet_id=$2 AND status=\'OPEN\' ORDER BY opened_at DESC LIMIT 1',[operator.tenantId,operator.outletId]);
-    return {count:current.rowCount?await readInventoryCount(operator,current.rows[0].id):null};
-  });
-  app.get<{Params:{countId:string}}>('/api/v1/inventory/counts/:countId', async request => {
-    const operator=request.operator!; requireInventoryCountAccess(operator);
-    const count=await readInventoryCount(operator,request.params.countId);
-    if(!count)throw new DomainError('NOT_FOUND','Stock count was not found.',404);
-    return {count};
+  app.get<{Params:{countId:string};Querystring:{after?:string}}>('/api/v1/inventory/counts/:countId/review/movements', request => getCountReviewMovements(request.operator!,request.params.countId,request.query));
+  app.get<{Params:{countId:string};Querystring:HistoryQuery}>('/api/v1/inventory/counts/:countId/events', request => getCountEvents(request.operator!,request.params.countId,request.query));
+  app.get<{Params:{countId:string;eventId:string}}>('/api/v1/inventory/counts/:countId/events/:eventId', request => {
+    if(Object.keys(request.query as object).length)throw new DomainError('VALIDATION_FAILED','Count evidence does not accept extra filters.');
+    return getCountEvent(request.operator!,request.params.countId,request.params.eventId);
   });
   app.get('/api/v1/shifts/current', async request => {
     const s=request.operator!;
@@ -309,12 +338,11 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       FROM commerce.shifts WHERE tenant_id=$1 AND outlet_id=$2 AND operator_id=$3 AND status='OPEN'`,[s.tenantId,s.outletId,s.userId]);
     const r=result.rows[0];
     if(!r)return {shift:null};
-    const movements=await pool.query(`SELECT m.id,m.movement_type,m.amount_minor,m.reason,m.reference,m.created_at,u.full_name actor_name
-      FROM commerce.shift_cash_movements m JOIN identity.users u ON u.id=m.actor_id
-      WHERE m.tenant_id=$1 AND m.outlet_id=$2 AND m.shift_id=$3 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`,[s.tenantId,s.outletId,r.id]);
-    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),mpesaSalesMinor:Number(r.mpesa_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movements.rows.map(m=>({id:m.id,movementType:m.movement_type,amountMinor:Number(m.amount_minor),reason:m.reason,reference:m.reference,actorName:m.actor_name,createdAt:m.created_at}))} };
+    const movementResult=await listShiftCashMovements(s,r.id);
+    return { shift:{id:r.id,status:r.status,openingFloatMinor:Number(r.opening_float_minor),cashSalesMinor:Number(r.cash_sales_minor),mpesaSalesMinor:Number(r.mpesa_sales_minor),customerCollectionsMinor:Number(r.customer_collections_minor),cashRefundsMinor:Number(r.cash_refunds_minor),cashPaidInMinor:Number(r.cash_paid_in_minor),cashPayoutMinor:Number(r.cash_payout_minor),expectedCashMinor:Number(r.expected_cash_minor),version:Number(r.version),openedAt:r.opened_at,cashMovements:movementResult.movements,cashMovementPage:movementResult.page} };
   });
-  app.get('/api/v1/shifts/close-reports', async request => listShiftCloseReports(request.operator!));
+  app.get<{Params:{shiftId:string};Querystring:HistoryQuery}>('/api/v1/shifts/:shiftId/cash-movements',async request=>listShiftCashMovements(request.operator!,request.params.shiftId,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/shifts/close-reports', async request => listShiftCloseReports(request.operator!,request.query));
   app.get<{Querystring:{after?:string;asOf?:string;limit?:string;q?:string}}>('/api/v1/sales/orders', async request => {
     const operator=request.operator!;
     const permissions=ROLE_PERMISSIONS[operator.role];
@@ -333,7 +361,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         COALESCE((SELECT SUM(r.total_minor) FROM commerce.refunds r WHERE r.tenant_id=o.tenant_id AND r.outlet_id=o.outlet_id AND r.order_id=o.id),0)::text refunded_minor,
         COALESCE((SELECT SUM(ol.discount_minor) FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),0)::text discount_minor,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('method',p.method,'amountMinor',p.amount_minor::text,'currency',p.currency,'status',p.status,'reference',p.reference,'confirmation',CASE WHEN p.method='MANUAL_MPESA' THEN 'CASHIER_CONFIRMED' ELSE 'CASH' END,'confirmedBy',p.confirmed_operator_name_snapshot,'confirmedAt',p.manually_confirmed_at) ORDER BY p.created_at,p.id) FROM commerce.payments p WHERE p.tenant_id=o.tenant_id AND p.outlet_id=o.outlet_id AND p.order_id=o.id),'[]'::jsonb) payments,
-        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'originalSubtotalMinor',(ol.line_subtotal_minor+ol.discount_minor)::text,'discountMinor',ol.discount_minor::text,'discountReason',ol.discount_reason,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
+        COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('lineId',ol.id,'productId',ol.product_id,'sku',ol.sku_snapshot,'name',ol.name_snapshot,'itemKind',ol.item_kind_snapshot,'quantity',ol.quantity::text,'unitPriceMinor',ol.unit_price_minor::text,'costPriceMinor',CASE WHEN $3::boolean THEN ol.cost_price_minor::text END,'cogsMinor',CASE WHEN $3::boolean THEN ol.cogs_minor::text END,'taxRateBps',ol.tax_rate_bps,'originalSubtotalMinor',(ol.line_subtotal_minor+ol.discount_minor)::text,'discountMinor',ol.discount_minor::text,'discountReason',ol.discount_reason,'subtotalMinor',ol.line_subtotal_minor::text,'taxMinor',ol.line_tax_minor::text,'refundedQuantity',COALESCE((SELECT SUM(rl.quantity) FROM commerce.refund_lines rl WHERE rl.tenant_id=ol.tenant_id AND rl.outlet_id=ol.outlet_id AND rl.order_line_id=ol.id),0)::text)) ORDER BY ol.id)
           FROM commerce.order_lines ol WHERE ol.tenant_id=o.tenant_id AND ol.outlet_id=o.outlet_id AND ol.order_id=o.id),'[]'::jsonb) lines
       FROM commerce.orders o
       WHERE o.tenant_id=$1 AND o.outlet_id=$2 AND o.created_at<=$6::timestamptz
@@ -350,7 +378,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if (!image) throw new DomainError('NOT_FOUND', 'Historical receipt image was not found for this outlet.', 404);
     return reply.type('image/png').header('cache-control', 'private, no-store').header('x-content-type-options', 'nosniff').send(image);
   });
-  app.get('/api/v1/customers', async request => listCustomerAccounts(request.operator!));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/customers', async request => listCustomerAccounts(request.operator!,request.query));
   app.get<{ Params: { customerId: string } }>('/api/v1/customers/:customerId/statement', async request =>
     getCustomerStatement(request.operator!, request.params.customerId));
   app.get<{ Querystring: { asOf?: string } }>('/api/v1/reports/trial-balance', async request =>
@@ -389,14 +417,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       FROM hospitality.rooms r WHERE r.tenant_id=$1 AND r.outlet_id=$2 ORDER BY r.room_number`,[operator.tenantId,operator.outletId]);
     return {rooms:result.rows.map(r=>({id:r.id,roomNumber:r.room_number,roomType:r.room_type,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),activeStay:r.active_stay}))};
   });
-  app.get('/api/v1/hospitality/reservations',async request=>{
-    const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
-    if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'))throw new DomainError('FORBIDDEN','Your role cannot view reservations.',403);
-    const result=await pool.query(`SELECT b.id,b.room_id,r.room_number,b.guest_name,b.guest_contact,to_char(b.check_in_date,'YYYY-MM-DD') check_in_date,to_char(b.check_out_date,'YYYY-MM-DD') check_out_date,b.nightly_rate_minor,b.tax_rate_bps,b.currency,b.status,b.version
-      FROM hospitality.reservations b JOIN hospitality.rooms r ON r.id=b.room_id AND r.tenant_id=b.tenant_id AND r.outlet_id=b.outlet_id
-      WHERE b.tenant_id=$1 AND b.outlet_id=$2 AND b.status='CONFIRMED' ORDER BY b.check_in_date,b.room_id LIMIT 250`,[operator.tenantId,operator.outletId]);
-    return {reservations:result.rows.map(r=>({id:r.id,roomId:r.room_id,roomNumber:r.room_number,guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.check_out_date,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version)}))};
-  });
+  app.get<{Querystring:HistoryQuery}>('/api/v1/hospitality/reservations',async request=>listHotelReservations(request.operator!,request.query));
   app.get('/api/v1/hospitality/stays',async request=>{
     const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
     if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'))throw new DomainError('FORBIDDEN','Your role cannot view guest stays.',403);
@@ -405,45 +426,74 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return {stays:result.rows.map(r=>{const subtotal=BigInt(r.nightly_rate_minor)*BigInt(r.nights);const tax=(subtotal*BigInt(r.tax_rate_bps)+5000n)/10000n;if(subtotal+tax>BigInt(Number.MAX_SAFE_INTEGER))throw new DomainError('VALIDATION_FAILED','Stay estimate exceeds the supported money range.');return {id:r.id,roomId:r.room_id,roomNumber:r.room_number,roomVersion:Number(r.room_version),guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.expected_check_out_date,checkedInAt:r.checked_in_at,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),nights:r.nights,estimatedSubtotalMinor:Number(subtotal),estimatedTaxMinor:Number(tax),estimatedTotalMinor:Number(subtotal+tax)}})};
   });
   app.post<{ Body: CommandEnvelope }>('/api/v1/commands',{bodyLimit:2_097_152}, async (request, reply) => {
-    const envelope=request.body; const s=request.operator!;
-    if (!envelope || envelope.protocolVersion!==1 || !/^[0-9a-f-]{36}$/i.test(envelope.commandId ?? '') || typeof envelope.type!=='string' || typeof envelope.deviceId!=='string' || !Number.isFinite(Date.parse(envelope.occurredAt)) || !envelope.expectedVersions || typeof envelope.expectedVersions!=='object' || !envelope.payload || typeof envelope.payload!=='object') throw new DomainError('VALIDATION_FAILED','Command envelope is invalid.');
+    const envelope=parseCommandEnvelope(request.body); const s=request.operator!;
+    if(s.onboardingStatus==='SETUP'&&!setupCommandAllowed(envelope.type))throw new DomainError('ONBOARDING_REQUIRED','Complete the reviewed first-use setup before using this business action.',403);
     if (envelope.tenantId && envelope.tenantId!==s.tenantId) throw new DomainError('FORBIDDEN','Command tenant differs from authenticated tenant.',403);
     if(envelope.deviceId!==s.deviceId)throw new DomainError('FORBIDDEN','Command device differs from the authenticated assignment.',403);
     assertImportSourceSafe(envelope);
     envelope.tenantId=s.tenantId;
     const digest=hashCommand(envelope); const hashText=digest.toString('hex');
     const outcome=await inTransaction(async client=>{
+      // Serialize account-label edits before their command-ledger insert. Each
+      // edit locks the tenant version later in the transaction, and a racing
+      // ledger FK check can otherwise form an SSI pivot before the version
+      // guard has a chance to return the expected stale-edit conflict.
+      if(envelope.type==='finance.account.label')await client.query("SELECT pg_advisory_xact_lock(hashtextextended('account-catalog:'||$1::text,9037))",[s.tenantId]);
       const inserted=await client.query(`INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status)
         VALUES($1,$2,$3,$4,$5,$6,'EXECUTING') ON CONFLICT DO NOTHING RETURNING command_id`,[s.tenantId,envelope.commandId,s.userId,s.deviceId,envelope.type,digest]);
       if (!inserted.rowCount) {
-        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,d.outlet_id
+        const old=await client.query(`SELECT c.request_hash,c.status,c.response,c.actor_id,c.command_type,c.authority_version,c.required_capabilities,d.outlet_id
           FROM system.commands c JOIN identity.devices d ON d.tenant_id=c.tenant_id AND d.id=c.device_id
           WHERE c.tenant_id=$1 AND c.command_id=$2 FOR UPDATE OF c`,[s.tenantId,envelope.commandId]);
         if ((STAFF_COMMANDS as readonly string[]).includes(old.rows[0].command_type)) {
           await client.query('SELECT id FROM core.tenants WHERE id=$1 FOR UPDATE',[s.tenantId]);
         }
         const fresh=await revalidateOperator(client,s);
-        try { requireCommandRecoveryAuthority(fresh,old.rows[0],'replay'); }
-        catch(error) {
-          // Preserve import's existing definite rejected-envelope contract.
-          if(!(error instanceof DomainError)||!old.rows[0].command_type.startsWith('catalog.import.'))throw error;
-          return {status:'REJECTED',code:error.code,message:error.message};
-        }
+        // A denial describes current access, not the original command outcome.
+        // Keep it an HTTP error so clients retain unresolved recovery evidence.
+        requireCommandRecoveryAuthority(fresh,old.rows[0],'replay');
         if (old.rows[0].request_hash.toString('hex')!==hashText) return {status:'REJECTED',message:'Command ID was already used with different content.',code:'IDEMPOTENCY_MISMATCH'};
         const stored=old.rows[0].response;
         if(stored&&typeof stored==='object'&&!Array.isArray(stored))return stored;
         return {status:old.rows[0].status};
       }
-      await client.query('SAVEPOINT business_command');
+      // This evidence survives ordinary domain rejection. Planning cannot write
+      // business state and shares the serializable transaction/outlet lock.
+      await initializeCommandRequirements(client,s,envelope);
+      let businessSavepoint=false;
+      let fresh:ApiSession|undefined;
       try {
-        const value=await executeCommand(client,s,envelope);
+        fresh=await revalidateOperator(client,s);
+        await prepareCommandRequirements(client,fresh,envelope);
+        await client.query('SAVEPOINT business_command');
+        businessSavepoint=true;
+        const value=await executeCommand(client,fresh,envelope);
         const response={status:'CONFIRMED',value};
         await client.query("UPDATE system.commands SET status='CONFIRMED',response=$3::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2",[s.tenantId,envelope.commandId,JSON.stringify(response)]);
         return response;
       } catch (error) {
-        await client.query('ROLLBACK TO SAVEPOINT business_command');
+        // Dynamic planning may reject incomplete/foreign lines before the
+        // existing domain's period admission. Preserve that admission priority
+        // without replacing role/capability failures or strict static schemas.
+        if(!businessSavepoint&&fresh&&error instanceof DomainError&&['VALIDATION_FAILED','NOT_FOUND'].includes(error.code)&&
+          ['sales.order.settle','sales.order.refund','catalog.import.apply'].includes(envelope.type)) {
+          // Admission queries UUIDs directly. Preserve controlled validation for
+          // an invalid supplied identity; an omitted refund ID keeps its former
+          // closed-period admission behavior (the guard's null lookup is safe).
+          const needsRecordId=envelope.type==='catalog.import.apply'||(envelope.type==='sales.order.refund'&&envelope.payload.orderId!==undefined);
+          const recordId=envelope.type==='catalog.import.apply'?envelope.payload.batchId:envelope.payload.orderId;
+          const validRecordId=!needsRecordId||(typeof recordId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(recordId));
+          if(validRecordId) {
+            try { await guardFinancialCommand(client,fresh,envelope); }
+            catch(admissionError) {
+              if(!(admissionError instanceof DomainError))throw admissionError;
+              error=admissionError;
+            }
+          }
+        }
+        if(businessSavepoint)await client.query('ROLLBACK TO SAVEPOINT business_command');
         if (!(error instanceof DomainError)) throw error;
-        const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT'].includes(error.code)?'CONFLICT':'REJECTED';
+        const status=['VERSION_CONFLICT','IMPORT_STALE','OPEN_COUNT_CONFLICT','COUNT_REVIEW_REQUIRED','COUNT_REVIEW_BLOCKED','COUNT_RECOUNT_REQUIRED','COUNT_CAPACITY_EXCEEDED','ONBOARDING_INCOMPLETE','ONBOARDING_ALREADY_LIVE'].includes(error.code)?'CONFLICT':'REJECTED';
         const response={status,code:error.code,message:error.message,details:error.details};
         await client.query('UPDATE system.commands SET status=$3,response=$4::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2',[s.tenantId,envelope.commandId,status,JSON.stringify(response)]);
         return response;
@@ -453,12 +503,12 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   });
   app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async request => inTransaction(async client => {
     const operator=await revalidateOperator(client,request.operator!);
-    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,d.outlet_id
+    const r=await client.query(`SELECT c.status,c.response,c.created_at,c.completed_at,c.command_type,c.actor_id,c.authority_version,c.required_capabilities,d.outlet_id
       FROM system.commands c JOIN identity.devices d ON d.id=c.device_id AND d.tenant_id=c.tenant_id
       WHERE c.tenant_id=$1 AND c.command_id=$2 FOR SHARE OF c,d`,[operator.tenantId,request.params.commandId]);
     if (!r.rowCount) throw new DomainError('NOT_FOUND','Command was not found.',404);
     requireCommandRecoveryAuthority(operator,r.rows[0],'status');
-    const {command_type:_,actor_id:__,outlet_id:___,...status}=r.rows[0];
+    const {command_type:_,actor_id:__,outlet_id:___,authority_version:____,required_capabilities:_____,...status}=r.rows[0];
     return {commandId:request.params.commandId,...status};
   }));
   return app;

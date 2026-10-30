@@ -56,8 +56,8 @@ test('real login, business/outlet saves, refresh and capabilities persist in Pos
   expect(business.business_profile.taxPolicy.defaultRateBps).toBe(1600);
   expect(Number(business.version)).toBe(2);
   await page.getByRole('button', { name: 'Outlet and receipts', exact: true }).click();
-  await page.getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet');
-  await page.getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
+  await page.getByRole('group').getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet');
+  await page.getByRole('group').getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
   await page.getByLabel('Outlet receipt header', { exact: true }).fill('Configured outlet receipt');
   await page.getByRole('button', { name: 'Save outlet settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
@@ -122,8 +122,8 @@ test('configured outlet adds and receives inventory, confirms a taxed sale and r
   await page.getByRole('button', { name: 'Save business settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
   await page.getByRole('button', { name: 'Outlet and receipts', exact: true }).click();
-  await page.getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet for sale');
-  await page.getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
+  await page.getByRole('group').getByLabel('Outlet name', { exact: true }).fill('Configured browser outlet for sale');
+  await page.getByRole('group').getByLabel('Outlet time zone', { exact: true }).fill('Pacific/Honolulu');
   await page.getByLabel('Outlet receipt header', { exact: true }).fill('Configured outlet receipt');
   await page.getByRole('button', { name: 'Save outlet settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
@@ -134,7 +134,7 @@ test('configured outlet adds and receives inventory, confirms a taxed sale and r
   await page.getByLabel('Selling price (KES)', { exact: true }).fill('10.00');
   await page.getByLabel('Reference cost per unit (KES)', { exact: true }).fill('5.00');
   await page.getByRole('button', { name: 'Create item', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Item created');
+  await expect(page.getByRole('status').filter({hasText:'Item created'})).toBeVisible();
   const product = (await pool.query("SELECT id,tax_rate_bps FROM catalog.products WHERE tenant_id=$1 AND sku='BROWSER-SALE-ITEM'", [tenantId])).rows[0];
   expect(product.tax_rate_bps).toBe(1600);
   await page.getByRole('button', { name: 'Receive stock', exact: true }).click();
