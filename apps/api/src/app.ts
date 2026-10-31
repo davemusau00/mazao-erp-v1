@@ -149,6 +149,10 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       const requestedMethod = typeof rawRequestedMethod === 'string' ? rawRequestedMethod.toUpperCase() : '';
       const allowedMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
       const allowedHeaders = new Set(['content-type', 'x-csrf-token', 'x-request-id']);
+      // Local Playwright integration fixtures use distinct forwarded client IPs
+      // to exercise rate limiting. Never permit a browser to supply this header
+      // through the production API ingress.
+      if (!production) allowedHeaders.add('x-forwarded-for');
       const rawRequestedHeaders = request.headers['access-control-request-headers'];
       const requestedHeaders = (Array.isArray(rawRequestedHeaders) ? rawRequestedHeaders.join(',') : rawRequestedHeaders ?? '')
         .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);

@@ -74,6 +74,14 @@ test('production unsafe requests fail closed unless the exact configured origin 
       headers: { origin: 'https://erp.example.invalid', 'access-control-request-method': 'POST', 'access-control-request-headers': 'x-unapproved' },
     });
     assert.equal(rejectedHeaderPreflight.statusCode, 403);
+
+    const rejectedForwardedIpPreflight = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/auth/login',
+      headers: { origin: 'https://erp.example.invalid', 'access-control-request-method': 'POST', 'access-control-request-headers': 'x-forwarded-for' },
+    });
+    assert.equal(rejectedForwardedIpPreflight.statusCode, 403);
+    assert.equal(rejectedForwardedIpPreflight.headers['access-control-allow-origin'], 'https://erp.example.invalid');
   } finally {
     await app.close();
     await db.pool.end();
