@@ -249,7 +249,12 @@ test('lost import response survives restart and checks original command without 
   await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeVisible();
   await page.unroute('**/api/v1/commands');
   await page.reload(); await importWorkspace(page);
-  await expect(page.getByRole('button',{name:'Apply reviewed import',exact:true})).toBeDisabled();
+  // A fresh batch read can already show APPLIED even while the client still
+  // retains the command as unknown. In either state, apply stays locked and
+  // status recovery remains available.
+  const lockedApply=page.getByRole('button',{name:'Apply reviewed import',exact:true});
+  if(await lockedApply.count())await expect(lockedApply).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Check status',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Import applied',exact:true})).toBeVisible();
   const productId=await assertStock('IMPORT-RECOVER','3.000000','600');
