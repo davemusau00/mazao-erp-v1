@@ -85,12 +85,13 @@ if(!sourceUrl) {
         await assert.rejects(client!.query("UPDATE restaurant.ticket_state_events SET status='READY' WHERE ticket_id=$1",[ticketId]),{code:'23514'});
       });
       await t.test('new source table references cannot cross the upgraded outlet boundary',async()=>{
+        const beforeScopeAttack=await snapshot();
         const otherDevice=randomUUID();
         await client!.query("INSERT INTO identity.devices(id,tenant_id,outlet_id,assigned_user_id,label) VALUES($1,$2,$3,$4,'Other outlet assignment')",[otherDevice,tenant,otherOutlet,user]);
         await assert.rejects(client!.query("INSERT INTO restaurant.orders(id,tenant_id,outlet_id,table_id,table_name_snapshot,service_label,owner_id,owner_name_snapshot,created_by_device_id,currency) VALUES($1,$2,$3,$4,'Existing Table 1','Foreign table reference',$5,'Existing owner',$6,'KES')",[randomUUID(),tenant,otherOutlet,table,user,otherDevice]),{code:'23503'});
         await assert.rejects(client!.query("INSERT INTO restaurant.orders(id,tenant_id,outlet_id,table_id,service_label,owner_id,owner_name_snapshot,created_by_device_id,currency) VALUES($1,$2,$3,NULL,'Foreign logical workspace',$4,'Existing owner',$5,'KES')",[randomUUID(),tenant,otherOutlet,user,device]),{code:'23503'});
         await client!.query('DELETE FROM identity.devices WHERE id=$1',[otherDevice]);
-        assert.deepEqual(await snapshot(),before,'Failed scope attacks must not rewrite original setup, inventory or accounting evidence.');
+        assert.deepEqual(await snapshot(),beforeScopeAttack,'Failed scope attacks must not rewrite original setup, inventory or accounting evidence.');
       });
     } finally {
       await client?.end();

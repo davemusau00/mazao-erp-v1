@@ -75,6 +75,13 @@ Recorded on 31 October 2026:
 Mocked browser tests are not a substitute for database or hosted CI evidence.
 No PR, merge or deployment evidence is claimed by this document.
 
+The initial PR exact-head run (`41197557393`) passed fresh migration application,
+migration checksum rerun and typecheck, then found a faulty baseline comparison
+in the existing populated-upgrade test: a later scope-attack assertion compared
+against a snapshot captured before that test's own migration fixtures. The test
+now snapshots immediately before those attacks. Local PostgreSQL and Docker are
+unavailable, so this correction still requires a green hosted rerun.
+
 ## Next dependencies
 
 1. P1.3: immutable, station-specific NEW/ADD-ON/VOID/COPY 80 mm documents,
