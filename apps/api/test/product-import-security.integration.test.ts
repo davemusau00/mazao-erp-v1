@@ -63,7 +63,7 @@ if (!databaseUrl) {
       (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1 AND outlet_id=$2) products,
       (SELECT count(*)::int FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2) movements,
       (SELECT count(*)::int FROM finance.journal_entries WHERE tenant_id=$1) journals,
-      (SELECT COALESCE(sum(quantity),0)::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2) quantity,
+      (SELECT COALESCE(sum(quantity),0)::numeric(18,6)::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2) quantity,
       (SELECT COALESCE(sum(inventory_value_minor),0)::text FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2) value`, [owner.tenantId, owner.outletId]);
     return result.rows[0];
   }
@@ -299,7 +299,7 @@ if (!databaseUrl) {
           (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') audit,
           (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') outbox,
           (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_audit,
-          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_outbox`, [owner.tenantId, command.commandId]);
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.categories.created') category_outbox`, [owner.tenantId, command.commandId]);
         assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1, category_audit: 1, category_outbox: 1 });
         const after = await authority(owner);
         const newIdRepeat = await submit(app, owner, applyEnvelope(owner, preview.batch));
@@ -319,6 +319,92 @@ if (!databaseUrl) {
         const duplicateBarcode = await stage(app, owner, csv([row({ SKU: 'OTHER-ITEM', Barcode: '000012340001' })])); assert.equal(duplicateBarcode.batch.status, 'INVALID');
         const duplicateSku = await stage(app, owner, csv([row({ SKU: '000001', Unit: 'kg', Barcode: '000012340999' })])); assert.equal(duplicateSku.batch.status, 'INVALID');
       } finally { await app.close(); }
+    });
+
+    await t.test('58 products across existing and new categories emit one complete aggregate event and replay once', async () => {
+      const { app, owner } = await setup();
+      try {
+        const existingCategoryId=randomUUID();
+        await db.pool.query('INSERT INTO catalog.categories(id,tenant_id,outlet_id,name) VALUES($1,$2,$3,$4)',[existingCategoryId,owner.tenantId,owner.outletId,'Bulk existing']);
+        const rows=Array.from({length:58},(_,index)=>row({
+          SKU:`BULK-CATEGORY-${String(index+1).padStart(2,'0')}`,
+          Name:`Bulk item ${index+1}`,
+          Category:index<2?'Bulk existing':`Bulk new ${String(index-1).padStart(2,'0')}`,
+          Opening:index<29?'1':'0',
+          'Opening cost':index<28?'3310.76':index===28?'3310.72':'2.00',
+        }));
+        const preview=await stage(app,owner,csv(rows));
+        assert.equal(preview.batch.status,'READY');assert.equal(preview.batch.summary.createCount,58);assert.equal(preview.batch.summary.errorCount,0);assert.equal(preview.batch.summary.warningCount,0);
+        assert.equal(preview.batch.summary.openingValueMinor,'9601200');
+        const command=applyEnvelope(owner,preview.batch);
+        const result=await submit(app,owner,command);
+        assert.equal(result.json().status,'CONFIRMED',result.body);assert.equal(result.json().value.status,'APPLIED');
+        assert.equal(result.json().value.createdCount,58);assert.equal(result.json().value.openingValueMinor,'9601200');
+        const persisted=await db.pool.query(`SELECT b.status,b.version,(SELECT count(*)::int FROM catalog.products p WHERE p.tenant_id=b.tenant_id AND p.outlet_id=b.outlet_id AND p.last_import_batch_id=b.id) products
+          FROM catalog.product_import_batches b WHERE b.id=$1`,[preview.batch.id]);
+        assert.deepEqual(persisted.rows[0],{status:'APPLIED',version:'2',products:58});
+        const productTotals=await db.pool.query(`SELECT count(*)::int products,count(*) FILTER(WHERE c.id=$3)::int existing_category_products,
+          count(DISTINCT c.id)::int category_count,sum(b.inventory_value_minor)::text stock_value
+          FROM catalog.products p JOIN catalog.categories c ON c.tenant_id=p.tenant_id AND c.outlet_id=p.outlet_id AND c.id=p.category_id
+          JOIN inventory.balances b ON b.tenant_id=p.tenant_id AND b.outlet_id=p.outlet_id AND b.product_id=p.id
+          WHERE p.tenant_id=$1 AND p.outlet_id=$2 AND p.last_import_batch_id=$4`,[owner.tenantId,owner.outletId,existingCategoryId,preview.batch.id]);
+        assert.deepEqual(productTotals.rows[0],{products:58,existing_category_products:2,category_count:57,stock_value:'9601200'});
+        const movements=await db.pool.query('SELECT count(*)::int total,sum(value_minor)::text value FROM inventory.movements WHERE tenant_id=$1 AND outlet_id=$2 AND reference_id=$3 AND movement_type=\'OPENING_IMPORT\'',[owner.tenantId,owner.outletId,preview.batch.id]);
+        assert.deepEqual(movements.rows[0],{total:29,value:'9601200'});
+        const journal=await db.pool.query(`SELECT count(DISTINCT e.id)::int entries,sum(l.debit_minor)::text debit,sum(l.credit_minor)::text credit
+          FROM finance.journal_entries e JOIN finance.journal_lines l ON l.tenant_id=e.tenant_id AND l.journal_entry_id=e.id
+          WHERE e.tenant_id=$1 AND e.source_type='OPENING_PRODUCT_IMPORT' AND e.source_id=$2`,[owner.tenantId,preview.batch.id]);
+        assert.deepEqual(journal.rows[0],{entries:1,debit:'9601200',credit:'9601200'});
+        const categoryAudit=await db.pool.query(`SELECT count(*)::int total,count(DISTINCT payload->>'categoryId')::int identities
+          FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created'`,[owner.tenantId,command.commandId]);
+        assert.deepEqual(categoryAudit.rows[0],{total:56,identities:56});
+        const aggregate=await db.pool.query(`SELECT count(*)::int events,(array_agg(payload))[1] payload
+          FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.categories.created'`,[owner.tenantId,command.commandId]);
+        assert.equal(aggregate.rows[0].events,1);
+        const event=aggregate.rows[0].payload;
+        assert.equal(event.schemaVersion,1);assert.equal(event.importBatchId,preview.batch.id);assert.equal(event.commandId,command.commandId);
+        assert.equal(event.tenantId,owner.tenantId);assert.equal(event.outletId,owner.outletId);
+        assert.equal(event.categories.length,56);
+        assert.equal(new Set(event.categories.map((category:{categoryId:string})=>category.categoryId)).size,56);
+        assert.ok(event.categories.every((category:{version:number;source:string})=>category.version===1&&category.source==='PRODUCT_METADATA'));
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.category.created\'',[owner.tenantId,command.commandId])).rows[0].total,0);
+        const authorityAfter=await authority(owner);
+        assert.deepEqual((await submit(app,owner,command)).json(),result.json(),'replaying the confirmed apply returns its original result');
+        assert.deepEqual(await authority(owner),authorityAfter);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.categories.created\'',[owner.tenantId,command.commandId])).rows[0].total,1);
+      } finally { await app.close(); }
+    });
+
+    await t.test('category, product, stock, journal and outbox writes roll back together on a mid-import failure',async()=>{
+      const {app,owner}=await setup();
+      const suffix=randomUUID().replaceAll('-',''),functionName=`mazao_import_fail_${suffix}`,triggerName=`mazao_import_fail_trigger_${suffix}`;
+      try{
+        const source=csv([
+          row({SKU:'ROLLBACK-FIRST',Category:'Rollback category one',Opening:'1','Opening cost':'5.00'}),
+          row({SKU:'ROLLBACK-FAIL',Category:'Rollback category two',Opening:'2','Opening cost':'7.00'}),
+        ]);
+        const preview=await stage(app,owner,source),command=applyEnvelope(owner,preview.batch),before=await authority(owner);
+        await db.pool.query(`CREATE FUNCTION public.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.sku='ROLLBACK-FAIL' THEN RAISE EXCEPTION 'forced import rollback' USING ERRCODE='P0001'; END IF; RETURN NEW; END $$`);
+        await db.pool.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON catalog.products FOR EACH ROW EXECUTE FUNCTION public.${functionName}()`);
+        const failed=await submit(app,owner,command);
+        assert.equal(failed.statusCode,500,failed.body);
+        assert.deepEqual(await authority(owner),before);
+        const batch=await db.pool.query('SELECT status,version FROM catalog.product_import_batches WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3',[owner.tenantId,owner.outletId,preview.batch.id]);
+        assert.deepEqual(batch.rows[0],{status:'READY',version:'1'});
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM catalog.categories WHERE tenant_id=$1 AND outlet_id=$2 AND name LIKE \'Rollback category %\'',[owner.tenantId,owner.outletId])).rows[0].total,0);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2',[owner.tenantId,command.commandId])).rows[0].total,0);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2',[owner.tenantId,command.commandId])).rows[0].total,0);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[owner.tenantId,command.commandId])).rows[0].total,0);
+        await db.pool.query(`DROP TRIGGER ${triggerName} ON catalog.products`);await db.pool.query(`DROP FUNCTION public.${functionName}()`);
+        const retry=await submit(app,owner,command);
+        assert.equal(retry.json().status,'CONFIRMED',retry.body);
+        assert.equal((await db.pool.query('SELECT status FROM catalog.product_import_batches WHERE id=$1',[preview.batch.id])).rows[0].status,'APPLIED');
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.categories.created\'',[owner.tenantId,command.commandId])).rows[0].total,1);
+      }finally{
+        await db.pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON catalog.products`);
+        await db.pool.query(`DROP FUNCTION IF EXISTS public.${functionName}()`);
+        await app.close();
+      }
     });
 
     await t.test('parallel batches cannot create duplicate SKU or barcode identities', async () => {
@@ -405,7 +491,7 @@ if (!databaseUrl) {
           (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') audit,
           (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.apply') outbox,
           (SELECT count(*)::int FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_audit,
-          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.category.created') category_outbox`, [owner.tenantId, command.commandId]); assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1, category_audit: 1, category_outbox: 1 });
+          (SELECT count(*)::int FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type='catalog.import.categories.created') category_outbox`, [owner.tenantId, command.commandId]); assert.deepEqual(evidence.rows[0], { audit: 1, outbox: 1, category_audit: 1, category_outbox: 1 });
         assert.deepEqual((await submit(app, owner, command)).json(), result.json()); assert.deepEqual(await authority(owner), totals);
       } finally { await app.close(); }
     });

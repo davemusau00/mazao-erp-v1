@@ -899,6 +899,22 @@ status returns 404. The browser action clears only local validation recovery
 metadata; unknown apply/archive/restore outcomes continue through command status
 recovery.
 
+Bulk imports keep one `catalog.category.created` audit record for each newly
+created category. Their transactional outbox publishes one
+`catalog.import.categories.created` event with `schemaVersion: 1`, the import
+batch and command IDs, tenant/outlet scope, and the deduplicated category IDs,
+names, versions, and source. This fits the outbox's one-event-type-per-command
+identity. The repository has no outbox consumer for the legacy per-category
+event; integrations that consume category creation from bulk imports should
+subscribe to the aggregate event. Ordinary single-category commands retain
+their existing `catalog.category.created` audit and outbox event.
+
+PostgreSQL regression coverage includes 58 imported products across existing
+and new categories, positive and zero opening quantities, exact `KES 96,012`
+stock valuation, event completeness, confirmed-command replay, and a forced
+mid-import error proving category, product, stock, journal, command, audit and
+outbox rollback together.
+
 Focused acceptance commands:
 
 ```sh

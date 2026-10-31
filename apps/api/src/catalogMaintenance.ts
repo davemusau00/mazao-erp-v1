@@ -22,11 +22,21 @@ function manage(session:ApiSession) {
   if(!ROLE_PERMISSIONS[session.role].includes('catalog.manage'))throw new DomainError('FORBIDDEN','Your role cannot manage catalog records.',403);
   requireCatalogCapability(session);
 }
-export async function catalogEvidence(client:PoolClient,session:ApiSession,commandId:string,type:string,value:unknown) {
+export async function catalogAudit(client:PoolClient,session:ApiSession,commandId:string,type:string,value:unknown) {
   const payload=JSON.stringify(value);
   await client.query('INSERT INTO system.audit_events(id,tenant_id,outlet_id,actor_id,command_id,event_type,payload) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',[randomUUID(),session.tenantId,session.outletId,session.userId,commandId,type,payload]);
+}
+export async function catalogOutbox(client:PoolClient,session:ApiSession,commandId:string,type:string,value:unknown) {
+  const payload=JSON.stringify(value);
   await client.query('INSERT INTO system.transactional_outbox(id,tenant_id,command_id,event_type,payload) VALUES($1,$2,$3,$4,$5::jsonb)',[randomUUID(),session.tenantId,commandId,type,payload]);
 }
+export async function catalogEvidence(client:PoolClient,session:ApiSession,commandId:string,type:string,value:unknown) {
+  await catalogAudit(client,session,commandId,type,value);
+  await catalogOutbox(client,session,commandId,type,value);
+}
+
+export interface CreatedCatalogCategory {categoryId:string;name:string;version:1;source:'PRODUCT_METADATA'}
+export interface ResolveCatalogCategoryOptions {onCreated?:(category:CreatedCatalogCategory)=>void}
 
 /** Catalog membership and count snapshots serialize on the same outlet key.
  * Lock ordering: revalidated authority -> outlet -> category/product -> balance.
@@ -48,7 +58,7 @@ export async function assertNoOpenCatalogCount(client:PoolClient,session:ApiSess
 /** Text is retained for preceding clients and CSV reviews; the scoped FK is
  * canonical. Exact label case remains significant until an explicit merge.
  */
-export async function resolveCatalogCategory(client:PoolClient,session:ApiSession,name:string,commandId?:string,allowInactiveId?:string|null):Promise<string|null> {
+export async function resolveCatalogCategory(client:PoolClient,session:ApiSession,name:string,commandId?:string,allowInactiveId?:string|null,options:ResolveCatalogCategoryOptions={}):Promise<string|null> {
   const label=normalizeCatalogCategoryName(name,true);
   if(!label)return null;
   const found=await client.query('SELECT id,active,merged_into FROM catalog.categories WHERE tenant_id=$1 AND outlet_id=$2 AND name=$3 FOR UPDATE',[session.tenantId,session.outletId,label]);
@@ -59,7 +69,11 @@ export async function resolveCatalogCategory(client:PoolClient,session:ApiSessio
   }
   const categoryId=randomUUID();
   await client.query('INSERT INTO catalog.categories(id,tenant_id,outlet_id,name) VALUES($1,$2,$3,$4)',[categoryId,session.tenantId,session.outletId,label]);
-  if(commandId)await catalogEvidence(client,session,commandId,'catalog.category.created',{categoryId,name:label,version:1,source:'PRODUCT_METADATA'});
+  if(commandId){
+    const created={categoryId,name:label,version:1 as const,source:'PRODUCT_METADATA' as const};
+    if(options.onCreated){await catalogAudit(client,session,commandId,'catalog.category.created',created);options.onCreated(created);}
+    else await catalogEvidence(client,session,commandId,'catalog.category.created',created);
+  }
   return categoryId;
 }
 

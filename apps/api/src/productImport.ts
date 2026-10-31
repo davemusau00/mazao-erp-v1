@@ -7,7 +7,7 @@ import { requireCommandAuthority } from './commandAuthorization.js';
 import { readBusinessProfile, readOutletProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
-import { resolveCatalogCategory } from './catalogMaintenance.js';
+import { catalogOutbox, resolveCatalogCategory, type CreatedCatalogCategory } from './catalogMaintenance.js';
 import { normalizeItemKind, isStockTracked, requireCatalogCapability, requireItemKindCapability, type ItemKind } from './itemKinds.js';
 import { normalizeCatalogSku, normalizeCatalogName, normalizeCatalogBaseUnit, normalizeCatalogCategoryName, normalizeCatalogBarcode,
   normalizeCatalogQuantity as quantity, catalogMinorFromDecimal as minor, catalogTaxFromPercent as percentage } from './catalogValidation.js';
@@ -292,23 +292,29 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   requireReportKinds(session,current,products);
   if(stableStringify(canonicalProductImportReport(current))!==stableStringify(canonicalProductImportReport(original)))throw new DomainError('IMPORT_STALE','Catalogue identities, metadata or versions changed after validation. Revalidate the import.',409,{reason:'catalog'});
   const appliedRows:Array<{rowNumber:number;productId:string;action:string}>=[];
+  const createdCategories=new Map<string,CreatedCatalogCategory>();
+  const collectCategory=(created:CreatedCatalogCategory)=>createdCategories.set(created.categoryId,created);
   for(const row of original.rows){
     const value=row.normalized!,itemKind=normalizeItemKind(value.itemKind);let productId=row.productId;
     if(row.action==='CREATE'){
       productId=randomUUID();
-      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId,null,{onCreated:collectCategory});
       await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id,category_id,item_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15,$16)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,categoryId,itemKind]);
       if(isStockTracked(itemKind)){
         await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,$4::numeric,$5)',[session.tenantId,session.outletId,productId,value.openingQuantity,value.openingValueMinor]);
         if(micros(value.openingQuantity)>0n)await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'OPENING_IMPORT',$6::numeric,$7,$8,$9,$10)`,[randomUUID(),session.tenantId,session.outletId,productId,envelope.commandId,value.openingQuantity,value.openingUnitCostMinor,value.openingValueMinor,batch.id,`Import ${batch.id}`]);
       }
     }else if(row.action==='UPDATE'){
-      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId,null,{onCreated:collectCategory});
       const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,category_id=$13,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND item_kind=$14 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion,categoryId,itemKind]);
       if(!result.rowCount)throw new DomainError('IMPORT_STALE','An item changed during import. Revalidate all rows.',409,{reason:'product'});
     }
     appliedRows.push({rowNumber:row.rowNumber,productId:productId!,action:row.action});
   }
+  if(createdCategories.size)await catalogOutbox(client,session,envelope.commandId,'catalog.import.categories.created',{
+    schemaVersion:1,importBatchId:batch.id,commandId:envelope.commandId,tenantId:session.tenantId,outletId:session.outletId,
+    categories:[...createdCategories.values()],
+  });
   const openingValue=BigInt(original.summary.openingValueMinor);
   if(openingValue>0n){
     const entryId=randomUUID();
