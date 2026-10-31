@@ -1,5 +1,5 @@
 export type ApiRole = 'admin' | 'owner' | 'manager' | 'accountant' | 'cashier' | 'storekeeper' | 'receptionist' | 'housekeeper' | 'waiter' | 'cook' | 'bartender';
-export type ApiPermission = 'staff.view' | 'staff.manage' | 'devices.view' | 'devices.manage' | 'config.view' | 'config.manage' | 'catalog.manage' | 'inventory.receive' | 'inventory.count' | 'inventory.count.approve' | 'inventory.shortfall.view' | 'inventory.shortfall.configure' | 'inventory.shortfall.resolve' | 'commerce.sell' | 'commerce.discount' | 'commerce.refund' | 'shift.open' | 'shift.payout' | 'shift.close' | 'finance.view' | 'finance.manage' | 'finance.close' | 'customers.view' | 'customers.charge' | 'customers.manage' | 'customers.settle' | 'hotel.manage' | 'hotel.frontdesk' | 'hotel.housekeeping' | 'hotel.guest.reveal' | 'hotel.guest.policy' | 'hotel.guest.retention' | 'restaurant.view' | 'restaurant.manage' | 'restaurant.order.view' | 'restaurant.order' | 'restaurant.ticket.view';
+export type ApiPermission = 'staff.view' | 'staff.manage' | 'devices.view' | 'devices.manage' | 'config.view' | 'config.manage' | 'catalog.manage' | 'inventory.receive' | 'inventory.count' | 'inventory.count.approve' | 'inventory.shortfall.view' | 'inventory.shortfall.configure' | 'inventory.shortfall.resolve' | 'commerce.sell' | 'commerce.discount' | 'commerce.refund' | 'shift.open' | 'shift.payout' | 'shift.close' | 'finance.view' | 'finance.manage' | 'finance.close' | 'customers.view' | 'customers.charge' | 'customers.manage' | 'customers.settle' | 'hotel.manage' | 'hotel.frontdesk' | 'hotel.housekeeping' | 'hotel.guest.reveal' | 'hotel.guest.policy' | 'hotel.guest.retention' | 'restaurant.view' | 'restaurant.manage' | 'restaurant.order.view' | 'restaurant.order' | 'restaurant.ticket.view' | 'restaurant.ticket.work';
 
 export const ROLE_PERMISSIONS: Record<ApiRole, ApiPermission[]> = {
   admin: ['restaurant.order.view', 'restaurant.order', 'restaurant.ticket.view', 'restaurant.view', 'restaurant.manage', 'staff.view', 'staff.manage', 'devices.view', 'devices.manage', 'config.view', 'config.manage', 'catalog.manage', 'inventory.receive', 'inventory.count', 'inventory.count.approve', 'inventory.shortfall.view', 'inventory.shortfall.configure', 'inventory.shortfall.resolve', 'commerce.sell', 'commerce.discount', 'commerce.refund', 'shift.open', 'shift.payout', 'shift.close', 'finance.view', 'finance.manage', 'finance.close', 'customers.view', 'customers.charge', 'customers.manage', 'customers.settle','hotel.manage','hotel.frontdesk','hotel.housekeeping','hotel.guest.reveal','hotel.guest.policy','hotel.guest.retention'],
@@ -8,8 +8,10 @@ export const ROLE_PERMISSIONS: Record<ApiRole, ApiPermission[]> = {
   accountant: ['inventory.shortfall.view', 'finance.view', 'finance.manage', 'finance.close', 'customers.view'],
   cashier: ['restaurant.view', 'commerce.sell', 'commerce.discount', 'shift.open', 'shift.close', 'customers.view', 'customers.charge', 'customers.settle'],
   storekeeper: ['inventory.receive', 'inventory.count'],
-  receptionist: ['hotel.frontdesk','shift.open','shift.close'], housekeeper: ['hotel.housekeeping'], waiter: ['restaurant.view'], cook: ['restaurant.view'], bartender: ['restaurant.view'],
+  receptionist: ['hotel.frontdesk','shift.open','shift.close'], housekeeper: ['hotel.housekeeping'], waiter: ['restaurant.view','restaurant.order.view','restaurant.order'], cook: ['restaurant.view','restaurant.ticket.view'], bartender: ['restaurant.view','restaurant.ticket.view'],
 };
+
+for (const role of ['admin','owner','manager','cook','bartender'] as ApiRole[]) ROLE_PERMISSIONS[role].push('restaurant.ticket.work');
 
 export interface ApiSession {
   sessionId: string;

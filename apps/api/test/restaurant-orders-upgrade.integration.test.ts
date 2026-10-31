@@ -10,7 +10,7 @@ const sourceUrl=process.env.TEST_DATABASE_URL;
 if(!sourceUrl) {
   test('restaurant order expansion preserves accepted configuration',{skip:'Requires disposable localhost PostgreSQL with CREATE DATABASE permission.'},()=>{});
 } else {
-  test('029 to 030 preserves populated configuration and business evidence and remains checksum safe',{timeout:120_000},async t=>{
+  test('029 to 031 preserves populated configuration and business evidence and remains checksum safe',{timeout:120_000},async t=>{
     const source=new URL(sourceUrl);assert.ok(['127.0.0.1','localhost','[::1]'].includes(source.hostname));
     const databaseName=`mazao_orders_upgrade_${randomUUID().replaceAll('-','')}`;
     const maintenance=new URL(source);maintenance.pathname='/postgres';
@@ -70,6 +70,19 @@ if(!sourceUrl) {
         assert.deepEqual((await client!.query('SELECT device_version::text,version::text FROM restaurant.station_assignments WHERE tenant_id=$1',[tenant])).rows,[{device_version:'7',version:'3'}]);
         const counts=await client!.query('SELECT (SELECT count(*)::int FROM restaurant.orders) orders,(SELECT count(*)::int FROM restaurant.order_lines) lines,(SELECT count(*)::int FROM restaurant.fire_batches) batches,(SELECT count(*)::int FROM restaurant.tickets) tickets');
         assert.deepEqual(counts.rows[0],{orders:0,lines:0,batches:0,tickets:0},'Migration must not invent source orders or tickets.');
+      });
+      await t.test('031 backfills existing immutable tickets into NEW with the original fire authority',async()=>{
+        const orderId=randomUUID(),batchId=randomUUID(),ticketId=randomUUID(),fireCommand=randomUUID();
+        await client!.query("INSERT INTO system.commands(tenant_id,command_id,actor_id,device_id,command_type,request_hash,status,response,completed_at,authority_version,required_capabilities) VALUES($1,$2,$3,$4,'restaurant.order.fire',$5,'CONFIRMED',$6::jsonb,now(),1,ARRAY['commerce','restaurant'])",[tenant,fireCommand,user,device,Buffer.from('fire-upgrade-fingerprint'),JSON.stringify({status:'CONFIRMED'})]);
+        await client!.query("INSERT INTO restaurant.orders(id,tenant_id,outlet_id,table_id,table_name_snapshot,service_label,owner_id,owner_name_snapshot,created_by_device_id,currency,status,fire_revision) VALUES($1,$2,$3,$4,'Existing Table 1','Existing fired order',$5,'Existing restaurant owner',$6,'KES','FIRED',1)",[orderId,tenant,outlet,table,user,device]);
+        await client!.query("INSERT INTO restaurant.fire_batches(id,tenant_id,outlet_id,order_id,fire_revision,ticket_type,command_id,actor_id,device_id) VALUES($1,$2,$3,$4,1,'NEW',$5,$6,$7)",[batchId,tenant,outlet,orderId,fireCommand,user,device]);
+        await client!.query("INSERT INTO restaurant.tickets(id,tenant_id,outlet_id,order_id,batch_id,station_id,station_name_snapshot,station_kind_snapshot,document_hash,snapshot) VALUES($1,$2,$3,$4,$5,$6,'Existing kitchen','KITCHEN',$7,$8::jsonb)",[ticketId,tenant,outlet,orderId,batchId,station,'a'.repeat(64),JSON.stringify({ticketId,orderId})]);
+        const applied=migrate('031_restaurant_ticket_lifecycle');assert.match(applied,/Applied 031_restaurant_ticket_lifecycle/);
+        assert.deepEqual((await client!.query('SELECT event_version,status,previous_status,command_id,actor_id,actor_name_snapshot,device_id FROM restaurant.ticket_state_events WHERE ticket_id=$1',[ticketId])).rows,[{event_version:1,status:'NEW',previous_status:null,command_id:fireCommand,actor_id:user,actor_name_snapshot:'Existing restaurant owner',device_id:device}]);
+        const rerun=migrate('031_restaurant_ticket_lifecycle');assert.equal((rerun.match(/already applied; checksum matches/g)??[]).length,31);
+        const checksum=createHash('sha256').update(readFileSync(new URL('../migrations/031_restaurant_ticket_lifecycle.sql',import.meta.url))).digest('hex');
+        assert.equal((await client!.query("SELECT checksum FROM system.schema_migrations WHERE version='031_restaurant_ticket_lifecycle'")).rows[0].checksum,checksum);
+        await assert.rejects(client!.query("UPDATE restaurant.ticket_state_events SET status='READY' WHERE ticket_id=$1",[ticketId]),{code:'23514'});
       });
       await t.test('new source table references cannot cross the upgraded outlet boundary',async()=>{
         const otherDevice=randomUUID();
