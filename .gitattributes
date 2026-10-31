@@ -6,3 +6,4 @@ apps/api/migrations/025_command_capability_evidence.sql text eol=lf
 apps/api/migrations/026_count_recovery.sql text eol=lf
 apps/api/migrations/027_scoped_blind_counts.sql text eol=lf
 apps/api/migrations/028_tenant_onboarding.sql text eol=lf
+infra/mazaoyako/* text eol=lf

@@ -51,7 +51,17 @@ jobs:
       - name: Real API and PostgreSQL browser integration
         env:
           MAZAO_E2E_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test
-        run: bun run test:integration
+        run: VITE_API_ALLOW_HTTP_LOOPBACK=true VITE_API_BASE_URL=http://127.0.0.1:4102 bun run test:integration
+      - name: Build and verify the Mazao Yako API-subdomain PWA
+        run: |
+          VITE_API_BASE_URL=https://api.mazaoyako.co.ke bun run build -- --outDir dist-mazaoyako
+          grep -Rq 'https://api.mazaoyako.co.ke' dist-mazaoyako/assets
+          grep -Rq '/api/v1' dist-mazaoyako/assets
+      - name: Validate isolated Mazao Yako deployment configuration
+        run: |
+          bash -n infra/mazaoyako/prepare-host.sh infra/mazaoyako/install-nginx-sites.sh infra/mazaoyako/activate-release.sh infra/mazaoyako/bootstrap-initial-tenant.sh
+          python -B -c "import ast,pathlib; ast.parse(pathlib.Path('infra/mazaoyako/verify-proxy-peer.py').read_text())"
+          docker compose --project-name mazaoyako --env-file infra/mazaoyako/.env.example -f infra/mazaoyako/compose.yml config --quiet
       - name: Preserve disposable browser acceptance screenshots and failure traces
         if: always()
         uses: actions/upload-artifact@v4
@@ -66,6 +76,14 @@ jobs:
         with:
           name: mazao-pwa-${{ github.sha }}
           path: dist/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload immutable Mazao Yako PWA build for main releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mazaoyako-pwa-${{ github.sha }}
+          path: dist-mazaoyako/
           if-no-files-found: error
           retention-days: 90
 

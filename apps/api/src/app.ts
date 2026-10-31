@@ -135,7 +135,35 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return payload;
   });
   app.addHook('onRequest', async (request, reply) => {
-    const origin = request.headers.origin;
+    const originHeader = request.headers.origin;
+    const origin = typeof originHeader === 'string' ? originHeader : undefined;
+    const originAllowed = !!origin && allowedOrigins.includes(origin);
+    reply.header('vary', 'Origin');
+    if (originAllowed) {
+      reply.header('access-control-allow-origin', origin)
+        .header('access-control-allow-credentials', 'true')
+        .header('access-control-expose-headers', 'x-request-id');
+    }
+    if (request.method === 'OPTIONS' && request.headers['access-control-request-method']) {
+      const rawRequestedMethod = request.headers['access-control-request-method'];
+      const requestedMethod = typeof rawRequestedMethod === 'string' ? rawRequestedMethod.toUpperCase() : '';
+      const allowedMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
+      const allowedHeaders = new Set(['content-type', 'x-csrf-token', 'x-request-id']);
+      // Local Playwright integration fixtures use distinct forwarded client IPs
+      // to exercise rate limiting. Never permit a browser to supply this header
+      // through the production API ingress.
+      if (!production) allowedHeaders.add('x-forwarded-for');
+      const rawRequestedHeaders = request.headers['access-control-request-headers'];
+      const requestedHeaders = (Array.isArray(rawRequestedHeaders) ? rawRequestedHeaders.join(',') : rawRequestedHeaders ?? '')
+        .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+      if (!originAllowed || !allowedMethods.has(requestedMethod) || requestedHeaders.some(header => !allowedHeaders.has(header))) {
+        return reply.code(403).send({ error: { code: 'ORIGIN_DENIED', message: 'Request origin or preflight headers are not allowed.' } });
+      }
+      reply.header('access-control-allow-methods', [...allowedMethods].join(', '))
+        .header('access-control-allow-headers', [...allowedHeaders].join(', '))
+        .header('access-control-max-age', '600');
+      return reply.code(204).send();
+    }
     const unsafe=['POST','PUT','PATCH','DELETE'].includes(request.method);
     const productionOriginMissing=production&&unsafe&&(!origin||!allowedOrigins.includes(origin));
     const configuredOriginDenied=unsafe&&!!origin&&allowedOrigins.length>0&&!allowedOrigins.includes(origin);
