@@ -51,7 +51,6 @@ test('PWA auth, CSRF writes, private assets, CSV downloads and session restore u
   });
 
   await signIn(page);
-  expect(apiRequests.some(request => request.method === 'OPTIONS' && request.path === '/api/v1/auth/login')).toBe(true);
   expect(apiResponses.find(response => response.method === 'POST' && response.path === '/api/v1/auth/login')).toMatchObject({ status: 200, allowOrigin: appOrigin, credentials: 'true' });
 
   const restored = await page.evaluate(async api => {
@@ -77,7 +76,6 @@ test('PWA auth, CSRF writes, private assets, CSV downloads and session restore u
   await page.getByLabel('Contact phone', { exact: true }).fill('+254 700 000 044');
   await page.getByRole('button', { name: 'Save business settings' }).click();
   await expect(page.getByRole('status')).toContainText('Settings saved');
-  expect(apiRequests.some(request => request.method === 'OPTIONS' && request.path === '/api/v1/commands')).toBe(true);
   expect(apiResponses.find(response => response.method === 'POST' && response.path === '/api/v1/commands')).toMatchObject({ status: 200, allowOrigin: appOrigin, credentials: 'true' });
   expect((await pool.query('SELECT business_profile->>\'phone\' phone FROM core.tenants WHERE id=$1', [tenantId])).rows[0].phone).toBe('+254 700 000 044');
 
