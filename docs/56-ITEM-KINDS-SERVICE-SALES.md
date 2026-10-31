@@ -881,3 +881,44 @@ and `dist-artifacts/playwright-s01-all-chromium-system-fonts-2026-10-28`.
 This establishes local artifact acceptance for S01-02, including its full
 intercepted browser matrix. Exact-head hosted CI and all release, production,
 backup/restore, installed-device and performance gates remain separate.
+
+## Failed product import queue archival
+
+Migration `029_product_import_queue_archive.sql` adds reversible queue archive
+metadata to import batches. Only `INVALID` batches can be archived or restored;
+their status, raw CSV, validation report and error export remain intact. The
+active history is the default, and `GET /api/v1/catalog/imports?archived=true`
+lists archived reviews. Batch mutations use the online `catalog.import.archive`
+and `catalog.import.restore` commands with the `import:<batchId>` expected
+version, current `catalog.manage` authority, command idempotency and audit/outbox
+evidence. Restore is required before revalidation. Applied batches are never
+archived by these commands.
+
+An unresolved local validation can be removed only after its original command
+status returns 404. The browser action clears only local validation recovery
+metadata; unknown apply/archive/restore outcomes continue through command status
+recovery.
+
+Bulk imports keep one `catalog.category.created` audit record for each newly
+created category. Their transactional outbox publishes one
+`catalog.import.categories.created` event with `schemaVersion: 1`, the import
+batch and command IDs, tenant/outlet scope, and the deduplicated category IDs,
+names, versions, and source. This fits the outbox's one-event-type-per-command
+identity. The repository has no outbox consumer for the legacy per-category
+event; integrations that consume category creation from bulk imports should
+subscribe to the aggregate event. Ordinary single-category commands retain
+their existing `catalog.category.created` audit and outbox event.
+
+PostgreSQL regression coverage includes 58 imported products across existing
+and new categories, positive and zero opening quantities, exact `KES 96,012`
+stock valuation, event completeness, confirmed-command replay, and a forced
+mid-import error proving category, product, stock, journal, command, audit and
+outbox rollback together.
+
+Focused acceptance commands:
+
+```sh
+node --import tsx --test apps/api/test/command-catalogue.test.ts
+node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/product-import-security.integration.test.ts apps/api/test/product-import-upgrade.integration.test.ts
+npx playwright test --config playwright.integration.config.ts e2e/integration/product-import.spec.ts
+```

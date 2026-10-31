@@ -154,6 +154,65 @@ test('CSV errors block all writes; reviewed opening stock and metadata updates p
   expect(closed).toEqual([{expected_cash_minor:'11276',counted_cash_minor:'11276',variance_minor:'0'}]);
 });
 
+test('failed CSV reviews leave active history when archived and can be reviewed and restored',async({page})=>{
+  await signIn(page);
+  const originalViewport=page.viewportSize()??{width:1280,height:720};
+  const historyViewports=[[1024,600],[1280,720],[1280,800],[800,1280],[1366,768],[1920,1080],[390,844]] as const;
+  const fileName=`failed-${randomUUID()}.csv`,sku=`ARCHIVE-${randomUUID()}`;
+  const source=csv([[sku,'Broken import item','piece','1e2','4.00','0','KES','','General','0','0','']]);
+  const before=await pool.query(`SELECT
+    (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1) products,
+    (SELECT count(*)::int FROM inventory.movements WHERE tenant_id=$1) movements,
+    (SELECT count(*)::int FROM finance.journal_entries WHERE tenant_id=$1) journals`,[tenantId]);
+  await upload(page,fileName,source);await validate(page);
+  await expect(page.getByRole('heading',{name:/^Validation errors/})).toBeVisible();
+  expect((await pool.query('SELECT count(*)::int n FROM catalog.products WHERE tenant_id=$1 AND sku=$2',[tenantId,sku])).rows[0].n).toBe(0);
+  const activeRow=page.getByRole('article').filter({hasText:fileName});
+  await expect(activeRow.getByRole('button',{name:'Remove from queue',exact:true})).toBeVisible();
+  for(const [width,height] of historyViewports){
+    await page.setViewportSize({width,height});
+    for(const name of ['Review import '+fileName,'Remove from queue']){
+      const action=activeRow.getByRole('button',{name,exact:true});await action.scrollIntoViewIfNeeded();await expect(action).toBeInViewport();
+      const rect=await action.boundingBox();expect(rect!.height).toBeGreaterThanOrEqual(44);expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
+    }
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await page.setViewportSize(originalViewport);
+  page.once('dialog',dialog=>dialog.accept());
+  await activeRow.getByRole('button',{name:'Remove from queue',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review import '+fileName,exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Archived imports',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review import '+fileName,exact:true})).toBeVisible();
+  const archiveRow=page.getByRole('article').filter({hasText:fileName});
+  for(const [width,height] of historyViewports){
+    await page.setViewportSize({width,height});
+    for(const name of ['Review import '+fileName,'Restore to queue']){
+      const action=archiveRow.getByRole('button',{name,exact:true});await action.scrollIntoViewIfNeeded();await expect(action).toBeInViewport();
+      const rect=await action.boundingBox();expect(rect!.height).toBeGreaterThanOrEqual(44);expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
+    }
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await page.setViewportSize(originalViewport);
+  await archiveRow.getByRole('button',{name:'Review import '+fileName,exact:true}).click();
+  await expect(page.getByRole('heading',{name:/^Fix CSV errors/})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Revalidate against current records',exact:true})).toBeDisabled();
+  const download=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Download errors CSV',exact:true}).click();
+  const report=await download,stream=await report.createReadStream();let errors='';for await(const chunk of stream!)errors+=chunk.toString();
+  expect(errors).toContain('1e2');
+  await archiveRow.getByRole('button',{name:'Restore to queue',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review import '+fileName,exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Active imports',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review import '+fileName,exact:true})).toBeVisible();
+  const stored=(await pool.query('SELECT status,raw_source,queue_archived_at,queue_archived_by FROM catalog.product_import_batches WHERE tenant_id=$1 AND outlet_id=$2 AND file_name=$3',[tenantId,outletId,fileName])).rows[0];
+  expect(stored.status).toBe('INVALID');expect(stored.raw_source).toBe(source);expect(stored.queue_archived_at).toBeNull();expect(stored.queue_archived_by).toBeNull();
+  const after=await pool.query(`SELECT
+    (SELECT count(*)::int FROM catalog.products WHERE tenant_id=$1) products,
+    (SELECT count(*)::int FROM inventory.movements WHERE tenant_id=$1) movements,
+    (SELECT count(*)::int FROM finance.journal_entries WHERE tenant_id=$1) journals`,[tenantId]);
+  expect(after.rows).toEqual(before.rows);
+});
+
 test('lost import response survives restart and checks original command without duplicating stock or journals', async ({page}) => {
   await signIn(page);
   await upload(page,'recovery.csv',csv([['IMPORT-RECOVER','Recovery item','piece','5.00','2.00','0','KES','000555','General','1','3','2.00']]));
@@ -190,6 +249,12 @@ test('lost import response survives restart and checks original command without 
   await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeVisible();
   await page.unroute('**/api/v1/commands');
   await page.reload(); await importWorkspace(page);
+  // A fresh batch read can already show APPLIED even while the client still
+  // retains the command as unknown. In either state, apply stays locked and
+  // status recovery remains available.
+  const lockedApply=page.getByRole('button',{name:'Apply reviewed import',exact:true});
+  if(await lockedApply.count())await expect(lockedApply).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Check status',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Import applied',exact:true})).toBeVisible();
   const productId=await assertStock('IMPORT-RECOVER','3.000000','600');
@@ -197,6 +262,38 @@ test('lost import response survives restart and checks original command without 
   expect((await pool.query('SELECT count(*)::int n FROM inventory.movements WHERE tenant_id=$1 AND product_id=$2',[tenantId,productId])).rows[0].n).toBe(1);
   const batchId=(await pool.query('SELECT response FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[tenantId,commandId])).rows[0].response.value.batchId;
   expect((await pool.query('SELECT count(*)::int n FROM finance.journal_entries WHERE tenant_id=$1 AND source_id=$2',[tenantId,batchId])).rows[0].n).toBe(1);
+});
+
+test('confirmed-missing validation recovery can be removed locally without clearing unknown commands',async({page})=>{
+  await signIn(page);
+  const fileName=`missing-${randomUUID()}.csv`;
+  await upload(page,fileName,csv([['MISSING-RECOVERY','Missing validation','piece','5.00','2.00','0','KES','','General','0','0','']]));
+  await page.route('**/api/v1/commands',async route=>{
+    const request=route.request();
+    if(request.method()==='POST'&&request.postDataJSON()?.type==='catalog.import.validate'){await route.abort('failed');return;}
+    await route.continue();
+  });
+  await page.getByRole('button',{name:'Validate all rows',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toBeVisible();
+  const recoveries=await page.evaluate(async()=>{
+    const open=indexedDB.open('mazao-v1-import-validations');
+    const db=await new Promise<IDBDatabase>((resolve,reject)=>{open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
+    try{return await new Promise<Array<{commandId:string}>>((resolve,reject)=>{const request=db.transaction('operations','readonly').objectStore('operations').getAll();request.onsuccess=()=>resolve(request.result as Array<{commandId:string}>);request.onerror=()=>reject(request.error);});}finally{db.close();}
+  });
+  expect(recoveries).toHaveLength(1);
+  await page.unroute('**/api/v1/commands');await page.reload();await importWorkspace(page);
+  await page.getByRole('button',{name:'Check status',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Remove failed check and choose CSV again',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Remove failed check and choose CSV again',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Check status',exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('Product CSV file',{exact:true})).toBeEnabled();
+  const remaining=await page.evaluate(async()=>{
+    const open=indexedDB.open('mazao-v1-import-validations');
+    const db=await new Promise<IDBDatabase>((resolve,reject)=>{open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
+    try{return await new Promise<number>((resolve,reject)=>{const request=db.transaction('operations','readonly').objectStore('operations').count();request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}finally{db.close();}
+  });
+  expect(remaining).toBe(0);
+  expect((await pool.query('SELECT count(*)::int n FROM system.commands WHERE tenant_id=$1 AND command_id=$2',[tenantId,recoveries[0].commandId])).rows[0].n).toBe(0);
 });
 
 test('CSV validation is stale after business policy changes and cannot commit until revalidated', async ({page}) => {
@@ -233,6 +330,15 @@ test('CSV mapping and primary review actions fit all required desktop, tablet an
     const action=page.getByRole('button',{name:'Apply reviewed import',exact:true}); await action.scrollIntoViewIfNeeded();
     await expect(action).toBeInViewport(); const rect=await action.boundingBox();
     expect(rect!.height).toBeGreaterThanOrEqual(44); expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  for(const [width,height] of [[1024,600],[1280,720],[1280,800],[800,1280],[1366,768],[1920,1080],[390,844]]){
+    await page.setViewportSize({width,height});
+    for(const name of ['Active imports','Archived imports']){
+      const action=page.getByRole('button',{name,exact:true});await action.scrollIntoViewIfNeeded();
+      await expect(action).toBeInViewport();const rect=await action.boundingBox();
+      expect(rect!.height).toBeGreaterThanOrEqual(44);expect(rect!.x+rect!.width).toBeLessThanOrEqual(width);
+    }
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
   await page.screenshot({path:test.info().outputPath('csv-review-mobile.png'),fullPage:true});

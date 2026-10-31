@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 const sourceUrl=process.env.TEST_DATABASE_URL;
 const migrationCount=readdirSync(new URL('../migrations/',import.meta.url)).filter(name=>/^\d{3}_.+\.sql$/.test(name)).length;
 if(!sourceUrl){
-  test('product import upgrade preserves migration-014 business evidence',{skip:'Set TEST_DATABASE_URL to a disposable PostgreSQL database with CREATE DATABASE permission.'},()=>{});
+  test('product import archive upgrade preserves existing business evidence',{skip:'Set TEST_DATABASE_URL to a disposable PostgreSQL database with CREATE DATABASE permission.'},()=>{});
 }else{
   test('additive import migration preserves existing stock, movement, journal and receipt snapshots and reruns safely',async()=>{
     const databaseName='mazao_import_upgrade_'+randomUUID().replaceAll('-','');
@@ -65,13 +65,23 @@ if(!sourceUrl){
         return {balances:balances.rows,movements:movements.rows,journals:journals.rows,lines:lines.rows,receipts:receipts.rows,products:products.rows,commands:commands.rows};
       };
       const before=await snapshot();
+      migrate('028_tenant_onboarding');
+      const legacyImportId=randomUUID(),legacyImportSource='SKU,Price\nLEGACY-BAD,1e2';
+      const legacyImportHash=createHash('sha256').update(legacyImportSource).digest('hex');
+      await fixture.query(`INSERT INTO catalog.product_import_batches(id,tenant_id,outlet_id,created_by,file_name,raw_source,source_sha256,source_bytes,column_mapping,import_mode,status,configuration_snapshot,validation_report,validation_sha256)
+        VALUES($1,$2,$3,$4,'legacy-invalid.csv',$5,$6,$7,'{"sku":"SKU"}'::jsonb,'CREATE_ONLY','INVALID',
+          '{"businessVersion":1,"currency":"KES","taxRateBps":0}'::jsonb,
+          '{"rows":[],"errors":[],"warnings":[],"summary":{"rowCount":0,"createCount":0,"updateCount":0,"unchangedCount":0,"errorCount":0,"warningCount":0,"openingQuantityLines":0,"openingValueMinor":"0"}}'::jsonb,$8)`,
+        [legacyImportId,tenant,outlet,user,legacyImportSource,legacyImportHash,Buffer.byteLength(legacyImportSource,'utf8'),createHash('sha256').update('legacy-validation').digest('hex')]);
       migrate();migrate();
       assert.deepEqual(await snapshot(),before,'Migration and rerun must not rewrite existing posted or inventory evidence.');
+      const legacyImport=await fixture.query('SELECT status,version,raw_source,source_sha256,queue_archived_at,queue_archived_by FROM catalog.product_import_batches WHERE id=$1',[legacyImportId]);
+      assert.deepEqual(legacyImport.rows[0],{status:'INVALID',version:'1',raw_source:legacyImportSource,source_sha256:legacyImportHash,queue_archived_at:null,queue_archived_by:null},'the archive migration must preserve legacy failed-review evidence and leave it active');
       assert.equal((await fixture.query('SELECT count(*)::int n FROM finance.journal_entries WHERE tenant_id=$1 AND effective_date IS NOT NULL',[tenant])).rows[0].n,0,'the additive business-date field must not rewrite historical journal dates');
       assert.equal((await fixture.query('SELECT operator_name_snapshot FROM commerce.orders WHERE id=$1',[order])).rows[0].operator_name_snapshot,'Legacy operator','the additive historical operator snapshot must come from the original global identity and remain stable on rerun.');
       const metadata=await fixture.query('SELECT category,barcode,reorder_level::text,last_import_batch_id FROM catalog.products WHERE id=$1',[product]);
       assert.deepEqual(metadata.rows[0],{category:'',barcode:null,reorder_level:'0.000000',last_import_batch_id:null});
-      assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches')).rows[0].total,0);
+      assert.equal((await fixture.query('SELECT count(*)::int total FROM catalog.product_import_batches WHERE id=$1',[legacyImportId])).rows[0].total,1,'the legacy failed import remains present after additive upgrade and rerun');
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.credential_operations')).rows[0].total,0,'upgrade leaves pre-existing credential commands unchanged without inventing metadata');
       assert.equal((await fixture.query('SELECT count(*)::int total FROM system.schema_migrations')).rows[0].total,migrationCount,'the complete additive upgrade reaches the current migration');
     }finally{

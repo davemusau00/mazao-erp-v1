@@ -7,7 +7,7 @@ import { requireCommandAuthority } from './commandAuthorization.js';
 import { readBusinessProfile, readOutletProfile } from './configuration.js';
 import { stableStringify } from './security.js';
 import { CSV_LIMITS, CsvParseError, csvExportCell, parseCsv } from './csvParser.js';
-import { resolveCatalogCategory } from './catalogMaintenance.js';
+import { catalogOutbox, resolveCatalogCategory, type CreatedCatalogCategory } from './catalogMaintenance.js';
 import { normalizeItemKind, isStockTracked, requireCatalogCapability, requireItemKindCapability, type ItemKind } from './itemKinds.js';
 import { normalizeCatalogSku, normalizeCatalogName, normalizeCatalogBaseUnit, normalizeCatalogCategoryName, normalizeCatalogBarcode,
   normalizeCatalogQuantity as quantity, catalogMinorFromDecimal as minor, catalogTaxFromPercent as percentage } from './catalogValidation.js';
@@ -17,6 +17,7 @@ export const PRODUCT_IMPORT_FIELDS = ['sku','name','baseUnit','itemKind','sellin
 type Field = typeof PRODUCT_IMPORT_FIELDS[number];
 export type ProductImportMapping = Partial<Record<Field, string | null>>;
 export interface ProductImportValidateInput {fileName:string;csv:string;mapping:ProductImportMapping;mode:'CREATE_ONLY'|'UPSERT'}
+export type ProductImportHistoryQuery = HistoryQuery & {archived?:string};
 export interface ProductImportApplyInput {batchId:string;reviewed:boolean;acknowledgedWarnings:boolean}
 export interface ImportIssue { row: number; field: string; code: string; rawValue: string; message: string }
 export interface ImportNormalized {
@@ -244,11 +245,33 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   const batch=await findBatch(client,session,envelope.payload.batchId,true);
   const expected=batchExpected(envelope,batch.id);
   if(Number(batch.version)!==expected)throw new DomainError('VERSION_CONFLICT','Import batch changed. Reload its server state before proceeding.',409,{currentVersion:Number(batch.version)});
+  if(envelope.type==='catalog.import.archive'){
+    if(batch.status!=='INVALID')throw new DomainError('IMPORT_NOT_INVALID','Only failed validation reviews can be removed from the queue.',409);
+    if(batch.queue_archived_at)throw new DomainError('IMPORT_ALREADY_ARCHIVED','This failed review is already in the archived import history.',409);
+    const updated=await client.query(`UPDATE catalog.product_import_batches SET queue_archived_at=now(),queue_archived_by=$4,version=version+1
+      WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$5 AND queue_archived_at IS NULL
+      RETURNING version,queue_archived_at,queue_archived_by`,[session.tenantId,session.outletId,batch.id,session.userId,expected]);
+    if(!updated.rowCount)throw new DomainError('VERSION_CONFLICT','Import batch changed. Reload its server state before proceeding.',409);
+    const value={batchId:batch.id,version:Number(updated.rows[0].version),archived:true,archivedAt:new Date(updated.rows[0].queue_archived_at).toISOString(),archivedBy:updated.rows[0].queue_archived_by};
+    await evidence(client,session,envelope,value);return value;
+  }
+  if(envelope.type==='catalog.import.restore'){
+    if(batch.status!=='INVALID')throw new DomainError('IMPORT_NOT_INVALID','Only failed validation reviews can be restored to the queue.',409);
+    if(!batch.queue_archived_at)throw new DomainError('IMPORT_NOT_ARCHIVED','This failed review is already in the active import history.',409);
+    const updated=await client.query(`UPDATE catalog.product_import_batches SET queue_archived_at=NULL,queue_archived_by=NULL,version=version+1
+      WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$4 AND queue_archived_at IS NOT NULL
+      RETURNING version,queue_archived_at,queue_archived_by`,[session.tenantId,session.outletId,batch.id,expected]);
+    if(!updated.rowCount)throw new DomainError('VERSION_CONFLICT','Import batch changed. Reload its server state before proceeding.',409);
+    const value={batchId:batch.id,version:Number(updated.rows[0].version),archived:false,archivedAt:null,archivedBy:null};
+    await evidence(client,session,envelope,value);return value;
+  }
   if(envelope.type==='catalog.import.revalidate'){
+    if(batch.queue_archived_at)throw new DomainError('IMPORT_ARCHIVED','Restore this failed review before revalidating it.',409);
     requireReportKinds(session,batch.validation_report as ImportReport);
     return validateBatch(client,session,{...envelope,payload:{fileName:batch.file_name,csv:batch.raw_source,mapping:batch.column_mapping,mode:batch.import_mode}});
   }
   if(envelope.type!=='catalog.import.apply')throw new DomainError('VALIDATION_FAILED','Unsupported import operation.');
+  if(batch.queue_archived_at)throw new DomainError('IMPORT_ARCHIVED','Restore this failed review before applying it.',409);
   if(batch.created_by!==session.userId)throw new DomainError('FORBIDDEN','Revalidate this batch under your account before applying it.',403);
   if(batch.status==='APPLIED'){await evidence(client,session,envelope,{batchId:batch.id,sourceHash:batch.source_sha256,status:'ALREADY_APPLIED'});return batch.apply_result;}
   if(batch.status!=='READY')throw new DomainError('IMPORT_INVALID','Correct the source errors and validate a new batch before applying.',409);
@@ -269,23 +292,29 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   requireReportKinds(session,current,products);
   if(stableStringify(canonicalProductImportReport(current))!==stableStringify(canonicalProductImportReport(original)))throw new DomainError('IMPORT_STALE','Catalogue identities, metadata or versions changed after validation. Revalidate the import.',409,{reason:'catalog'});
   const appliedRows:Array<{rowNumber:number;productId:string;action:string}>=[];
+  const createdCategories=new Map<string,CreatedCatalogCategory>();
+  const collectCategory=(created:CreatedCatalogCategory)=>createdCategories.set(created.categoryId,created);
   for(const row of original.rows){
     const value=row.normalized!,itemKind=normalizeItemKind(value.itemKind);let productId=row.productId;
     if(row.action==='CREATE'){
       productId=randomUUID();
-      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId,null,{onCreated:collectCategory});
       await client.query(`INSERT INTO catalog.products(id,tenant_id,outlet_id,sku,name,base_unit,currency,selling_price_minor,cost_price_minor,tax_rate_bps,category,barcode,reorder_level,last_import_batch_id,category_id,item_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14,$15,$16)`,[productId,session.tenantId,session.outletId,value.sku,value.name,value.baseUnit,value.currency,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,categoryId,itemKind]);
       if(isStockTracked(itemKind)){
         await client.query('INSERT INTO inventory.balances(tenant_id,outlet_id,product_id,quantity,inventory_value_minor) VALUES($1,$2,$3,$4::numeric,$5)',[session.tenantId,session.outletId,productId,value.openingQuantity,value.openingValueMinor]);
         if(micros(value.openingQuantity)>0n)await client.query(`INSERT INTO inventory.movements(id,tenant_id,outlet_id,product_id,command_id,movement_type,quantity_delta,unit_cost_minor,value_minor,reference_id,document_reference) VALUES($1,$2,$3,$4,$5,'OPENING_IMPORT',$6::numeric,$7,$8,$9,$10)`,[randomUUID(),session.tenantId,session.outletId,productId,envelope.commandId,value.openingQuantity,value.openingUnitCostMinor,value.openingValueMinor,batch.id,`Import ${batch.id}`]);
       }
     }else if(row.action==='UPDATE'){
-      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId);
+      const categoryId=await resolveCatalogCategory(client,session,value.category,envelope.commandId,null,{onCreated:collectCategory});
       const result=await client.query(`UPDATE catalog.products SET name=$4,selling_price_minor=$5,cost_price_minor=$6,tax_rate_bps=$7,category=$8,barcode=$9,reorder_level=$10::numeric,last_import_batch_id=$11,category_id=$13,version=version+1 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 AND version=$12 AND item_kind=$14 AND active RETURNING id`,[session.tenantId,session.outletId,productId,value.name,value.sellingPriceMinor,value.costPriceMinor,value.taxRateBps,value.category,value.barcode,value.reorderLevel,batch.id,row.expectedProductVersion,categoryId,itemKind]);
       if(!result.rowCount)throw new DomainError('IMPORT_STALE','An item changed during import. Revalidate all rows.',409,{reason:'product'});
     }
     appliedRows.push({rowNumber:row.rowNumber,productId:productId!,action:row.action});
   }
+  if(createdCategories.size)await catalogOutbox(client,session,envelope.commandId,'catalog.import.categories.created',{
+    schemaVersion:1,importBatchId:batch.id,commandId:envelope.commandId,tenantId:session.tenantId,outletId:session.outletId,
+    categories:[...createdCategories.values()],
+  });
   const openingValue=BigInt(original.summary.openingValueMinor);
   if(openingValue>0n){
     const entryId=randomUUID();
@@ -298,19 +327,23 @@ async function executeImport(client:PoolClient,session:ApiSession,envelope:Comma
   return value;
 }
 function batchMetadata(row:Record<string,any>){
-  return {id:row.id,fileName:row.file_name,mode:row.import_mode,status:row.status,version:Number(row.version),sourceHash:row.source_sha256,sourceBytes:row.source_bytes,businessVersion:row.configuration_snapshot.businessVersion,currency:row.configuration_snapshot.currency,defaultTaxRateBps:row.configuration_snapshot.taxRateBps,createdAt:row.created_at,createdBy:row.created_by,appliedAt:row.applied_at,summary:row.validation_report.summary};
+  return {id:row.id,fileName:row.file_name,mode:row.import_mode,status:row.status,version:Number(row.version),sourceHash:row.source_sha256,sourceBytes:row.source_bytes,businessVersion:row.configuration_snapshot.businessVersion,currency:row.configuration_snapshot.currency,defaultTaxRateBps:row.configuration_snapshot.taxRateBps,createdAt:row.created_at,createdBy:row.created_by,appliedAt:row.applied_at,queueArchivedAt:row.queue_archived_at?new Date(row.queue_archived_at).toISOString():null,queueArchivedBy:row.queue_archived_by??null,summary:row.validation_report.summary};
 }
-export async function listProductImports(session:ApiSession,query:HistoryQuery={}){
+export async function listProductImports(session:ApiSession,query:ProductImportHistoryQuery={}){
   requireProductImportAccess(session);
+  const {archived:archivedFilter,...historyQuery}=query;
+  if(archivedFilter!==undefined&&archivedFilter!=='true'&&archivedFilter!=='false')throw new DomainError('VALIDATION_FAILED','Import archive filter is invalid.');
+  const archived=archivedFilter==='true';
   return inReadSnapshot(async client=>{
-  const result=await readHistoryPage(client,session,'catalog.imports',query,`SELECT id,created_at sort_at,concat_ws(' ',file_name,import_mode,status,id::text) search_text,file_name,import_mode,status,version,source_sha256,source_bytes,configuration_snapshot,created_at,created_by,applied_at,
+  const result=await readHistoryPage(client,session,`catalog.imports:${archived?'archived':'active'}`,historyQuery,`SELECT id,created_at sort_at,concat_ws(' ',file_name,import_mode,status,id::text) search_text,file_name,import_mode,status,version,source_sha256,source_bytes,configuration_snapshot,created_at,created_by,applied_at,queue_archived_at,queue_archived_by,
     jsonb_build_object('summary',validation_report->'summary') validation_report FROM catalog.product_import_batches
     WHERE tenant_id=$1 AND outlet_id=$2
       AND ($3::boolean OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(validation_report->'rows') evidence_row
         WHERE jsonb_typeof(evidence_row->'normalized')='object' AND COALESCE(evidence_row->'normalized'->>'itemKind','STOCKED_GOOD')='STOCKED_GOOD'))
       AND ($4::boolean OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(validation_report->'rows') evidence_row
-        WHERE jsonb_typeof(evidence_row->'normalized')='object' AND COALESCE(evidence_row->'normalized'->>'itemKind','STOCKED_GOOD') IN ('SERVICE','PREPARED')))`,
-    [session.tenantId,session.outletId,session.capabilities.includes('inventory'),session.capabilities.includes('commerce')]);
+        WHERE jsonb_typeof(evidence_row->'normalized')='object' AND COALESCE(evidence_row->'normalized'->>'itemKind','STOCKED_GOOD') IN ('SERVICE','PREPARED')))
+      AND (queue_archived_at IS NOT NULL)=$5::boolean`,
+    [session.tenantId,session.outletId,session.capabilities.includes('inventory'),session.capabilities.includes('commerce'),archived]);
   return {batches:result.rows.map(batchMetadata),page:result.page};
   });
 }
