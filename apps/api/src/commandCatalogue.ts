@@ -82,6 +82,14 @@ const migrated: Record<string, { payload: ContractSchema; output: ContractSchema
     payload: strictObject({productId:uuidSchema,itemKind:itemKindSchema,reason:reasonSchema}),
     output: strictObject({productId:uuidSchema,itemKind:itemKindSchema,version:versionSchema,stockTracked:{type:'boolean'}}),
   },
+  'catalog.import.archive': {
+    payload: strictObject({batchId:uuidSchema}),
+    output: strictObject({batchId:uuidSchema,version:versionSchema,archived:{type:'boolean'},archivedAt:{type:['string','null'],format:'date-time'},archivedBy:{type:['string','null'],format:'uuid'}}),
+  },
+  'catalog.import.restore': {
+    payload: strictObject({batchId:uuidSchema}),
+    output: strictObject({batchId:uuidSchema,version:versionSchema,archived:{type:'boolean'},archivedAt:{type:['string','null'],format:'date-time'},archivedBy:{type:['string','null'],format:'uuid'}}),
+  },
   'catalog.product.update': {
     payload: strictObject({productId:uuidSchema,name:catalogueNameSchema,sellingPriceMinor:minorSchema,costPriceMinor:minorSchema,
       taxRateBps:{type:'integer',minimum:0,maximum:10_000},category:categoryLabelSchema,barcode:barcodeSchema,reorderLevel:reorderSchema,reason:reasonSchema}),
@@ -163,6 +171,8 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'catalog.import.validate': contract('catalog.import.validate', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_draft']),
   'catalog.import.revalidate': contract('catalog.import.revalidate', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_draft']),
   'catalog.import.apply': contract('catalog.import.apply', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['catalogue', 'stock', 'journal']),
+  'catalog.import.archive': contract('catalog.import.archive', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_queue'] ),
+  'catalog.import.restore': contract('catalog.import.restore', ['catalog.manage'], [], 'productImport.ts#executeProductImportCommand', ['import_queue'] ),
   'inventory.receive': contract('inventory.receive', ['inventory.receive'], ['inventory'], 'commands.ts#receiveInventory', ['stock', 'journal']),
   'inventory.count.open': contract('inventory.count.open', ['inventory.count'], ['inventory'], 'commands.ts#openStockCount', ['stock_count']),
   'inventory.count.save': contract('inventory.count.save', ['inventory.count'], ['inventory'], 'commands.ts#saveStockCount', ['stock_count']),

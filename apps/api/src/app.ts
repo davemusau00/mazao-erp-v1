@@ -24,7 +24,7 @@ import { listHotelReservations } from './hospitalityDirectory.js';
 import { listShiftCloseReports } from './shiftCloseReports.js';
 import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurationAsset } from './configuration.js';
 import { getStockExceptionReport, getStockSalePolicy, getStockShortfallDetail, getStockShortfallEvidence, getStockShortfalls, getStockShortfallsCsv } from './stockShortfalls.js';
-import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv } from './productImport.js';
+import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, type ProductImportHistoryQuery } from './productImport.js';
 import { changeCredential, reconcileCredentialOperation } from './credentials.js';
 import type { CredentialInput, CredentialReconciliationInput } from './credentials.js';
 import { listInventoryMovements, listInventoryCounts, listShiftCashMovements } from './inventoryHistory.js';
@@ -315,7 +315,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     return reply.type('image/png').header('cache-control','private, no-store').header('x-content-type-options','nosniff').send(image);
   });
   app.post<{ Body:unknown }>('/api/v1/configuration/assets', async request => inTransaction(client => stageConfigurationAsset(client,request.operator!,request.body)));
-  app.get<{Querystring:HistoryQuery}>('/api/v1/catalog/imports',async request=>listProductImports(request.operator!,request.query));
+  app.get<{Querystring:ProductImportHistoryQuery}>('/api/v1/catalog/imports',async request=>listProductImports(request.operator!,request.query));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId',async request=>getProductImport(request.operator!,request.params.batchId));
   app.get<{Params:{batchId:string}}>('/api/v1/catalog/imports/:batchId/errors.csv',async (request,reply)=>{
     const csv=await productImportErrorsCsv(request.operator!,request.params.batchId);

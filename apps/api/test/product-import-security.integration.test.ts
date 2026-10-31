@@ -134,6 +134,67 @@ if (!databaseUrl) {
       } finally { await app.close(); }
     });
 
+    await t.test('failed imports archive and restore with version, authority and evidence safeguards',async()=>{
+      const {app,owner}=await setup();
+      try{
+        const before=await authority(owner),source=csv([row({SKU:'ARCHIVE-INVALID',Price:'1e2'})]);
+        const invalid=await stage(app,owner,source);
+        assert.equal(invalid.batch.status,'INVALID');assert.ok(invalid.batch.errors.length>0);
+        const command=(actor:Actor,type:string,batch:{id:string;version:number},version=batch.version)=>envelope(actor,type,{batchId:batch.id},{[`import:${batch.id}`]:version});
+        const stale=await submit(app,owner,command(owner,'catalog.import.archive',invalid.batch,invalid.batch.version+1));
+        assert.equal(stale.json().status,'CONFLICT');assert.equal(stale.json().code,'VERSION_CONFLICT');
+        const cashier=await actor(app,owner,'cashier');
+        const deniedRole=await submit(app,cashier,command(cashier,'catalog.import.archive',invalid.batch));
+        assert.equal(deniedRole.json().status,'REJECTED');assert.equal(deniedRole.json().code,'FORBIDDEN');
+        const otherOutletId=randomUUID();await db.pool.query('INSERT INTO core.outlets(id,tenant_id,name,time_zone) VALUES($1,$2,$3,\'Africa/Nairobi\')',[otherOutletId,owner.tenantId,'Archive isolation outlet']);
+        const otherOutlet=await actor(app,{tenantId:owner.tenantId,outletId:otherOutletId});
+        const deniedOutlet=await submit(app,otherOutlet,command(otherOutlet,'catalog.import.archive',invalid.batch));
+        assert.equal(deniedOutlet.json().status,'REJECTED');assert.equal(deniedOutlet.json().code,'NOT_FOUND');
+
+        const archiveCommand=command(owner,'catalog.import.archive',invalid.batch);
+        const archived=await submit(app,owner,archiveCommand);
+        assert.equal(archived.json().status,'CONFIRMED',archived.body);assert.equal(archived.json().value.archived,true);
+        const replay=await submit(app,owner,archiveCommand);assert.deepEqual(replay.json(),archived.json(),'replaying the original archive command returns its recorded result');
+        const details=await app.inject({url:`/api/v1/catalog/imports/${invalid.batch.id}`,headers:owner.headers});
+        assert.equal(details.statusCode,200);assert.equal(details.json().batch.source.csv,source);assert.ok(details.json().batch.errors.length>0);
+        const errors=await app.inject({url:`/api/v1/catalog/imports/${invalid.batch.id}/errors.csv`,headers:owner.headers});
+        assert.equal(errors.statusCode,200);assert.match(errors.body,/1e2/);
+        assert.equal((await app.inject({url:'/api/v1/catalog/imports',headers:owner.headers})).json().page.totalCount,0);
+        const archivedHistory=await app.inject({url:'/api/v1/catalog/imports?archived=true',headers:owner.headers});
+        assert.equal(archivedHistory.statusCode,200);assert.equal(archivedHistory.json().page.totalCount,1);assert.equal(archivedHistory.json().batches[0].queueArchivedBy,owner.userId);
+        assert.equal((await db.pool.query('SELECT count(*)::int n FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.archive\'',[owner.tenantId,archiveCommand.commandId])).rows[0].n,1);
+        assert.equal((await db.pool.query('SELECT count(*)::int n FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.archive\'',[owner.tenantId,archiveCommand.commandId])).rows[0].n,1);
+        assert.deepEqual(await authority(owner),before,'archiving a failed validation cannot change catalog, stock, movements or journals');
+        const archivedBatch=details.json().batch;
+        const archivedRevalidation=await submit(app,owner,command(owner,'catalog.import.revalidate',archivedBatch));
+        assert.equal(archivedRevalidation.json().status,'REJECTED');assert.equal(archivedRevalidation.json().code,'IMPORT_ARCHIVED');
+        const archivedApply=await submit(app,owner,applyEnvelope(owner,archivedBatch));
+        assert.equal(archivedApply.json().status,'REJECTED');assert.equal(archivedApply.json().code,'IMPORT_ARCHIVED');
+        const restoreCommand=command(owner,'catalog.import.restore',archivedBatch);
+        const restored=await submit(app,owner,restoreCommand);
+        assert.equal(restored.json().status,'CONFIRMED',restored.body);assert.equal(restored.json().value.archived,false);assert.equal(restored.json().value.version,3);
+        assert.deepEqual((await submit(app,owner,restoreCommand)).json(),restored.json(),'replaying the original restore command returns its recorded result');
+        assert.equal((await db.pool.query('SELECT count(*)::int n FROM system.audit_events WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.restore\'',[owner.tenantId,restoreCommand.commandId])).rows[0].n,1);
+        assert.equal((await db.pool.query('SELECT count(*)::int n FROM system.transactional_outbox WHERE tenant_id=$1 AND command_id=$2 AND event_type=\'catalog.import.restore\'',[owner.tenantId,restoreCommand.commandId])).rows[0].n,1);
+        assert.equal((await app.inject({url:'/api/v1/catalog/imports',headers:owner.headers})).json().page.totalCount,1);
+        assert.equal((await app.inject({url:'/api/v1/catalog/imports?archived=true',headers:owner.headers})).json().page.totalCount,0);
+
+        const ready=await stage(app,owner,csv([row({SKU:'ARCHIVE-READY'})]));
+        const readyArchive=await submit(app,owner,command(owner,'catalog.import.archive',ready.batch));
+        assert.equal(readyArchive.json().status,'REJECTED');assert.equal(readyArchive.json().code,'IMPORT_NOT_INVALID');
+        const applied=await stage(app,owner,csv([row({SKU:'ARCHIVE-APPLIED'})]));
+        const appliedResult=await submit(app,owner,applyEnvelope(owner,applied.batch));assert.equal(appliedResult.json().status,'CONFIRMED',appliedResult.body);
+        const appliedBatch=(await app.inject({url:`/api/v1/catalog/imports/${applied.batch.id}`,headers:owner.headers})).json().batch;
+        const appliedArchive=await submit(app,owner,command(owner,'catalog.import.archive',appliedBatch));
+        assert.equal(appliedArchive.json().status,'REJECTED');assert.equal(appliedArchive.json().code,'IMPORT_NOT_INVALID');
+        const invalidFilter=await app.inject({url:'/api/v1/catalog/imports?archived=yes',headers:owner.headers});
+        assert.equal(invalidFilter.statusCode,400);assert.equal(invalidFilter.json().error.code,'VALIDATION_FAILED');
+        const afterApplied=await authority(owner);assert.equal(afterApplied.products,before.products+1);
+        assert.equal(afterApplied.movements,before.movements);assert.equal(afterApplied.journals,before.journals);
+        assert.equal(afterApplied.quantity,before.quantity);assert.equal(afterApplied.value,before.value);
+      }finally{await app.close();}
+    });
+
     await t.test('unsafe encoding and invalid request types fail before a batch can be persisted', async () => {
       const { app, owner } = await setup();
       try {

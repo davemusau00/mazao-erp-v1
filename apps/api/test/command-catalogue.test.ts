@@ -96,15 +96,30 @@ test('session reason schemas preserve domain trimming, length and control-charac
   }
 });
 
-test('all four migrated result schemas describe actual handler result fields',()=>{
+test('migrated result schemas describe actual handler result fields',()=>{
   const id=randomUUID();
   const results:Record<string,unknown>={
     'shift.open':{shiftId:id,version:1,openingFloatMinor:0},
     'hotel.room.mark_ready':{roomId:id,status:'READY',version:2},
     'auth.session.revoke':{sessionId:id,version:2,reauthenticate:true},
     'staff.sessions.revoke':{sessionId:id,version:2,reauthenticate:false},
+    'catalog.import.archive':{batchId:id,version:2,archived:true,archivedAt:'2026-10-31T11:00:00Z',archivedBy:id},
+    'catalog.import.restore':{batchId:id,version:3,archived:false,archivedAt:null,archivedBy:null},
   };
   for(const [type,value] of Object.entries(results))assertContract(value,COMMAND_CATALOGUE[type].outputSchema);
+});
+
+test('product import queue commands have strict versioned catalog-manager contracts',()=>{
+  const batchId=randomUUID(),base={protocolVersion:1 as const,commandId:randomUUID(),deviceId:randomUUID(),occurredAt:'2026-10-31T11:00:00Z',expectedVersions:{[`import:${batchId}`]:1}};
+  for(const type of ['catalog.import.archive','catalog.import.restore']){
+    const payload={batchId};const entry=COMMAND_CATALOGUE[type];
+    validateCommandPayload({...base,type,payload});
+    assert.equal(entry.validation,'SCHEMA_AND_DOMAIN');assert.deepEqual(entry.permissions,['catalog.manage']);assert.deepEqual(entry.capabilities,[]);assert.equal(entry.offlineMode,'ONLINE_ONLY');
+    assert.throws(()=>validateCommandPayload({...base,type,payload:{}}),DomainError);
+    assert.throws(()=>validateCommandPayload({...base,type,payload:{...payload,unexpected:true}}),DomainError);
+  }
+  assertContract({batchId,version:2,archived:true,archivedAt:'2026-10-31T11:00:00Z',archivedBy:randomUUID()},COMMAND_CATALOGUE['catalog.import.archive'].outputSchema);
+  assertContract({batchId,version:3,archived:false,archivedAt:null,archivedBy:null},COMMAND_CATALOGUE['catalog.import.restore'].outputSchema);
 });
 
 test('catalogue maintenance schemas require complete reviewed metadata and reject immutable or unknown intent',()=>{

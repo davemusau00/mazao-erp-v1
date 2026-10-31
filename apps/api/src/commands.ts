@@ -197,7 +197,9 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'auth.session.revoke': return executeStaffCommand(client,session,envelope);
     case 'catalog.import.validate':
     case 'catalog.import.revalidate':
-    case 'catalog.import.apply': return executeProductImportCommand(client,session,envelope);
+    case 'catalog.import.apply':
+    case 'catalog.import.archive':
+    case 'catalog.import.restore': return executeProductImportCommand(client,session,envelope);
     case 'configuration.business.update':
     case 'configuration.outlet.create':
     case 'configuration.outlet.update':
