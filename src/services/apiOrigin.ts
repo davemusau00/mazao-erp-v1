@@ -6,7 +6,11 @@ if (configuredApiBase) {
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
     throw new Error('VITE_API_BASE_URL must be an absolute HTTP(S) origin without credentials, path, query, or fragment.');
   }
-  if (import.meta.env.PROD && parsed.protocol !== 'https:') throw new Error('Production VITE_API_BASE_URL must use HTTPS.');
+  const explicitlyAllowedLoopbackHttp = import.meta.env.VITE_API_ALLOW_HTTP_LOOPBACK === 'true'
+    && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+  if (import.meta.env.PROD && parsed.protocol !== 'https:' && !explicitlyAllowedLoopbackHttp) {
+    throw new Error('Production VITE_API_BASE_URL must use HTTPS.');
+  }
 }
 
 export const API_BASE_URL = configuredApiBase ? new URL(configuredApiBase).origin : '';

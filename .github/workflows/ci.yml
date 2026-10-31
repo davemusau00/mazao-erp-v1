@@ -51,7 +51,7 @@ jobs:
       - name: Real API and PostgreSQL browser integration
         env:
           MAZAO_E2E_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/mazao_test
-        run: VITE_API_BASE_URL=http://127.0.0.1:4102 bun run test:integration
+        run: VITE_API_ALLOW_HTTP_LOOPBACK=true VITE_API_BASE_URL=http://127.0.0.1:4102 bun run test:integration
       - name: Build and verify the Mazao Yako API-subdomain PWA
         run: |
           VITE_API_BASE_URL=https://api.mazaoyako.co.ke bun run build -- --outDir dist-mazaoyako

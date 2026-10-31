@@ -111,14 +111,19 @@ test('PWA auth, CSRF writes, private assets, CSV downloads and session restore u
 
 test('a foreign web origin cannot preflight credentialed API actions', async ({ browser }) => {
   const page = await browser.newPage();
-  const preflights: Array<{ status: number; allowOrigin?: string }> = [];
-  page.on('response', response => {
-    if (response.request().method() === 'OPTIONS' && new URL(response.url()).origin === apiOrigin) {
-      preflights.push({ status: response.status(), allowOrigin: response.headers()['access-control-allow-origin'] });
-    }
-  });
   try {
     await page.goto('http://localhost:3002');
+    const preflight = await page.request.fetch(`${apiOrigin}/api/v1/auth/login`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://localhost:3002',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type,x-csrf-token',
+      },
+    });
+    expect(preflight.status()).toBe(403);
+    expect(preflight.headers()['access-control-allow-origin']).toBeUndefined();
+
     const blocked = await page.evaluate(async api => {
       try {
         await fetch(`${api}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': 'untrusted' }, body: '{}' });
@@ -126,6 +131,5 @@ test('a foreign web origin cannot preflight credentialed API actions', async ({ 
       } catch { return true; }
     }, apiOrigin);
     expect(blocked).toBe(true);
-    expect(preflights).toContainEqual({ status: 403, allowOrigin: undefined });
   } finally { await page.close(); }
 });

@@ -4,6 +4,8 @@
 
 The GitHub Actions workflow uses Bun 1.4.3 and PostgreSQL 16. It installs from the frozen bun.lock, applies migrations to a fresh test database and reruns them to verify checksums, runs TypeScript checks and API acceptance, then builds the PWA and runs browser acceptance. It also runs real browser-to-API-to-PostgreSQL configuration/inventory/sale/cash-up acceptance using a disposable local database, including the configured cross-origin API flow used by Mazao Yako. The harness rejects non-local or unnamed databases. A failed check prevents release artifact publication.
 
+The local integration build opts into plain HTTP only for the exact loopback hosts `127.0.0.1`, `localhost`, and `[::1]`, using `VITE_API_ALLOW_HTTP_LOOPBACK=true`. This lets Chromium exercise a separate local API origin without weakening public builds. The flag is absent from main release builds, which require HTTPS for any configured API origin.
+
 ## Main-branch publication
 
 After the full check job passes on a push to main:
