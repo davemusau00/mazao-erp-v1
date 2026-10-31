@@ -4,6 +4,79 @@ Execution started 20 October 2026 (Africa/Nairobi). The user requires every fix 
 
 This is an execution register for [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md), not a full-v1 completion claim. The S00 local checkpoint is preserved and S01 catalog maintenance is in progress. S01–S11 retain their original acceptance gates and dependencies.
 
+## 30 October P1.2 durable orders and fire continuation
+
+`feat/hospitality-orders-fire` starts at locally accepted configuration commit
+`92e2597`, preserving its dependency on unmerged PR #24. Migration 030 and five
+strict commands add shared table/takeaway tabs, quote/choice snapshots, holds,
+draft-only discard and exactly-once NEW/ADD-ON station tickets. Fired source
+lines and tickets are immutable. Kitchen/bar reads require current server
+station authority; source orders never post stock, sales, tender or journals.
+Printing, live preparation/serving and source settlement remain the next P1
+dependencies. P2–P4 and full release acceptance remain open.
+
+The complete local API run passed **285 tests, zero failures/skips**, including
+ten competing fire requests, preserved existing receipt/stock/financial evidence,
+strict role/device scope, current quote/station guards and populated 029→030
+upgrade/checksum rerun. Browser/build/container verification is in progress.
+Review also separated setup recovery from order/fire commands and rejected
+incomplete order details before a whole-draft save could hide/remove source rows.
+[The focused evidence register](64-RESTAURANT-ORDERS-FIRE.md) records contracts,
+policy limits, test artifacts and remaining gates. There is no new hosted CI,
+push, merge, production connection or deployment evidence for this local slice.
+
+## 29 October hospitality priority and P1.1 continuation
+
+The user invoked the hospitality-first
+[P0–P4 master instruction](../MAZAO_ERP_P0-P4_MASTER_DEVELOPMENT_INSTRUCTION_2026-10-29.md).
+It supersedes the older delivery order after a verified green baseline. Remote
+main remains `6119ee2d2043afca38b764b5a0750dd9cf75908c`; PR #24 is open/unmerged
+at `e595d9789270192bcf6f37a28e8346b055e3c59d`. Its exact-head CI run
+[40917747989](https://github.com/davemusau00/mazao-erp-v1/actions/runs/40917747989)
+completed successfully: **244 API (zero skips), 140 Chromium, 36 browser matrix
+and 21 real PostgreSQL/browser journeys**, plus fresh/checksum-rerun migration
+and API container checks. Older pending or failed-CI notes below remain
+historical evidence. [The P0 checkpoint](61-HOSPITALITY-P0-BASELINE-2026-10-29.md)
+records reviewed migration/recovery limits and recommended duplicate-PR
+disposition; no remote PR or governance change occurred.
+
+Created `feat/hospitality-p1-configuration` from that exact green head, with an
+explicit dependency on unmerged PR #24. P1.1 adds migration 029 and the connected
+restaurant configuration slice: sections/tables/stations, paged menu routing,
+logical station assignments, strict versioned commands and scoped roles. The
+new workspace is setup only. Orders, KOT/BOT, print delivery, KDS, serving,
+restaurant settlement and room charges are unavailable. Prepared settlement
+retains its recipe-consumption rejection. [Focused evidence](62-RESTAURANT-CONFIGURATION.md)
+contains contracts, side effects, source gaps, concurrency fixes and validation.
+No stock/accounting history is rewritten by this configuration slice.
+
+Expanded setup testing reproduced HTTP 500 under ten
+simultaneous creates, including after transaction-scoped pre-ledger locking.
+Same-client advisory admission before the serializable transaction fixes that
+snapshot timing; the subsequent expanded API run passed **13/13**, including
+concurrent creates, conflicting edits, lifecycle cleanup, first-use restrictions,
+full-directory pagination and original-command recovery. The final full isolated
+API run passed **267/267, zero skipped**. Final artifact `index-B5uKh6ah.js`
+passed **159/159 Chromium**, **112/112 Chromium/Firefox desktop/mobile matrix**
+and **22/22 real Fastify/PostgreSQL browser workflows**. Full typecheck and PWA
+build passed; the pinned Bun 1.4.3 production API container passed all 29 fresh
+migrations, checksum rerun, configuration/authentication/readiness and throttle
+checks. [Container evidence](63-HOSPITALITY-LOCAL-CONTAINER-2026-10-29.md) preserves
+the exact image/context identity separately from hosted CI and deployment.
+
+Independent review added six regressions for retained menu/product/device/
+assignment authority after reconnect. A stale-menu overwrite reproduced on the
+earlier artifact; editors now retain the versions or absence explicitly reviewed
+instead of adopting a newer read while preserving older form contents. All 19
+focused restaurant browser cases and the final complete suites passed. Earlier
+fixture navigation races, the upgrade-probe omission and workstation browser/
+compiler memory failures are preserved in docs/62 with their corrections.
+
+This is locally verified configuration source, not operational restaurant or
+full-v1 acceptance. New-head hosted CI/PR review, release gates, physical device
+acceptance and production identity remain open. No push, remote PR change, merge,
+production database access or deployment occurred.
+
 ## Integration and release identity (S00-01 / G02)
 
 - Original checkout: `fix/release-gate-reliability` at `75d7011`; clean worktree. That commit contains the user-supplied plan and `docs/sale.md`.
@@ -399,3 +472,9 @@ database. Exact-head hosted CI, isolated API/migration acceptance, real API/brow
 acceptance, and release checks remain open. This slice is source/build and
 browser-fixture checked, not database-accepted or deployed. See
 [context switching](60-CONTEXT-SWITCHING.md).
+
+## 2026-10-31 — Restaurant KDS preparation state
+
+Added the durable station-ticket lifecycle `NEW -> ACKNOWLEDGED -> PREPARING -> READY` on the isolated `feat/hospitality-kds-lifecycle` branch. Firing a ticket creates its initial state in the fire transaction. Assigned-device authority, actor/device evidence, version checks, command recovery and the responsive KDS controls are covered in [the KDS state slice](65-RESTAURANT-KDS-STATE-TRANSITIONS.md).
+
+Local verification passed: `npm run typecheck`; `npm run build` (`index-kfAW_u2k.js`, 542.63 kB, with the existing bundle-size warning); all 24 focused restaurant-order browser cases; and `npm run test:api` (108 passed, zero failed, 37 expected skips because no disposable `TEST_DATABASE_URL` is configured). The actual PostgreSQL migration/backfill/race lane remains unverified locally. Exact-head hosted CI and review are required before this development slice can merge. It is not deployed and does not open the restaurant/KDS availability gate.

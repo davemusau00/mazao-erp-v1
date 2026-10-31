@@ -10,6 +10,7 @@ const BackendManageWorkspace = lazy(() => import('./components/manage/BackendMan
 const MoneyWorkspace = lazy(() => import('./components/finance/MoneyWorkspace').then(module => ({ default: module.MoneyWorkspace })));
 const StockExceptionsWorkspace = lazy(() => import('./components/inventory/StockExceptionsWorkspace').then(module => ({ default: module.StockExceptionsWorkspace })));
 const CatalogWorkspace = lazy(() => import('./components/inventory/CatalogWorkspace').then(module => ({ default: module.CatalogWorkspace })));
+const BackendRestaurantWorkspace = lazy(() => import('./components/service/RestaurantWorkspace').then(module => ({ default: module.RestaurantWorkspace })));
 import { BackendCustomerWorkspace } from './components/customers/BackendCustomerWorkspace';
 import { BackendReceiptModal } from './components/hardware/BackendReceiptModal';
 import { SalesHistoryView } from './components/sales/SalesHistoryView';
@@ -139,6 +140,7 @@ export default function App() {
       {visibleTab==='today'&&<BackendTodayWorkspace onNavigate={navigate}/>}
       {visibleTab==='sell'&&<PointOfSaleView onOrderCompleted={openReceipt}/>}
       {visibleTab==='sales'&&<SalesHistoryView onReprintOrder={openReceipt}/>}
+      {visibleTab==='service'&&<Suspense fallback={<p role="status" className="p-6 text-sm text-zinc-400">Loading restaurant setup…</p>}><BackendRestaurantWorkspace/></Suspense>}
       {visibleTab==='hotel'&&<BackendHotelWorkspace/>}
       {visibleTab==='reservations'&&<BackendHotelWorkspace initialView="reservations"/>}
       {visibleTab==='stock'&&<InventoryView initialView={stockStartView} onInitialViewConsumed={()=>setStockStartView('inventory')} onOpenStockExceptions={()=>navigate('stock-exceptions')} onOpenReceiving={()=>{setPurchaseStartTab('receive');navigate('purchasing');}}/>}

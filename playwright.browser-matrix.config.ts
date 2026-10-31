@@ -2,7 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: /(?:account-catalog|accounting-statement-race|customer-language|operational-analytics|pos-manual-mpesa-discounts|recovery-center)\.spec\.ts/,
+  testIgnore: '**/integration/**',
+  testMatch: /(?:account-catalog|accounting-statement-race|customer-language|operational-analytics|pos-manual-mpesa-discounts|recovery-center|restaurant-configuration|restaurant-orders)\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,

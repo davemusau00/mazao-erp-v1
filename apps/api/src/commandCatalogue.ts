@@ -1,6 +1,8 @@
 import { DomainError, type ApiPermission, type CommandEnvelope } from './contracts.js';
 import { assertContract, type ContractSchema, uuidSchema, versionSchema, versionsSchema } from './contractValidation.js';
 import { COMMAND_ENVELOPE_SCHEMA } from './publicInputs.js';
+import { RESTAURANT_CONTRACTS } from './restaurantContracts.js';
+import { RESTAURANT_ORDER_CONTRACTS } from './restaurantOrderContracts.js';
 
 export interface CommandContract {
   schemaVersion: 1;
@@ -45,6 +47,8 @@ const affectedProductsSchema: ContractSchema = {type:'array',items:uuidSchema,mi
 // describe only the object boundary; their referenced domain validator remains
 // authoritative until that command receives a reviewed schema migration.
 const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  ...RESTAURANT_CONTRACTS,
+  ...RESTAURANT_ORDER_CONTRACTS,
   'inventory.count.post': {
     payload: strictObject({countId:uuidSchema,valuationReason:reasonSchema}, ['countId']),
     output: objectResult,
@@ -152,6 +156,17 @@ function contract(name: string, permissions: readonly ApiPermission[], capabilit
  * Payload-dependent permissions (discount, credit, exception approval) remain
  * in the domain handler and cannot be granted by this baseline. */
 export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
+  'restaurant.order.create': contract('restaurant.order.create', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order']),
+  'restaurant.order.save': contract('restaurant.order.save', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order','restaurant_draft_quote']),
+  'restaurant.order.hold': contract('restaurant.order.hold', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order']),
+  'restaurant.order.cancel': contract('restaurant.order.cancel', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order']),
+  'restaurant.order.fire': contract('restaurant.order.fire', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order','immutable_ticket_batch']),
+  'restaurant.ticket.advance': contract('restaurant.ticket.advance', ['restaurant.ticket.work'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['immutable_ticket_state_event']),
+  'restaurant.section.save': contract('restaurant.section.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
+  'restaurant.table.save': contract('restaurant.table.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
+  'restaurant.station.save': contract('restaurant.station.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
+  'restaurant.menu.save': contract('restaurant.menu.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
+  'restaurant.station.assign': contract('restaurant.station.assign', ['restaurant.manage','devices.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration','logical_station_assignment']),
   'catalog.product.create': contract('catalog.product.create', ['catalog.manage'], [], 'commands.ts#createProduct', ['catalogue']),
   'catalog.product.update': contract('catalog.product.update', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),
   'catalog.product.set_active': contract('catalog.product.set_active', ['catalog.manage'], [], 'catalogMaintenance.ts#executeCatalogMaintenanceCommand', ['catalogue']),

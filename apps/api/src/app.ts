@@ -36,17 +36,19 @@ import { requireCommandRecoveryAuthority } from './commandAuthorization.js';
 import { initializeCommandRequirements, prepareCommandRequirements } from './commandRequirements.js';
 import { getCount, getCountEvent, getCountEvents, getCountReview, getCountReviewMovements } from './countRecovery.js';
 import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
+import { getRestaurantConfiguration, listRestaurantProducts } from './restaurant.js';
+import { getRestaurantOrder, listRestaurantMenu, listRestaurantOrders, listRestaurantOrderTickets, listRestaurantStationTickets, listRestaurantTicketStations } from './restaurantOrders.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
 const setupCommandTypes = new Set(['configuration.business.update','configuration.outlet.create','configuration.outlet.update','configuration.outlet.set_active','configuration.capabilities.update','configuration.stock_exception_policy.update','configuration.go_live.approve','inventory.receive','inventory.count.open','inventory.count.save','inventory.count.review','inventory.count.post','inventory.count.cancel','staff.member.create','staff.member.update','staff.member.set_active','staff.sessions.revoke','staff.password.set','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','auth.session.revoke']);
 function setupCommandAllowed(type: unknown): boolean {
-  return typeof type==='string'&&(setupCommandTypes.has(type)||type.startsWith('catalog.product.')||type.startsWith('catalog.category.')||type.startsWith('catalog.import.'));
+  return typeof type==='string'&&(setupCommandTypes.has(type)||['restaurant.section.save','restaurant.table.save','restaurant.station.save','restaurant.menu.save','restaurant.station.assign'].includes(type)||type.startsWith('catalog.product.')||type.startsWith('catalog.category.')||type.startsWith('catalog.import.'));
 }
 function setupRequestAllowed(method: string, url: string, body: unknown): boolean {
   const path=url.split('?',1)[0];
-  if(method==='GET')return path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
+  if(method==='GET')return path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/restaurant/configuration'||path==='/api/v1/restaurant/products'||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
   if(method==='POST') {
     if(['/api/v1/auth/logout','/api/v1/auth/password','/api/v1/auth/password/reconcile','/api/v1/auth/context','/api/v1/configuration/assets'].includes(path)||/^\/api\/v1\/staff\/[0-9a-f-]{36}\/password$/i.test(path))return true;
     if(path==='/api/v1/commands'&&body&&typeof body==='object'&&!Array.isArray(body))return setupCommandAllowed((body as Record<string,unknown>).type);
@@ -294,6 +296,14 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
       onboardingStatus:r.onboarding_status,csrfToken:request.cookies?.maz_csrf??''};
   });
   app.get('/api/v1/auth/me', async request => ({ user:{ id:request.operator!.userId,name:request.operator!.fullName,email:request.operator!.email,role:request.operator!.role,permissions:ROLE_PERMISSIONS[request.operator!.role] }, tenant:{ id:request.operator!.tenantId,name:request.operator!.tenantName,currency:request.operator!.currency,timeZone:request.operator!.tenantTimeZone ?? request.operator!.timeZone,taxPolicy:request.operator!.taxPolicy,capabilities:request.operator!.capabilities },outlet:{ id:request.operator!.outletId,name:request.operator!.outletName,timeZone:request.operator!.timeZone },deviceId:request.operator!.deviceId,onboardingStatus:request.operator!.onboardingStatus??'LEGACY_ACTIVE',csrfToken:request.cookies?.maz_csrf ?? '' }));
+  app.get('/api/v1/restaurant/configuration',async request=>getRestaurantConfiguration(request.operator!));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/restaurant/products',async request=>listRestaurantProducts(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/restaurant/menu',async request=>listRestaurantMenu(request.operator!,request.query));
+  app.get<{Querystring:HistoryQuery}>('/api/v1/restaurant/orders',async request=>listRestaurantOrders(request.operator!,request.query));
+  app.get<{Params:{orderId:string}}>('/api/v1/restaurant/orders/:orderId',async request=>getRestaurantOrder(request.operator!,request.params.orderId));
+  app.get<{Params:{orderId:string};Querystring:HistoryQuery}>('/api/v1/restaurant/orders/:orderId/tickets',async request=>listRestaurantOrderTickets(request.operator!,request.params.orderId,request.query));
+  app.get('/api/v1/restaurant/ticket-stations',async request=>listRestaurantTicketStations(request.operator!));
+  app.get<{Params:{stationId:string};Querystring:HistoryQuery}>('/api/v1/restaurant/stations/:stationId/tickets',async request=>listRestaurantStationTickets(request.operator!,request.params.stationId,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/staff',async request=>listStaff(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/devices',async request=>listAssignments(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!,undefined,request.query));
@@ -461,6 +471,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     assertImportSourceSafe(envelope);
     envelope.tenantId=s.tenantId;
     const digest=hashCommand(envelope); const hashText=digest.toString('hex');
+    const admission=envelope.type.startsWith('restaurant.')?{sharedLockKey:`catalog:${s.tenantId}:${s.outletId}`,exclusiveLockKey:`restaurant:${s.tenantId}:${s.outletId}`}:undefined;
     const outcome=await inTransaction(async client=>{
       // Serialize account-label edits before their command-ledger insert. Each
       // edit locks the tenant version later in the transaction, and a racing
@@ -526,7 +537,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
         await client.query('UPDATE system.commands SET status=$3,response=$4::jsonb,completed_at=now() WHERE tenant_id=$1 AND command_id=$2',[s.tenantId,envelope.commandId,status,JSON.stringify(response)]);
         return response;
       }
-    });
+    },admission);
     return reply.code(200).send({commandId:envelope.commandId,...outcome});
   });
   app.get<{ Params:{ commandId:string } }>('/api/v1/commands/:commandId', async request => inTransaction(async client => {

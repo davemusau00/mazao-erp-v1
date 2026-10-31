@@ -7,7 +7,7 @@ import { DomainError, ROLE_PERMISSIONS } from './contracts.js';
 import { requireCommandAuthority } from './commandAuthorization.js';
 import { lockCatalogOutlet } from './catalogMaintenance.js';
 
-export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail'] as const;
+export const SUPPORTED_CAPABILITIES = ['commerce', 'inventory', 'hospitality', 'retail', 'restaurant'] as const;
 export interface TaxPolicy { calculation: 'exclusive'; defaultRateBps: number; label: string; reviewed: boolean }
 export interface BusinessProfile {
   legalName: string; registrationNumber: string; taxRegistrationNumber: string;
@@ -232,15 +232,17 @@ export function validateOutletInput(payload: Record<string, unknown>, currentPro
   return { name: text(payload.name, 'name', 160, true), timeZone: validateTimeZone(payload.timeZone), profile };
 }
 export function validateCapabilities(value: unknown): string[] {
-  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names. Restaurant service is not connected.');
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !(SUPPORTED_CAPABILITIES as readonly string[]).includes(item)) || new Set(value).size !== value.length) throw new DomainError('VALIDATION_FAILED', 'capabilities must contain unique supported capability names.');
   if (value.includes('retail') && (!value.includes('commerce')||!value.includes('inventory'))) throw new DomainError('VALIDATION_FAILED', 'Retail requires commerce and inventory.');
   if (value.includes('hospitality') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Hospitality checkout requires commerce.');
+  if (value.includes('restaurant') && !value.includes('commerce')) throw new DomainError('VALIDATION_FAILED', 'Restaurant service requires commerce.');
   return [...value].sort();
 }
 async function currencyLocked(client: PoolClient, tenantId: string): Promise<boolean> {
   const result = await client.query<{ locked: boolean }>(`SELECT EXISTS(SELECT 1 FROM catalog.products WHERE tenant_id=$1)
     OR EXISTS(SELECT 1 FROM hospitality.rooms WHERE tenant_id=$1)
     OR EXISTS(SELECT 1 FROM commerce.shifts WHERE tenant_id=$1)
+    OR EXISTS(SELECT 1 FROM restaurant.orders WHERE tenant_id=$1)
     OR EXISTS(SELECT 1 FROM finance.customer_accounts WHERE tenant_id=$1)
     OR EXISTS(SELECT 1 FROM finance.journal_entries WHERE tenant_id=$1) locked`, [tenantId]);
   return result.rows[0].locked;
@@ -458,6 +460,7 @@ export async function executeConfigurationCommand(client: PoolClient, session: A
         EXISTS(SELECT 1 FROM inventory.balances WHERE tenant_id=$1 AND outlet_id=$2 AND (quantity<>0 OR inventory_value_minor<>0)) stock,
         EXISTS(SELECT 1 FROM hospitality.stays WHERE tenant_id=$1 AND outlet_id=$2 AND status='CHECKED_IN') active_stay,
         EXISTS(SELECT 1 FROM hospitality.reservations WHERE tenant_id=$1 AND outlet_id=$2 AND status='CONFIRMED') active_reservation,
+        EXISTS(SELECT 1 FROM restaurant.orders WHERE tenant_id=$1 AND outlet_id=$2 AND status<>'CANCELLED') open_restaurant_order,
         EXISTS(SELECT 1 FROM identity.devices WHERE tenant_id=$1 AND outlet_id=$2 AND active) active_assignment`,[session.tenantId,outletId]);
       const blocked=Object.entries(resources.rows[0]).filter(([,present])=>present).map(([key])=>key);
       if(blocked.length)throw new DomainError('OUTLET_HAS_OPEN_RESOURCES','Close this outlet’s active shifts and counts, resolve stays and reservations, clear stock and revoke workspace assignments before deactivation.',409,{resources:blocked});
@@ -508,6 +511,10 @@ export async function executeConfigurationCommand(client: PoolClient, session: A
   const capabilities = validateCapabilities(envelope.payload.capabilities);
   const old = await client.query<{ capability: string }>('SELECT capability FROM core.tenant_capabilities WHERE tenant_id=$1 ORDER BY capability', [session.tenantId]);
   const removed = old.rows.map(row => row.capability).filter(capability => !capabilities.includes(capability));
+  if (removed.includes('restaurant')) {
+    const active=await client.query("SELECT 1 FROM restaurant.orders WHERE tenant_id=$1 AND status<>'CANCELLED' LIMIT 1",[session.tenantId]);
+    if(active.rowCount)throw new DomainError('CAPABILITY_IN_USE','Resolve open restaurant orders before disabling restaurant service. Sent tickets cannot be silently abandoned.',409);
+  }
   if (removed.includes('commerce')) {
     const active = await client.query('SELECT 1 FROM commerce.shifts WHERE tenant_id=$1 AND status=\'OPEN\' LIMIT 1', [session.tenantId]);
     if (active.rowCount) throw new DomainError('CAPABILITY_IN_USE', 'Close all open tills before disabling commerce.', 409);
