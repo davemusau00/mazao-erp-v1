@@ -8,6 +8,7 @@ import type { RestaurantConfiguration, RestaurantProduct } from '../types/restau
 import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket } from '../types/restaurantOrders';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
 import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
+import { apiRequestUrl } from './apiOrigin';
 import type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 export type { BackendOperationalAnalytics, BackendItemReport, ItemReportQuery, BackendJournalSource, BackendItemEvents, ItemEventsQuery } from '../types/reporting';
 import type { SaleHistory, SaleHistoryQuery } from '../types/sales';
@@ -316,7 +317,7 @@ class ApiClient {
     }
     let response:Response;const requestStartedAt=performance.now();let responseHeadersAt=0;
     try {
-      response=await fetch(`/api/v1${path}`,{...init,headers,credentials:'include',...(controller?{signal:controller.signal}:{})});
+      response=await fetch(apiRequestUrl(path),{...init,headers,credentials:'include',...(controller?{signal:controller.signal}:{})});
       responseHeadersAt=performance.now();
     } catch {
       if(controller?.signal.aborted){
@@ -376,7 +377,7 @@ class ApiClient {
     hardTimer=setTimeout(()=>{timedOut=true;controller.abort('timeout');},READ_TIMEOUT_MS);
     const requestStartedAt=performance.now();let responseHeadersAt=0;
     try{
-      const response=await fetch(`/api/v1${path}`,{headers,credentials:'include',signal:controller.signal});
+      const response=await fetch(apiRequestUrl(path),{headers,credentials:'include',signal:controller.signal});
       responseHeadersAt=performance.now();
       let text:string;try{text=await response.text();}catch{
         if(timedOut)throw new ApiClientError(`This download did not finish within ${READ_TIMEOUT_MS/1000} seconds. Retry the download.`,'REQUEST_TIMED_OUT',response.status,response.headers.get('x-request-id')??requestId);

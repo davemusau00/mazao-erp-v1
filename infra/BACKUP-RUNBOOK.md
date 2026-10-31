@@ -6,6 +6,14 @@ The pilot supports an off-host checkpoint on the operator's Windows PC using inf
 
 Run this verified checkpoint before creating a real pilot tenant, then again after initial setup. A daily Windows scheduled task can run the script while this PC is on and its account is available; missed runs and offline PCs must be monitored. This interim arrangement has no claimed RPO or unattended cloud retention. Configure a continuously available off-host destination before routine business use. For object storage, configure age and rclone as below; keep the age private key offline and never store credentials or dumps in Git.
 
+## Mazao Yako initial pilot exception: same-server checkpoint only (2026-10-30)
+
+The owner explicitly accepted a same-server-only checkpoint as an exception to the normal off-host restore gate for this initial operational pilot. The encrypted checkpoint is `/srv/predeploy-backups/vps-20261030T151859Z.tar.gz.age` on `38.247.142.209`; SHA-256 is `b086cc0bb4e60a44e30bfdbf8d6b6c740fd2bfab761b1c67df1a3f10d3d026c1`. Its sidecar records 22 containers, 9 volumes, and 7 PostgreSQL restore checks. It covers all current deployments and host configuration, not only Mazao.
+
+The plaintext staging archives were individually checked before encryption. Six running PostgreSQL exports, the stopped ServeOS staging PostgreSQL volume, both Redis RDB snapshots, the Docker image save, container writable layers, all persistent volumes, SMS `/app/.uploads`, and host configuration archives were restored or archive-validated in isolated temporary resources. The encrypted object SHA-256 was checked on the VPS and reported `OK`; the staging tree and temporary restore resources were removed. The 9.46 GB encrypted object was not fully downloaded, decrypted and extracted off-host: the attempted transfer rate was about 0.3 MB/s, so that post-encryption round trip remains unverified. Do not describe this checkpoint as a full encrypted restore verification. The private age identity remains on the operator's Windows account; only its recipient was placed on the VPS.
+
+This exception applies only to the initial Yako pilot while its database is empty and is not a recurring recovery arrangement. Before routine business writes, configure an independent off-host encrypted backup, complete a decrypt-and-restore test from that copy, and record the result here. Retain this checkpoint until the off-host restore passes. Existing deployments were left running during inventory and backup.
+
 ## Create an encrypted backup
 
 Run from a restricted backup runner with Docker Compose, age, and rclone configured. The database is private to the Mazao Compose network; no PostgreSQL host port is needed.

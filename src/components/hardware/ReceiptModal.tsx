@@ -1,6 +1,7 @@
 import React from 'react';
 import { SaleOrder, TenantProfile } from '../../types/erp';
 import { hardware } from '../../services/hardware';
+import { apiAssetUsesCredentials, resolveApiAssetUrl } from '../../services/apiOrigin';
 import { Printer, X, Download, CheckCircle2 } from 'lucide-react';
 
 interface ReceiptModalProps {
@@ -157,7 +158,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ order, tenant, onClo
             {tenant.receiptQrImage && tenant.showQrOnReceipt !== false ? (
               <div className="my-2.5 text-center pt-1 border-t border-dashed border-zinc-300">
                 <img
-                  src={tenant.receiptQrImage}
+                  src={resolveApiAssetUrl(tenant.receiptQrImage)}
+                  crossOrigin={apiAssetUsesCredentials(tenant.receiptQrImage) ? 'use-credentials' : undefined}
                   alt="Scan to Pay QR"
                   className="w-20 h-20 mx-auto object-contain p-0.5 border border-zinc-300 filter grayscale"
                 />

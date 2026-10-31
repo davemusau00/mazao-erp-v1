@@ -71,9 +71,13 @@ test('zero reference cost is clearly shown and still needs a review reason', asy
   await page.getByRole('button', { name: 'Review and post', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review full outlet count' });
   await expect(dialog).toContainText('Opening reference cost is zero; policy keeps this gain at zero value after manager review.');
-  await expect(dialog.getByRole('button', { name: 'Post reviewed count', exact: true })).toBeDisabled();
+  const post = dialog.getByRole('button', { name: 'Post reviewed count', exact: true });
+  await expect(post).toBeDisabled();
   await dialog.getByLabel('Valuation approval reason').fill('Unknown purchase cost; keep zero until supplier documentation arrives');
   await dialog.getByRole('checkbox').check();
-  await dialog.getByRole('button', { name: 'Post reviewed count', exact: true }).click();
+  await expect(post).toBeEnabled();
+  await post.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.posts).toHaveLength(1);
   expect(state.posts[0].payload.valuationReason).toBe('Unknown purchase cost; keep zero until supplier documentation arrives');
 });

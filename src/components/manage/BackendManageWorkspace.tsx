@@ -8,6 +8,7 @@ import type { WorkspaceId } from '../../types/ui';
 import type { AccountingArea } from '../../types/accounting';
 import { StaffAccessWorkspace } from './StaffAccessWorkspace';
 import { safeRasterImageSource } from '../../utils/html';
+import { apiAssetUsesCredentials, resolveApiAssetUrl } from '../../services/apiOrigin';
 import './BackendManageWorkspace.css';
 
 type Section='overview'|'business'|'outlet'|'capabilities'|'readiness'|'permissions'|'staff'|'devices'|'stockExceptions';
@@ -251,11 +252,12 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   const uploadedImageField=(label:string,field:'logoUrl'|'receiptQrImage')=>{
     const value=field==='logoUrl'?(business?.logoUrl??''):(business?.receiptQrImage??'');const change=field==='logoUrl'?logoDraft:receiptQrDraft;const savedPreview=value&&safeRasterImageSource(value)?value:'';
     const preview=change.mode==='replace'?(change.dataUrl??''):change.mode==='remove'?'':savedPreview;
+    const previewUrl=preview?resolveApiAssetUrl(preview):'';
     const changeDraft=(next:ImageDraft)=>{if(field==='logoUrl')setLogoDraft(next);else setReceiptQrDraft(next);setDirty(true);};
     return <div className="form-field"><label htmlFor={`business-${field}-upload`}>{label} PNG</label>
       <input id={`business-${field}-upload`} aria-label={`Upload ${label.toLowerCase()} PNG`} type="file" accept="image/png" className="min-h-11" disabled={editingBlocked} onChange={event=>{void uploadBusinessImage(field,event.currentTarget.files?.[0]);event.currentTarget.value='';}} />
       <small>PNG only, up to 512 KB. Images upload separately from business settings and remain available to saved receipts.</small>
-      {(preview||change.mode==='remove')&&<div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 p-3">{preview&&<img src={preview} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/>}{change.mode==='remove'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Keep existing image</button>:change.mode==='replace'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Discard new image</button>:savedPreview&&<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'remove'})}>Remove image</button>}</div>}
+      {(preview||change.mode==='remove')&&<div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 p-3">{preview&&<img src={previewUrl} crossOrigin={apiAssetUsesCredentials(preview) ? 'use-credentials' : undefined} alt={`${label} preview`} className="max-h-20 max-w-40 object-contain"/>}{change.mode==='remove'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Keep existing image</button>:change.mode==='replace'?<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'keep'})}>Discard new image</button>:savedPreview&&<button type="button" className="secondary-action min-h-11" disabled={editingBlocked} onClick={()=>changeDraft({mode:'remove'})}>Remove image</button>}</div>}
     </div>;
   };
   const businessField=(label:string,field:Exclude<keyof BackendBusinessConfigurationInput,'taxPolicy'|'showQrOnReceipt'>,options:{type?:string;maxLength?:number;required?:boolean;disabled?:boolean}={})=><label className="form-field"><span>{label}</span><input className="min-h-11" value={business?.[field]??''} onChange={event=>editBusiness(field,event.target.value)} disabled={editingBlocked||options.disabled} type={options.type??'text'} maxLength={options.maxLength??200} required={options.required}/></label>;
