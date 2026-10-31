@@ -127,6 +127,7 @@ if (!process.env.TEST_DATABASE_URL) {
         const detail = await details(waiter, order.id); order = detail.order; firstTickets = detail.tickets; originalLines = structuredClone(order.lines);
         assert.equal(firstTickets.length, 3); assert.equal(order.fireRevision, 1); assert.equal(order.status, 'FIRED');
         for (const ticket of firstTickets) {
+          assert.equal(ticket.status,'NEW');assert.equal(ticket.stateVersion,1);assert.equal(ticket.stateActorName,'Restaurant waiter');
           assert.equal(ticket.batchId, firstBatch); assert.equal(ticket.snapshot.waiter.id, waiter.userId); assert.equal(ticket.snapshot.firedBy.id, commands[winner].a.userId);
           assert.equal(ticket.documentHash, createHash('sha256').update(security.stableStringify(ticket.snapshot)).digest('hex'));
           assert.doesNotMatch(JSON.stringify(ticket.snapshot), /unitPriceMinor|taxRateBps|totalMinor|costPriceMinor|payments/);
@@ -168,6 +169,26 @@ if (!process.env.TEST_DATABASE_URL) {
         await save(admin, 'restaurant.station.assign', { deviceId: cook.deviceId, stationIds: [kitchen] }, { [`device:${cook.deviceId}`]: 2, [`stationAssignment:${cook.deviceId}`]: 1 });
         const next = await get(cook, `/restaurant/stations/${kitchen}/tickets?limit=1&after=${encodeURIComponent(feed.page.nextCursor)}`); assert.equal(next.tickets.length, 1); assert.notEqual(next.tickets[0].id, feed.tickets[0].id);
         reject(await app.inject({ url: `/api/v1/restaurant/stations/${bar}/tickets?after=${encodeURIComponent(feed.page.nextCursor)}`, headers: admin.headers }), 'VALIDATION_FAILED');
+      });
+      await t.test('assigned kitchen staff advance each ticket once through acknowledged, preparing and ready',async()=>{
+        const kitchenTicket=firstTickets.find((ticket:any)=>ticket.stationId===kitchen)!;
+        const command=(a:Actor,fromStatus:string,toStatus:string,version:number)=>envelope(a,'restaurant.ticket.advance',{ticketId:kitchenTicket.id,fromStatus,toStatus},{['ticket:'+kitchenTicket.id]:version});
+        reject(await submit(waiter,command(waiter,'NEW','ACKNOWLEDGED',1)),'FORBIDDEN');
+        const barTicket=firstTickets.find((ticket:any)=>ticket.stationId===bar)!;
+        reject(await submit(cook,envelope(cook,'restaurant.ticket.advance',{ticketId:barTicket.id,fromStatus:'NEW',toStatus:'ACKNOWLEDGED'},{['ticket:'+barTicket.id]:1})),'FORBIDDEN');
+        const first=command(cook,'NEW','ACKNOWLEDGED',1),acknowledged=await submit(cook,first);assert.equal(acknowledged.json().status,'CONFIRMED',acknowledged.body);
+        assert.equal(acknowledged.json().value.status,'ACKNOWLEDGED');assert.equal(acknowledged.json().value.version,2);assert.deepEqual((await submit(cook,first)).json(),acknowledged.json());
+        reject(await submit(cook,command(cook,'NEW','ACKNOWLEDGED',1)),'VERSION_CONFLICT');
+        const preparing=await submit(cook,command(cook,'ACKNOWLEDGED','PREPARING',2));assert.equal(preparing.json().status,'CONFIRMED',preparing.body);
+        reject(await submit(cook,command(cook,'PREPARING','READY',2)),'VERSION_CONFLICT');
+        const ready=await submit(cook,command(cook,'PREPARING','READY',3));assert.equal(ready.json().status,'CONFIRMED',ready.body);
+        const current=(await details(waiter,order.id)).tickets.find((ticket:any)=>ticket.id===kitchenTicket.id);assert.equal(current.status,'READY');assert.equal(current.stateVersion,4);assert.equal(current.stateActorName,'Restaurant cook');
+        for(const sql of ['UPDATE restaurant.ticket_state_events SET status=\'NEW\' WHERE ticket_id=$1','DELETE FROM restaurant.ticket_state_events WHERE ticket_id=$1'])await assert.rejects(db.pool.query(sql,[kitchenTicket.id]),{code:'23514'});
+        await assert.rejects(db.pool.query(`INSERT INTO restaurant.ticket_state_events(id,tenant_id,outlet_id,order_id,ticket_id,station_id,event_version,status,previous_status,command_id,actor_id,actor_name_snapshot,device_id)
+          SELECT gen_random_uuid(),tenant_id,outlet_id,order_id,ticket_id,station_id,event_version+1,'PREPARING',status,command_id,actor_id,actor_name_snapshot,device_id
+          FROM restaurant.ticket_state_events WHERE ticket_id=$1 ORDER BY event_version DESC LIMIT 1`,[kitchenTicket.id]),{code:'23514'});
+        assert.equal((await db.pool.query('SELECT count(*)::int n FROM restaurant.ticket_state_events WHERE ticket_id=$1',[kitchenTicket.id])).rows[0].n,4);
+        firstTickets=firstTickets.map((ticket:any)=>ticket.id===current.id?current:ticket);
       });
       await t.test('draft-only cancellation frees labels and order history remains complete and searchable', async () => {
         const created = await save(waiter, 'restaurant.order.create', { tableId: null, serviceLabel: 'Takeaway review' });

@@ -472,3 +472,9 @@ database. Exact-head hosted CI, isolated API/migration acceptance, real API/brow
 acceptance, and release checks remain open. This slice is source/build and
 browser-fixture checked, not database-accepted or deployed. See
 [context switching](60-CONTEXT-SWITCHING.md).
+
+## 2026-10-31 — Restaurant KDS preparation state
+
+Added the durable station-ticket lifecycle `NEW -> ACKNOWLEDGED -> PREPARING -> READY` on the isolated `feat/hospitality-kds-lifecycle` branch. Firing a ticket creates its initial state in the fire transaction. Assigned-device authority, actor/device evidence, version checks, command recovery and the responsive KDS controls are covered in [the KDS state slice](65-RESTAURANT-KDS-STATE-TRANSITIONS.md).
+
+Local verification passed: `npm run typecheck`; `npm run build` (`index-kfAW_u2k.js`, 542.63 kB, with the existing bundle-size warning); all 24 focused restaurant-order browser cases; and `npm run test:api` (108 passed, zero failed, 37 expected skips because no disposable `TEST_DATABASE_URL` is configured). The actual PostgreSQL migration/backfill/race lane remains unverified locally. Exact-head hosted CI and review are required before this development slice can merge. It is not deployed and does not open the restaurant/KDS availability gate.

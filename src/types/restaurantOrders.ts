@@ -19,10 +19,11 @@ export interface RestaurantOrderLine {
   modifiers:string[];instructions:string;stations:RestaurantOrderStation[];fireRevision:number|null;createdAt:string;
 }
 export interface RestaurantOrder extends RestaurantOrderSummary {instructions:string;lines:RestaurantOrderLine[]}
+export type RestaurantTicketState='NEW'|'ACKNOWLEDGED'|'PREPARING'|'READY';
 export interface RestaurantTicketLine {lineId:string;productId:string;sku:string;name:string;itemKind:CatalogItemKind;baseUnit:string;quantity:string;preparationLabel:string;preparationInstructions:string;modifiers:string[];instructions:string}
 export interface RestaurantOrderTicket {
   id:string;orderId:string;batchId:string;fireRevision:number;type:'NEW'|'ADD_ON';stationId:string;stationName:string;
-  stationKind:'KITCHEN'|'BAR'|'EXPO';createdAt:string;documentHash:string;
+  stationKind:'KITCHEN'|'BAR'|'EXPO';createdAt:string;documentHash:string;status:RestaurantTicketState;stateVersion:number;stateChangedAt:string;stateActorName:string;
   snapshot:{schemaVersion:1;ticketId:string;batchId:string;orderId:string;fireRevision:number;type:'NEW'|'ADD_ON';
     station:{id:string;name:string;kind:'KITCHEN'|'BAR'|'EXPO';charactersPerLine:number};
     tableId:string|null;tableName:string|null;serviceLabel:string;orderInstructions:string;

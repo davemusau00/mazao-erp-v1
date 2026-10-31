@@ -65,3 +65,15 @@ test('order command authority separates shared waiter tabs from station-only kit
     for(const capabilities of [['commerce'],['restaurant'],[]])assert.throws(()=>requireCommandAuthority({role:'waiter',capabilities} as ApiSession,type),error=>error instanceof DomainError&&error.code==='CAPABILITY_DISABLED');
   }
 });
+
+test('kitchen state commands are online-only, server-versioned and restricted to preparation roles',()=>{
+  const ticketId=randomUUID(),base={protocolVersion:1 as const,commandId:randomUUID(),deviceId:randomUUID(),occurredAt:'2026-10-30T11:00:00Z',expectedVersions:{['ticket:'+ticketId]:1}};
+  const payload={ticketId,fromStatus:'NEW',toStatus:'ACKNOWLEDGED'};
+  const command={...base,type:'restaurant.ticket.advance',payload};
+  validateCommandPayload(command);assertContract(command,COMMAND_CATALOGUE[command.type].inputSchema);
+  assertContract({ticketId,version:2,status:'ACKNOWLEDGED',changedAt:'2026-10-30T11:00:00.000Z'},COMMAND_CATALOGUE[command.type].outputSchema);
+  for(const bad of [{...payload,ignored:true},{...payload,toStatus:'SERVED'},{...payload,fromStatus:'READY'},{...payload,ticketId:'bad'}])assert.throws(()=>validateCommandPayload({...command,payload:bad}),DomainError);
+  for(const role of ['admin','owner','manager','cook','bartender'])assert.doesNotThrow(()=>requireCommandAuthority({role,capabilities:['commerce','restaurant']} as ApiSession,command.type));
+  for(const role of ['waiter','cashier','accountant','storekeeper'])assert.throws(()=>requireCommandAuthority({role,capabilities:['commerce','restaurant']} as ApiSession,command.type),error=>error instanceof DomainError&&error.code==='FORBIDDEN');
+  for(const capabilities of [['commerce'],['restaurant'],[]])assert.throws(()=>requireCommandAuthority({role:'cook',capabilities} as ApiSession,command.type),error=>error instanceof DomainError&&error.code==='CAPABILITY_DISABLED');
+});

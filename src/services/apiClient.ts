@@ -5,7 +5,7 @@ import {secretOperationJournal,type SecretOperationRecovery} from './secretOpera
 import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
 import type { RestaurantConfiguration, RestaurantProduct } from '../types/restaurant';
-import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket } from '../types/restaurantOrders';
+import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket, RestaurantTicketState } from '../types/restaurantOrders';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
 import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
 import { apiRequestUrl } from './apiOrigin';
@@ -204,7 +204,8 @@ function restaurantOrderLine(value:unknown):boolean {
 function restaurantTicket(value:unknown):boolean {
   if(!isRecord(value)||!restaurantId(value.id)||!restaurantId(value.orderId)||!restaurantId(value.batchId)||!restaurantInteger(value.fireRevision,1)
     ||!['NEW','ADD_ON'].includes(String(value.type))||!restaurantId(value.stationId)||typeof value.stationName!=='string'
-    ||!['KITCHEN','BAR','EXPO'].includes(String(value.stationKind))||typeof value.createdAt!=='string'||typeof value.documentHash!=='string'||!/^[a-f0-9]{64}$/.test(value.documentHash)||!isRecord(value.snapshot))return false;
+    ||!['KITCHEN','BAR','EXPO'].includes(String(value.stationKind))||typeof value.createdAt!=='string'||typeof value.documentHash!=='string'||!/^[a-f0-9]{64}$/.test(value.documentHash)
+    ||!['NEW','ACKNOWLEDGED','PREPARING','READY'].includes(String(value.status))||!restaurantInteger(value.stateVersion,1)||typeof value.stateChangedAt!=='string'||typeof value.stateActorName!=='string'||!isRecord(value.snapshot))return false;
   const s=value.snapshot;
   return s.schemaVersion===1&&s.ticketId===value.id&&s.orderId===value.orderId&&s.batchId===value.batchId&&s.fireRevision===value.fireRevision&&s.type===value.type
     &&(value.type==='NEW'?value.fireRevision===1:Number(value.fireRevision)>1)
@@ -574,6 +575,10 @@ class ApiClient {
     const result=await this.request<{tickets:RestaurantOrderTicket[];page:HistoryPage}>(historyUrl('/restaurant/stations/'+encodeURIComponent(stationId)+'/tickets',options),{signal});
     if(!Array.isArray(result.tickets)||!result.tickets.every(ticket=>restaurantTicket(ticket)&&ticket.stationId===stationId)||!restaurantProductPage(result.page))throw new ApiClientError('The saved station tickets are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
     return result;
+  }
+  advanceRestaurantTicket(ticketId:string,fromStatus:RestaurantTicketState,toStatus:Exclude<RestaurantTicketState,'NEW'>,version:number,commandId:string){
+    const session=this.session;if(!session)throw new Error('Sign in before updating a kitchen ticket.');
+    return this.submitCommand({protocolVersion:1,commandId,tenantId:session.tenant.id,deviceId:session.deviceId,type:'restaurant.ticket.advance',occurredAt:new Date().toISOString(),expectedVersions:{['ticket:'+ticketId]:version},payload:{ticketId,fromStatus,toStatus}});
   }
   async getStockSalePolicy(signal?:AbortSignal){
     const result=await this.request<{policy:BackendStockSalePolicy}>('/configuration/stock-sale-policy',{signal});

@@ -11,6 +11,7 @@ export const RESTAURANT_ORDER_CONTRACTS:Record<string,{payload:ContractSchema;ou
   'restaurant.order.hold':{payload:object({orderId:uuidSchema,held:{type:'boolean'},reason:text(500,true)}),output:object(properties)},
   'restaurant.order.cancel':{payload:object({orderId:uuidSchema,reason:text(500,true)}),output:cancelledOutput},
   'restaurant.order.fire':{payload:object({orderId:uuidSchema}),output:object({...properties,status:{type:'string',const:'FIRED'},held:{type:'boolean',const:false},fireRevision:{type:'integer',minimum:1,maximum:100},batchId:uuidSchema,ticketIds:{type:'array',items:uuidSchema,minItems:1,maxItems:100,uniqueItems:true},ticketType:{type:'string',pattern:'^(?:NEW|ADD_ON)$'}})},
+  'restaurant.ticket.advance':{payload:object({ticketId:uuidSchema,fromStatus:{type:'string',pattern:'^(?:NEW|ACKNOWLEDGED|PREPARING)$'},toStatus:{type:'string',pattern:'^(?:ACKNOWLEDGED|PREPARING|READY)$'}}),output:object({ticketId:uuidSchema,version:versionSchema,status:{type:'string',pattern:'^(?:ACKNOWLEDGED|PREPARING|READY)$'},changedAt:{type:'string',format:'date-time'}})},
 };
 export const RESTAURANT_ORDER_LIMITS={openOrders:200,linesPerOrder:100,historicalLinesPerOrder:500} as const;
 

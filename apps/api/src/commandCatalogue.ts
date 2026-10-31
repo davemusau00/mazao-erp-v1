@@ -161,6 +161,7 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'restaurant.order.hold': contract('restaurant.order.hold', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order']),
   'restaurant.order.cancel': contract('restaurant.order.cancel', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order']),
   'restaurant.order.fire': contract('restaurant.order.fire', ['restaurant.order'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['restaurant_order','immutable_ticket_batch']),
+  'restaurant.ticket.advance': contract('restaurant.ticket.advance', ['restaurant.ticket.work'], ['restaurant','commerce'], 'restaurantOrders.ts#executeRestaurantOrderCommand', ['immutable_ticket_state_event']),
   'restaurant.section.save': contract('restaurant.section.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
   'restaurant.table.save': contract('restaurant.table.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),
   'restaurant.station.save': contract('restaurant.station.save', ['restaurant.manage'], ['restaurant','commerce'], 'restaurant.ts#executeRestaurantCommand', ['restaurant_configuration']),

@@ -35,6 +35,7 @@ const messages: Record<string, string> = {
   RESTAURANT_FIRED_LINES_IMMUTABLE: 'This line already has a saved station ticket. Cancellation and void tickets are not available yet.',
   RESTAURANT_MENU_UNAVAILABLE: 'This item or its preparation stations are unavailable. Review the menu setup before adding or firing it.',
   RESTAURANT_NO_UNFIRED_LINES: 'Save at least one unfired draft line before creating station tickets.',
+  RESTAURANT_TICKET_TRANSITION_INVALID: 'Refresh this kitchen ticket and use its next available preparation action.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   INSUFFICIENT_STOCK: 'There is not enough stock for this sale. Review the quantities or receive more stock.',
@@ -112,6 +113,13 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
   const value = outcome.value as Record<string, unknown>;
   const identifier = (key:string) => typeof value[key] === 'string' && value[key] !== '' && (commandPayload?.[key] === undefined || value[key] === commandPayload[key]);
   const version = (key:string) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && Number(value[key]) >= 1;
+  if(commandType==='restaurant.ticket.advance'){
+    const ticketId=commandPayload?.ticketId,originalVersion=typeof ticketId==='string'?expectedVersions?.['ticket:'+ticketId]:undefined;
+    const next:Record<string,string>={NEW:'ACKNOWLEDGED',ACKNOWLEDGED:'PREPARING',PREPARING:'READY'};
+    return typeof ticketId==='string'&&value.ticketId===ticketId&&version('version')&&typeof originalVersion==='number'&&Number.isSafeInteger(originalVersion)
+      &&value.version===originalVersion+1&&value.status===next[String(commandPayload?.fromStatus)]&&value.status===commandPayload?.toStatus
+      &&typeof value.changedAt==='string'&&!Number.isNaN(Date.parse(value.changedAt));
+  }
   if(commandType?.startsWith('restaurant.order.')){
     const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const types=['restaurant.order.create','restaurant.order.save','restaurant.order.hold','restaurant.order.fire','restaurant.order.cancel'];

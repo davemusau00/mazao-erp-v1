@@ -188,6 +188,8 @@ async function fireOrder(client:PoolClient,session:ApiSession,envelope:CommandEn
     const documentHash=createHash('sha256').update(stableStringify(snapshot)).digest('hex');
     await client.query('INSERT INTO restaurant.tickets(id,tenant_id,outlet_id,order_id,batch_id,station_id,station_name_snapshot,station_kind_snapshot,document_hash,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)',[ticketId,session.tenantId,session.outletId,order.id,batchId,station.id,station.name,station.kind,documentHash,JSON.stringify(snapshot)]);
     for(const line of routed)await client.query('INSERT INTO restaurant.ticket_lines(tenant_id,outlet_id,order_id,ticket_id,order_line_id,station_id) VALUES($1,$2,$3,$4,$5,$6)',[session.tenantId,session.outletId,order.id,ticketId,line.id,station.id]);
+    await client.query(`INSERT INTO restaurant.ticket_state_events(id,tenant_id,outlet_id,order_id,ticket_id,station_id,event_version,status,previous_status,command_id,actor_id,actor_name_snapshot,device_id,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,1,'NEW',NULL,$7,$8,$9,$10,$11)`,[randomUUID(),session.tenantId,session.outletId,order.id,ticketId,station.id,envelope.commandId,session.userId,session.fullName,session.deviceId,firedAt]);
     ticketIds.push(ticketId);
   }
   await client.query('UPDATE restaurant.order_lines SET fire_revision=$4 WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 AND removed_at IS NULL AND fire_revision IS NULL',[session.tenantId,session.outletId,order.id,revision]);
@@ -195,8 +197,36 @@ async function fireOrder(client:PoolClient,session:ApiSession,envelope:CommandEn
   const value={...result(updated.rows[0]),batchId,ticketIds,ticketType:type};
   await evidence(client,session,envelope,order,{...value,lineIds:drafts.map(line=>line.id),originalBatchId:original,firedAt});return value;
 }
+type TicketState='NEW'|'ACKNOWLEDGED'|'PREPARING'|'READY';
+async function advanceTicket(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
+  access(session,'restaurant.ticket.view');
+  const ticketId=envelope.payload.ticketId as string;
+  const requestedFrom=envelope.payload.fromStatus as TicketState,requestedTo=envelope.payload.toStatus as TicketState;
+  if(!session.capabilities.includes('restaurant')||!session.capabilities.includes('commerce'))throw new DomainError('CAPABILITY_DISABLED','Restaurant operations require restaurant and commerce capabilities.',403);
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('restaurant-ticket:'||$1::text||':'||$2::text||':'||$3::text,0))",[session.tenantId,session.outletId,ticketId]);
+  const found=await client.query('SELECT id,order_id,station_id FROM restaurant.tickets WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3',[session.tenantId,session.outletId,ticketId]);
+  if(!found.rowCount)throw new DomainError('NOT_FOUND','Kitchen ticket was not found at this outlet.',404);
+  const ticketRow=found.rows[0];
+  const authority=await authorizedStations(client,session);
+  if(!authority.stations.some(station=>station.id===ticketRow.station_id))throw new DomainError('FORBIDDEN','This device is not currently assigned to the ticket station.',403);
+  const latest=await client.query('SELECT event_version,status FROM restaurant.ticket_state_events WHERE tenant_id=$1 AND outlet_id=$2 AND ticket_id=$3 ORDER BY event_version DESC LIMIT 1',[session.tenantId,session.outletId,ticketId]);
+  if(!latest.rowCount)throw new DomainError('INTERNAL_ERROR','The ticket preparation state is missing.',500);
+  const currentVersion=Number(latest.rows[0].event_version),currentStatus=latest.rows[0].status as TicketState;
+  const key=`ticket:${ticketId}`,expectedVersion=envelope.expectedVersions[key];
+  if(!Number.isSafeInteger(expectedVersion)||Number(expectedVersion)<1)throw new DomainError('VALIDATION_FAILED','The current ticket state version is required.');
+  if(Number(expectedVersion)!==currentVersion||requestedFrom!==currentStatus)throw new DomainError('VERSION_CONFLICT','This ticket changed on another station. Refresh its current state before continuing.',409,{key,currentVersion,status:currentStatus});
+  const next:Record<TicketState,TicketState|null>={NEW:'ACKNOWLEDGED',ACKNOWLEDGED:'PREPARING',PREPARING:'READY',READY:null};
+  if(next[currentStatus]!==requestedTo)throw new DomainError('RESTAURANT_TICKET_TRANSITION_INVALID','Kitchen tickets must move from new to acknowledged, preparing, then ready.',409,{status:currentStatus});
+  const inserted=await client.query(`INSERT INTO restaurant.ticket_state_events(id,tenant_id,outlet_id,order_id,ticket_id,station_id,event_version,status,previous_status,command_id,actor_id,actor_name_snapshot,device_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING created_at`,[randomUUID(),session.tenantId,session.outletId,ticketRow.order_id,ticketId,ticketRow.station_id,currentVersion+1,requestedTo,currentStatus,envelope.commandId,session.userId,session.fullName,session.deviceId]);
+  const changedAt=asIso(inserted.rows[0].created_at),value={ticketId,version:currentVersion+1,status:requestedTo,changedAt};
+  await evidence(client,session,envelope,{ticketId,status:currentStatus,version:currentVersion},{...value,actorId:session.userId,stationId:ticketRow.station_id});
+  return value;
+}
 export async function executeRestaurantOrderCommand(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
-  requireCommandAuthority(session,envelope.type);access(session,'restaurant.order');await lockOrders(client,session);
+  requireCommandAuthority(session,envelope.type);
+  if(envelope.type==='restaurant.ticket.advance')return advanceTicket(client,session,envelope);
+  access(session,'restaurant.order');await lockOrders(client,session);
   try {
     if(envelope.type==='restaurant.order.create')return await createOrder(client,session,envelope);
     if(envelope.type==='restaurant.order.save')return await saveOrder(client,session,envelope);
@@ -224,8 +254,13 @@ export async function listRestaurantOrders(session:ApiSession,query:HistoryQuery
     return {orders:result.rows.map(summary),page:result.page,limits:RESTAURANT_ORDER_LIMITS};
   });
 }
-const ticketSource=`SELECT t.*,b.fire_revision,b.ticket_type,t.created_at sort_at,t.snapshot::text search_text FROM restaurant.tickets t JOIN restaurant.fire_batches b ON b.tenant_id=t.tenant_id AND b.outlet_id=t.outlet_id AND b.order_id=t.order_id AND b.id=t.batch_id WHERE t.tenant_id=$1 AND t.outlet_id=$2`;
-function ticket(row:Row) { return {id:row.id,orderId:row.order_id,batchId:row.batch_id,fireRevision:Number(row.fire_revision),type:row.ticket_type,stationId:row.station_id,stationName:row.station_name_snapshot,stationKind:row.station_kind_snapshot,createdAt:asIso(row.created_at),documentHash:row.document_hash,snapshot:row.snapshot}; }
+const ticketSource=`SELECT t.*,b.fire_revision,b.ticket_type,t.created_at sort_at,t.snapshot::text search_text,
+  state.status state_status,state.event_version state_version,state.created_at state_changed_at,state.actor_name_snapshot state_actor_name
+  FROM restaurant.tickets t JOIN restaurant.fire_batches b ON b.tenant_id=t.tenant_id AND b.outlet_id=t.outlet_id AND b.order_id=t.order_id AND b.id=t.batch_id
+  LEFT JOIN LATERAL (SELECT e.status,e.event_version,e.created_at,e.actor_name_snapshot FROM restaurant.ticket_state_events e
+    WHERE e.tenant_id=t.tenant_id AND e.outlet_id=t.outlet_id AND e.ticket_id=t.id ORDER BY e.event_version DESC LIMIT 1) state ON true
+  WHERE t.tenant_id=$1 AND t.outlet_id=$2`;
+function ticket(row:Row) { return {id:row.id,orderId:row.order_id,batchId:row.batch_id,fireRevision:Number(row.fire_revision),type:row.ticket_type,stationId:row.station_id,stationName:row.station_name_snapshot,stationKind:row.station_kind_snapshot,createdAt:asIso(row.created_at),documentHash:row.document_hash,status:row.state_status as TicketState,stateVersion:Number(row.state_version),stateChangedAt:asIso(row.state_changed_at),stateActorName:row.state_actor_name,snapshot:row.snapshot}; }
 async function orderTickets(client:PoolClient,session:ApiSession,orderId:string,query:HistoryQuery={}) {
   const result=await readHistoryPage(client,session,`restaurant-order-tickets:${orderId}`,query,`${ticketSource} AND t.order_id=$3`,[session.tenantId,session.outletId,orderId]);
   return {tickets:result.rows.map(ticket),page:result.page};
