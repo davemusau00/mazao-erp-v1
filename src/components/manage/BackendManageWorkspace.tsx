@@ -7,6 +7,7 @@ import { canDiscover, managementFeatureState, managementFeatures, type Managemen
 import type { WorkspaceId } from '../../types/ui';
 import type { AccountingArea } from '../../types/accounting';
 import { StaffAccessWorkspace } from './StaffAccessWorkspace';
+import { useCommandRecoveryNavigation } from '../../app/CommandRecoveryNavigation';
 import { safeRasterImageSource } from '../../utils/html';
 import { apiAssetUsesCredentials, resolveApiAssetUrl } from '../../services/apiOrigin';
 import './BackendManageWorkspace.css';
@@ -27,6 +28,7 @@ function outletInput(configuration:BackendConfiguration):BackendOutletConfigurat
 
 export function BackendManageWorkspace({initialSection='overview',onNavigate,onOpenImport,onOpenAccounting}:{initialSection?:Section;onNavigate:(workspace:WorkspaceId)=>boolean|void;onOpenImport:()=>void;onOpenAccounting:(area:AccountingArea)=>void}) {
   const session=apiClient.getSession()!;
+  const recoveryNavigation=useCommandRecoveryNavigation();
   const canEdit=session.user.permissions.includes('config.manage');
   const canConfigureStockExceptions=session.user.permissions.includes('inventory.shortfall.configure');
   const canReadStockPolicy=session.user.permissions.some(permission=>['commerce.sell','inventory.shortfall.configure','inventory.shortfall.view'].includes(permission));
@@ -64,6 +66,7 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
   const [receiptQrDraft,setReceiptQrDraft]=useState<ImageDraft>({mode:'keep'});
   const pending=useRef<BackendCommand|null>(null);
   const mounted=useRef(true);
+  const recoveryRead=useRef(0);
   const loadController=useRef<AbortController|null>(null);
   const loadGeneration=useRef(0);
   const editingBlocked=!canEdit||busy||Boolean(unknownId)||conflict||!recoveryChecked;
@@ -97,23 +100,38 @@ export function BackendManageWorkspace({initialSection='overview',onNavigate,onO
 
   useEffect(()=>{mounted.current=true;selectedOutletRef.current=session.outlet.id;setSelectedOutletId(session.outlet.id);setNewOutletTimeZone(session.tenant.timeZone);void load();return()=>{mounted.current=false;loadController.current?.abort();};},[session.tenant.id,session.outlet.id]);
   useEffect(()=>{setSection(initialSection);},[initialSection]);
+  useEffect(()=>{
+    if(recoveryNavigation?.destination.kind!=='manage')return;
+    if(dirty&&configuration){
+      setBusiness(businessInput(configuration));
+      const selected=configuration.outlets.find(item=>item.id===selectedOutletId)??configuration.outlet;
+      setOutlet(outletInput({...configuration,outlet:selected}));
+      const tax=selected.taxPolicy??configuration.business.taxPolicy;
+      setOutletTaxOverride(Boolean(selected.taxPolicy));setOutletTaxRate(`${Math.floor(tax.defaultRateBps/100)}.${String(tax.defaultRateBps%100).padStart(2,'0')}`);setOutletTaxLabel(tax.label);setOutletTaxReviewed(selected.taxPolicy?.reviewed??false);
+      setCapabilities(configuration.capabilities);setStockPolicyEnabled(stockPolicy?.enabled??false);setAllowZeroReferenceCost(stockPolicy?.allowZeroReferenceCost??true);
+      const bps=configuration.business.taxPolicy.defaultRateBps;setTaxRate(`${Math.floor(bps/100)}.${String(bps%100).padStart(2,'0')}`);setDirty(false);
+    }
+    setSection(recoveryNavigation.destination.section);setError('');
+  },[recoveryNavigation?.requestId]);
   const loadRecovery=async()=>{
-    setRecoveryChecked(false);setRecoveryError('');
+    const request=++recoveryRead.current;
+    setRecoveryChecked(false);setRecoveryError('');pending.current=null;setUnknownId('');
     try {
       const records=await apiClient.listRecoverableCommands(session.tenant.id);
-      const unresolved=records.find(record=>record.command.type.startsWith('configuration.')&&record.command.deviceId===session.deviceId);
-      if(!mounted.current)return;
+      const matching=records.filter(record=>record.command.type.startsWith('configuration.')&&record.actorId===session.user.id&&record.command.tenantId===session.tenant.id&&record.command.deviceId===session.deviceId);
+      const unresolved=matching.find(record=>record.command.commandId===recoveryNavigation?.record.command.commandId)??matching[0];
+      if(!mounted.current||request!==recoveryRead.current)return;
       if(unresolved){
         pending.current=unresolved.command;setUnknownId(unresolved.command.commandId);
         setNotice('A settings change needs review. Check its status before making another change.');
-      }
+      }else{pending.current=null;setUnknownId('');}
       setRecoveryChecked(true);
-    } catch(cause){if(mounted.current)setRecoveryError(cause instanceof Error?cause.message:'We could not check for unfinished actions.');}
+    } catch(cause){if(mounted.current&&request===recoveryRead.current)setRecoveryError(cause instanceof Error?cause.message:'We could not check for unfinished actions.');}
   };
   useEffect(()=>{
     mounted.current=true;void loadRecovery();
-    return()=>{mounted.current=false;};
-  },[session.tenant.id,session.deviceId]);
+    return()=>{mounted.current=false;++recoveryRead.current;};
+  },[session.tenant.id,session.user.id,session.deviceId,recoveryNavigation?.requestId]);
   useEffect(()=>{
     const beforeUnload=(event:BeforeUnloadEvent)=>{if(dirty){event.preventDefault();event.returnValue='';}};
     const beforeNavigate=(event:Event)=>{if(dirty&&!window.confirm('Discard unsaved business settings and leave this page?'))event.preventDefault();};

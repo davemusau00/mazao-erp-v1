@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, BarChart3, ChefHat, CircleHelp, ClipboardCheck, Clock3, Download, Hotel, LayoutDashboard, Menu, Package, Scale, Settings2, ShoppingCart, Truck, Users, Wifi, WifiOff, X, CalendarDays, PackageSearch } from 'lucide-react';
 import type { WorkspaceId } from '../../types/ui';
 import { featureState, workspaceFeatures } from '../../app/featureRegistry';
@@ -8,6 +8,8 @@ import type { RecoverableCommand } from '../../services/commandJournal';
 import type { ImportValidationRecovery } from '../../services/importValidationJournal';
 import { MyAccountDialog } from '../auth/MyAccountDialog';
 import { actionStatusLabel, operationLabel, roleLabel } from '../../utils/presentation';
+import { recoveryDestination, recoveryNavigationUnavailable, type RecoveryNavigation } from '../../app/commandRecoveryRouting';
+import { CommandRecoveryNavigationContext } from '../../app/CommandRecoveryNavigation';
 
 export type ActiveTab=WorkspaceId;
 const workspaceIcons:Record<WorkspaceId,React.ReactNode>={today:<LayoutDashboard/>,sell:<ShoppingCart/>,sales:<Clock3/>,service:<ChefHat/>,catalog:<Package/>,stock:<Package/>,'stock-count':<ClipboardCheck/>,'stock-exceptions':<PackageSearch/>,purchasing:<Truck/>,hotel:<Hotel/>,reservations:<CalendarDays/>,customers:<Users/>,shifts:<Clock3/>,money:<Scale/>,reports:<BarChart3/>,manage:<Settings2/>,onboarding:<ClipboardCheck/>,help:<CircleHelp/>};
@@ -29,7 +31,9 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
   const [importRecoveries,setImportRecoveries]=useState<ImportValidationRecovery[]>([]);
   const [logoutError,setLogoutError]=useState('');
   const [recoveryOpen,setRecoveryOpen]=useState(false);
+  const recoveryDialog=useRef<HTMLElement|null>(null);
   const [accountOpen,setAccountOpen]=useState(false);
+  const [recoveryNavigation,setRecoveryNavigation]=useState<RecoveryNavigation|null>(null);
   const [contextSwitchOpen,setContextSwitchOpen]=useState(false);
   const [contextAssignments,setContextAssignments]=useState<BackendAssignmentChoice[]>([]);
   const [contextBlockers,setContextBlockers]=useState<BackendContextSwitchBlockers|null>(null);
@@ -67,15 +71,32 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     void apiClient.listImportValidationRecovery().then(setImportRecoveries).catch(()=>setImportRecoveries([]));
     return apiClient.subscribeImportRecovery(setImportRecoveries);
   },[session?.tenant.id,session?.user.id,session?.deviceId]);
+  useEffect(()=>{
+    if(!recoveryOpen)return;
+    const previousFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const controls=()=>Array.from(recoveryDialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')??[]);
+    const frame=requestAnimationFrame(()=>controls()[0]?.focus());
+    const keydown=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();setRecoveryOpen(false);return;}
+      if(event.key!=='Tab')return;
+      const items=controls(),first=items[0],last=items[items.length-1];
+      if(!first){event.preventDefault();return;}
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    };
+    window.addEventListener('keydown',keydown);
+    return()=>{cancelAnimationFrame(frame);window.removeEventListener('keydown',keydown);previousFocus?.focus();};
+  },[recoveryOpen]);
   const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
   const available=useMemo(()=>session?discoverable.filter(item=>canOpenWorkspace(session,item.id)):[],[session,discoverable]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
-  const selectWorkspace=(id:WorkspaceId)=>{
-    if(!canOpenWorkspace(session,id))return;
-    if(id!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+  const selectWorkspace=(id:WorkspaceId,preserveRecovery=false)=>{
+    if(!canOpenWorkspace(session,id))return false;
+    if(id!==activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return false;
     if(id!==activeTab)apiClient.cancelPendingReads();
-    onTabChange(id);setMoreOpen(false);
+    if(!preserveRecovery)setRecoveryNavigation(null);
+    onTabChange(id);setMoreOpen(false);return true;
   };
   const signOut=async()=>{
     if(!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
@@ -103,7 +124,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     finally{setContextBusy(false);}
   };
   const copyRequestId=async(requestId:string)=>{try{await navigator.clipboard.writeText(requestId);setCopiedRequestId(requestId);}catch{setCopiedRequestId('');}};
-  const openAccount=()=>{if(window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true})))setAccountOpen(true);};
+  const openAccount=()=>{if(window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true}))){setRecoveryNavigation(null);setAccountOpen(true);}};
   const checkCommand=async(commandId:string)=>{
     setCheckingCommand(commandId);setRecoveryMessages(previous=>({...previous,[commandId]:''}));
     try{
@@ -115,11 +136,23 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     }catch(cause){setRecoveryMessages(previous=>({...previous,[commandId]:cause instanceof Error?cause.message:'We could not check status. The original action details remain saved.'}));}
     finally{setCheckingCommand('');}
   };
-  const openCommandWorkspace=(type:string)=>{
-    const destination:WorkspaceId=type.startsWith('configuration.')?'manage':type.startsWith('finance.')?'money':type.startsWith('inventory.sale_shortfall.')?'stock-exceptions':type.startsWith('inventory.count.')?'stock-count':type.startsWith('customers.')?'customers':type.startsWith('hotel.')?'hotel':type==='sales.order.settle'||type==='sales.order.refund'?'sales':type==='inventory.receive'?'purchasing':type.startsWith('catalog.')?'catalog':'shifts';
-    setRecoveryOpen(false);selectWorkspace(destination);
+  const openCommandWorkspace=(record:RecoverableCommand)=>{
+    const destination=recoveryDestination(session,record);
+    if(!destination)return;
+    if(destination.kind==='account'){
+      if(!window.dispatchEvent(new Event('mazao:before-account-open',{cancelable:true})))return;
+      setAccountOpen(true);
+    }else{
+      const workspace=destination.kind==='manage'?'manage':destination.workspace;
+      if(workspace===activeTab&&!window.dispatchEvent(new Event('mazao:before-navigate',{cancelable:true})))return;
+      if(!selectWorkspace(workspace,true))return;
+    }
+    setRecoveryNavigation({requestId:crypto.randomUUID(),record,destination});setRecoveryOpen(false);
   };
-  return <div className="app-shell">
+  const currentDestination=recoveryNavigation?recoveryDestination(session,recoveryNavigation.record):null;
+  const currentRecoveryNavigation=recoveryNavigation&&currentDestination?{...recoveryNavigation,destination:currentDestination}:null;
+  const scopedRecoverableCommands=recoverableCommands.filter(record=>record.actorId===session.user.id&&record.command.tenantId===session.tenant.id);
+  return <CommandRecoveryNavigationContext.Provider value={currentRecoveryNavigation}><div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Main navigation">
       <div className="brand-lockup"><div className="brand-mark">M</div><div><strong>Mazao</strong><small>BUSINESS WORKSPACE</small></div></div>
@@ -134,17 +167,22 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
         {slowRequests.size>0&&<div role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">Loading is taking longer than usual. If it stops, use Try again in the affected section.</div>}
         {requestFailures.length>0&&<details className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300"><summary className="min-h-11 cursor-pointer py-2 font-semibold">Support references ({requestFailures.length})</summary><p className="mb-2 text-zinc-500">Share a reference with support if you need help loading information.</p><ul className="space-y-2">{requestFailures.map(item=><li key={item.requestId} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800 pt-2"><span>Information could not be loaded.</span><code className="break-all text-blue-200">{item.requestId}</code><button type="button" className="min-h-9 rounded border border-zinc-700 px-2" onClick={()=>void copyRequestId(item.requestId)}>{copiedRequestId===item.requestId?'Copied':'Copy reference'}</button></li>)}</ul></details>}
         {logoutError&&<div role="alert" className="persistence-error-banner"><strong>We could not confirm sign-out.</strong> {logoutError}</div>}
-        {recoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{recoverableCommands.length+importRecoveries.length} operation{recoverableCommands.length+importRecoveries.length===1?'':'s'} need review.</strong> The original action details are saved on this device for checking status. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Review actions</button></div>}
+        {scopedRecoverableCommands.length+importRecoveries.length>0&&<div role="alert" className="persistence-error-banner"><strong>{scopedRecoverableCommands.length+importRecoveries.length} operation{scopedRecoverableCommands.length+importRecoveries.length===1?'':'s'} need review.</strong> The original action details are saved on this device for checking status. <button type="button" className="ml-2 min-h-11 underline" onClick={openRecovery}>Review actions</button></div>}
         <div className="workspace-interaction-boundary">{children}</div>
       </main>
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">{(['today','sell','stock'] as WorkspaceId[]).map(id=>{const item=available.find(entry=>entry.id===id);return item?<button type="button" key={id} className={activeTab===id?'active':''} onClick={()=>selectWorkspace(id)} aria-current={activeTab===id?'page':undefined}>{item.icon}<span>{item.label}</span></button>:null;})}<button type="button" className={moreOpen?'active':''} onClick={()=>setMoreOpen(value=>!value)} aria-expanded={moreOpen}><Menu/><span>More</span></button></nav>
       {moreOpen&&<div className="mobile-more-panel"><div className="mobile-more-head"><strong>All workspaces</strong><button type="button" className="min-h-11 min-w-11" onClick={()=>setMoreOpen(false)} aria-label="Close navigation"><X size={18}/></button></div>{discoverable.filter(item=>!['today','sell','stock'].includes(item.id)).map(item=>{const state=featureState(session,item);const navigable=state==='connected'||state==='partial';const status=state==='not_connected'?'Unavailable':state==='not_enabled'?'Not enabled':state==='partial'?'Limited':null;return <button type="button" key={item.id} disabled={!navigable} aria-disabled={!navigable} title={status?`${status}. ${item.description}`:item.label} onClick={()=>selectWorkspace(item.id)} className={`${activeTab===item.id?'active ':''}${!navigable?'nav-link-disabled':''}`}>{item.icon}<span>{item.label}</span>{status&&<small>{status}</small>}</button>;})}</div>}
-      {recoveryOpen&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setRecoveryOpen(false);}}><section role="dialog" aria-modal="true" aria-labelledby="recovery-center-title" className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl"><header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-blue-300">CHECK BEFORE REPEATING</p><h2 id="recovery-center-title" className="mt-1 text-xl font-bold">Actions needing review</h2><p className="mt-1 text-xs text-zinc-400">Check status before repeating an action. Nothing is automatically sent again from here.</p></div><button type="button" onClick={()=>setRecoveryOpen(false)} aria-label="Close actions needing review" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800"><X size={18}/></button></header>
-        <div className="space-y-5 p-4 sm:p-5">{lastRecoveryResult&&<div role="status" className="rounded-lg border border-emerald-900 bg-emerald-950/30 p-3 text-xs text-emerald-100"><strong>Last status check: {actionStatusLabel(lastRecoveryResult.status)}</strong><p className="mt-1">{lastRecoveryResult.message}</p><details className="mt-2"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{lastRecoveryResult.commandId}</p></details></div>}<section aria-labelledby="server-command-list-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="server-command-list-title" className="text-sm font-semibold">Business actions</h3><span className="text-[11px] text-zinc-500">{recoverableCommands.length} to review</span></div>{recoverableCommands.length? <div className="space-y-2">{recoverableCommands.map(record=><article key={record.command.commandId} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-semibold text-zinc-100">{operationLabel(record.command.type)}</p><details className="mt-2 text-xs text-zinc-400"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{record.command.commandId}</p></details><p className="mt-1 text-[10px] text-zinc-500">{record.state==='sending'?'Submission was interrupted':'Outcome was not confirmed'} · retained {new Date(record.savedAt).toLocaleString()}</p></div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" onClick={()=>void checkCommand(record.command.commandId)} disabled={checkingCommand===record.command.commandId} className="min-h-10 rounded-lg border border-blue-800 px-3 text-xs font-medium text-blue-200 disabled:opacity-50">{checkingCommand===record.command.commandId?'Checking…':'Check status'}</button><button type="button" onClick={()=>openCommandWorkspace(record.command.type)} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs text-zinc-300">Open workspace</button></div></div>{recoveryMessages[record.command.commandId]&&<p role="status" className="mt-2 text-xs text-amber-200">{recoveryMessages[record.command.commandId]}</p>}</article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No business actions need review on this browser.</p>}</section>
-          <section aria-labelledby="import-recovery-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="import-recovery-title" className="text-sm font-semibold">Product imports</h3><span className="text-[11px] text-zinc-500">{importRecoveries.length} to review</span></div>{importRecoveries.length?<div className="space-y-2">{importRecoveries.map(record=><article key={record.commandId} className="rounded-lg border border-amber-900/70 bg-amber-950/20 p-3"><p className="text-xs font-semibold text-amber-100">{record.fileName} · confirmation needed</p><details className="mt-2 text-xs"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{record.sourceHash}</p></details><p className="mt-1 text-[11px] text-amber-100/70">Reopen product import and select the original file to check it again. The file contents are not saved on this device.</p><button type="button" onClick={()=>{setRecoveryOpen(false);selectWorkspace('catalog');}} className="mt-2 min-h-10 rounded-lg border border-amber-800 px-3 text-xs font-semibold text-amber-100">Open product import review</button></article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No product imports need review on this browser.</p>}</section>
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] leading-relaxed text-zinc-400">Sales need a connection to complete. Check an unconfirmed payment before taking payment again.</div>
-        </div></section></div>}
-      {contextSwitchOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!contextBusy)setContextSwitchOpen(false);}}>
+      {recoveryOpen&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setRecoveryOpen(false);}}>
+        <section ref={recoveryDialog} role="dialog" aria-modal="true" aria-labelledby="recovery-center-title" className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+          <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-zinc-800 bg-zinc-950 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-blue-300">CHECK BEFORE REPEATING</p><h2 id="recovery-center-title" className="mt-1 text-xl font-bold">Actions needing review</h2><p className="mt-1 text-xs text-zinc-400">Check status before repeating an action. Nothing is automatically sent again from here.</p></div><button type="button" onClick={()=>setRecoveryOpen(false)} aria-label="Close actions needing review" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800"><X size={18}/></button></header>
+          <div className="space-y-5 p-4 sm:p-5">
+            {lastRecoveryResult&&<div role="status" className="rounded-lg border border-emerald-900 bg-emerald-950/30 p-3 text-xs text-emerald-100"><strong>Last status check: {actionStatusLabel(lastRecoveryResult.status)}</strong><p className="mt-1">{lastRecoveryResult.message}</p><details className="mt-2"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{lastRecoveryResult.commandId}</p></details></div>}
+            <section aria-labelledby="server-command-list-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="server-command-list-title" className="text-sm font-semibold">Business actions</h3><span className="text-[11px] text-zinc-500">{scopedRecoverableCommands.length} to review</span></div>{scopedRecoverableCommands.length?<div className="space-y-2">{scopedRecoverableCommands.map(record=>{const unavailable=recoveryNavigationUnavailable(session,record);return <article key={record.command.commandId} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-semibold text-zinc-100">{operationLabel(record.command.type)}</p><details className="mt-2 text-xs text-zinc-400"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{record.command.commandId}</p></details><p className="mt-1 text-[10px] text-zinc-500">{record.state==='sending'?'Submission was interrupted':'Outcome was not confirmed'} · retained {new Date(record.savedAt).toLocaleString()}</p></div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" onClick={()=>void checkCommand(record.command.commandId)} disabled={checkingCommand===record.command.commandId} className="min-h-10 rounded-lg border border-blue-800 px-3 text-xs font-medium text-blue-200 disabled:opacity-50">{checkingCommand===record.command.commandId?'Checking…':'Check status'}</button><button type="button" onClick={()=>openCommandWorkspace(record)} disabled={Boolean(unavailable)} title={unavailable??undefined} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50">Open workspace</button></div></div>{unavailable&&<p role="status" className="mt-2 text-xs text-amber-200">{unavailable}</p>}{recoveryMessages[record.command.commandId]&&<p role="status" className="mt-2 text-xs text-amber-200">{recoveryMessages[record.command.commandId]}</p>}</article>;})}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No business actions need review on this browser.</p>}</section>
+            <section aria-labelledby="import-recovery-title"><div className="mb-2 flex items-center justify-between gap-2"><h3 id="import-recovery-title" className="text-sm font-semibold">Product imports</h3><span className="text-[11px] text-zinc-500">{importRecoveries.length} to review</span></div>{importRecoveries.length?<div className="space-y-2">{importRecoveries.map(record=><article key={record.commandId} className="rounded-lg border border-amber-900/70 bg-amber-950/20 p-3"><p className="text-xs font-semibold text-amber-100">{record.fileName} · confirmation needed</p><details className="mt-2 text-xs"><summary className="cursor-pointer">Support reference</summary><p className="mt-1 break-all font-mono text-[10px]">{record.sourceHash}</p></details><p className="mt-1 text-[11px] text-amber-100/70">Reopen product import and select the original file to check it again. The file contents are not saved on this device.</p><button type="button" onClick={()=>{setRecoveryOpen(false);selectWorkspace('catalog');}} className="mt-2 min-h-10 rounded-lg border border-amber-800 px-3 text-xs font-semibold text-amber-100">Open product import review</button></article>)}</div>:<p className="rounded-lg border border-zinc-800 p-4 text-xs text-zinc-500">No product imports need review on this browser.</p>}</section>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] leading-relaxed text-zinc-400">Sales need a connection to complete. Check an unconfirmed payment before taking payment again.</div>
+          </div>
+        </section>
+      </div>}      {contextSwitchOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!contextBusy)setContextSwitchOpen(false);}}>
         <section role="dialog" aria-modal="true" aria-labelledby="context-switch-title" className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
           <header className="flex items-start justify-between gap-3 border-b border-zinc-800 p-4 sm:p-5"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-blue-300">AUTHORIZED WORKSPACES</p><h2 id="context-switch-title" className="mt-1 text-xl font-bold">Switch workspace</h2><p className="mt-1 text-sm text-zinc-400">Choose an active outlet assignment for your account.</p></div><button type="button" onClick={()=>setContextSwitchOpen(false)} disabled={contextBusy} aria-label="Close workspace choices" className="grid min-h-11 min-w-11 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"><X size={18}/></button></header>
           <div className="space-y-3 p-4 sm:p-5">
@@ -159,5 +197,5 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
       </div>}
       {accountOpen&&<MyAccountDialog onClose={()=>setAccountOpen(false)}/>}
     </div>
-  </div>;
+  </div></CommandRecoveryNavigationContext.Provider>;
 }
