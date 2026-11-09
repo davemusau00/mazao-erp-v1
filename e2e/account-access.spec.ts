@@ -111,9 +111,8 @@ test('unknown password outcome survives closing the account and retains no passw
   let commandId = '', posts = 0, checkedId = '';
   await page.route('**/api/v1/auth/password', route => { posts++; commandId = route.request().postDataJSON().commandId; return route.abort('failed'); });
   let confirmed = false;
-  await page.route('**/api/v1/auth/password/reconcile', route => {
-    const metadata=route.request().postDataJSON();checkedId=metadata.commandId;
-    expect(metadata).toEqual({protocolVersion:1,commandId,kind:'auth.password.change',targetUserId:userId,expectedCredentialVersion:4});
+  await page.route('**/api/v1/commands/**', route => {
+    checkedId=route.request().url().split('/').pop()!;
     return confirmed
       ? route.fulfill({ json: { commandId, status: 'CONFIRMED', response: { commandId, status: 'CONFIRMED', value: { userId, reauthenticate: true, credentialVersion: 5, sessionsRevoked:2 } } } })
       : route.fulfill({ status: 404, json: { error: { message: 'Command not found' } } });
@@ -129,7 +128,7 @@ test('unknown password outcome survives closing the account and retains no passw
     request.onsuccess = () => { const database = request.result; const read = database.transaction('operations').objectStore('operations').getAll(); read.onsuccess = () => { database.close(); resolve(read.result); }; };
   }));
   expect(retained).toHaveLength(1);
-  expect(retained[0]).toMatchObject({ commandId, actorId: userId, targetUserId: userId, state: 'outcome_unknown' });
+  expect(retained[0]).toMatchObject({ commandId, actorId: userId, targetUserId: userId, outletId:'account-outlet',deviceId:'account-device',state: 'outcome_unknown' });
   expect(JSON.stringify(retained)).not.toContain(newPassword);
   expect(JSON.stringify(retained)).not.toContain(currentPassword);
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
@@ -139,7 +138,7 @@ test('unknown password outcome survives closing the account and retains no passw
   await expect(dialog.getByLabel('New password', { exact: true })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: 'Change my password', exact: true })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Check password change status' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Password recovery is not available in this workspace or server version');
+  await expect(dialog.getByRole('alert')).toContainText('missing status alone does not close it');
   expect(checkedId).toBe(commandId);
   expect(posts).toBe(1);
   confirmed = true;
@@ -159,10 +158,12 @@ test('a safely fenced original unlocks a new password operation only after a mat
   });
   await page.goto('/');const dialog=await openAccount(page);
   await fillOwnPassword(page);await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
-  await dialog.getByRole('button',{name:'Check password change status'}).click();
+  await dialog.getByRole('button',{name:'Close original password operation safely'}).click();
   await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
-  terminal=true;await dialog.getByRole('button',{name:'Check password change status'}).click();
-  await expect(dialog.getByRole('status').filter({hasText:'The earlier password request was safely stopped'})).toBeVisible();
+  terminal=true;await dialog.getByRole('button',{name:'Close original password operation safely'}).click();
+  await expect(dialog.getByRole('status').filter({hasText:'The server closed the original operation without applying a password'})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'Reload password version'})).toBeVisible();
+  await dialog.getByRole('button',{name:'Reload password version'}).click();
   await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeEnabled();
   await fillOwnPassword(page);await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
   await expect.poll(()=>ids.length).toBe(2);expect(ids[0]).not.toBe(ids[1]);
@@ -187,9 +188,9 @@ test('incomplete or mismatched credential confirmations keep the original operat
   await dialog.getByRole('button',{name:'Change my password',exact:true}).click();
   await expect(dialog.getByRole('button',{name:'Check password change status'})).toBeVisible();
   for(let index=0;index<invalid.length;index++){
-    await dialog.getByRole('button',{name:'Check password change status'}).click();
+    await dialog.getByRole('button',{name:'Close original password operation safely'}).click();
     await expect.poll(()=>next).toBe(index+1);
-    await expect(dialog.getByRole('button',{name:'Check password change status'})).toBeEnabled();
+    await expect(dialog.getByRole('button',{name:'Close original password operation safely'})).toBeEnabled();
     await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
   }
 });
@@ -200,6 +201,40 @@ async function openAccountAfterPending(page: Page) {
   await expect(dialog.getByRole('button', { name: 'Check password change status' })).toBeEnabled();
   return dialog;
 }
+
+async function retainPasswordOperation(page:Page,includeOrigin=true){
+  const record={tenantId,actorId:userId,commandId:'retained-password-command',kind:'auth.password.change',targetUserId:userId,expectedCredentialVersion:4,state:'outcome_unknown',savedAt:'2026-10-16T06:00:00Z',...(includeOrigin?{outletId:'account-outlet',deviceId:'account-device'}:{})};
+  await page.evaluate(async value=>new Promise<void>((resolve,reject)=>{
+    const request=indexedDB.open('mazao-v1-secret-operations',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('operations',{keyPath:'commandId'});
+    request.onerror=()=>reject(request.error);
+    request.onsuccess=()=>{const database=request.result;const transaction=database.transaction('operations','readwrite');transaction.objectStore('operations').put(value);transaction.oncomplete=()=>{database.close();resolve();};transaction.onerror=()=>reject(transaction.error);};
+  }),record);
+  return record;
+}
+
+test('legacy password recovery without an original outlet stays readable but cannot be closed or discarded',async({page})=>{
+  await routeAccount(page);
+  await page.route('**/api/v1/commands/retained-password-command',route=>route.fulfill({status:404,json:{error:{message:'Not found'}}}));
+  await page.goto('/');await retainPasswordOperation(page,false);await page.reload();let dialog=await openAccountAfterPending(page);
+  await expect(dialog.getByText('This older recovery record has no original workspace metadata.',{exact:false})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'Close original password operation safely'})).toHaveCount(0);
+  await expect(dialog.getByLabel('New password',{exact:true})).toBeDisabled();
+  await dialog.getByRole('button',{name:'Check password change status'}).click();
+  await expect(dialog.getByRole('alert')).toContainText('missing status alone does not close it');
+  await page.reload();dialog=await openAccountAfterPending(page);
+  await expect(dialog.getByRole('button',{name:'Change my password',exact:true})).toBeDisabled();
+  await dialog.getByText('Support reference',{exact:true}).click();
+  await expect(dialog.getByText('Reference retained-password-command',{exact:true})).toBeVisible();
+});
+
+for(const viewport of [{width:390,height:844},{width:1024,height:600},{width:1366,height:768}])test(`password recovery actions fit ${viewport.width}x${viewport.height}`,async({page})=>{
+  await page.setViewportSize(viewport);await routeAccount(page);await page.goto('/');await retainPasswordOperation(page);await page.reload();
+  await page.route('**/api/v1/commands/retained-password-command',route=>route.fulfill({status:404,json:{error:{message:'Not found'}}}));
+  const dialog=await openAccountAfterPending(page);const close=dialog.getByRole('button',{name:'Close original password operation safely'});
+  await expect(close).toBeVisible();await close.scrollIntoViewIfNeeded();expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
 
 test('operator can revoke another own session using its exact server version', async ({ page }) => {
   await routeAccount(page);

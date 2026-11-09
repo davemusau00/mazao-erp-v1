@@ -8,6 +8,8 @@ G01 left password operations pending forever when the browser retained recovery 
 
 The password panel now sends metadata-only reconciliation for the original operation ID. If the original request already committed, reconciliation returns its canonical stored result. If it never arrived, reconciliation records a terminal rejection with code `CREDENTIAL_OPERATION_FENCED`. A late original with that ID cannot change the credential. The panel unlocks a new operation only after it receives a complete terminal envelope matching the original ID. Password fields remain empty after submission.
 
+Recovery now has two clearly separate actions. **Check password change status** performs only `GET /api/v1/commands/:commandId`; a 404 keeps the original journal entry and cannot close the ID. **Close original password operation safely** is an explicit metadata-only POST to the existing reconciliation endpoint. It is available only when the retained record includes its original outlet/device metadata and the operator is back in that outlet. A canonical result or fence must match the original command ID before the journal entry is removed. After a fence, the operator must reload the server credential version before entering a new password. Legacy version-1 records remain readable and can still be checked, but missing origin metadata is never fabricated to enable a fence.
+
 ## Contract, authority and atomicity
 
 `POST /api/v1/auth/password/reconcile` accepts exactly:
@@ -36,7 +38,7 @@ Migration `022_credential_operation_fencing.sql` adds `system.credential_operati
 
 A fence occupies the original `system.commands` ID with terminal `REJECTED` status, empty request hash and the safe public rejection code. It emits one `credential.operation.fenced` audit/outbox event with metadata only. It does not update a password, credential version, session, financial record or stock record. Successful original changes retain their existing keyed request fingerprint and Scrypt password storage behavior; no replayable password body is stored.
 
-The existing IndexedDB version 1 journal remains compatible and keeps its explicit metadata-only projection. The API client retains unknown evidence after HTTP errors, malformed/incomplete responses, mismatched IDs and unsupported recovery endpoints. Confirmation must include the original target user, a safe positive credential version, a safe nonnegative session-revocation count and the self/staff operation's correct reauthentication flag. Rejection/conflict needs a nonempty code; idempotency mismatch remains unknown. Both outer and any nested command IDs must match. Only validated terminal responses remove the original metadata. There is no local discard operation.
+The existing IndexedDB version 1 journal remains compatible and keeps its explicit metadata-only projection. New records also retain original outlet/device IDs; those fields contain no secret and old records are not rewritten. A failed or blocked IndexedDB open resets the cached open attempt so an explicit retry can recover. The API client retains unknown evidence after HTTP errors, malformed/incomplete responses, mismatched IDs and unsupported recovery endpoints. Confirmation must include the original target user, a safe positive credential version, a safe nonnegative session-revocation count and the self/staff operation's correct reauthentication flag. Rejection/conflict needs a nonempty code; idempotency mismatch remains unknown. Both outer and any nested command IDs must match. Only validated terminal responses remove the original metadata. There is no local discard operation.
 
 ## Upgrade and older clients
 
@@ -63,3 +65,31 @@ The Firefox mobile account check exposed bounding-box serialization of the exist
 On **25 October 2026, Africa/Nairobi**, the corrected cashier account case was rerun against the unchanged S00 static build dated 20 October: **1 passed** in Firefox. Command: `npx playwright test e2e/account-access.spec.ts --browser=firefox --grep 'cashier can reach' --output=dist-artifacts/playwright-s00-firefox-cashier-2026-10-25`. This closes the specific numeric-assertion failure; it does not reclassify the earlier 25/26 Firefox run as a full pass.
 
 These checks do not establish hosted CI, deployed schema/API identity, installed-PWA upgrade, physical hardware or production acceptance.
+
+## 9 November 2026 UI recovery clarification
+
+On the current main baseline (`0de9799aef2486547ed54b3d3a78b0475b11c231`),
+separated status lookup from the explicit fence action. A 404 status check is
+read-only and keeps the recovery record; **Close original password operation
+safely** calls the existing migration-022 reconciliation contract. New records
+include outlet/device origin metadata in the existing IndexedDB v1 metadata-only
+projection. Legacy records without that metadata remain status-readable and
+locked; no scope is inferred. A confirmed fence requires reloading the current
+credential version before another password can be entered. Migration 022 and
+all applied migrations remain unchanged.
+
+Observed local verification on the changed worktree:
+
+- `npm run typecheck`: passed for UI and API TypeScript.
+- `npm run build`: passed; existing Vite native-loader and >500 kB chunk
+  advisories remain.
+- `npx playwright test e2e/account-access.spec.ts --output=dist-artifacts/playwright-credential-recovery-final`:
+  **14/14 Chromium passed**, including interrupted status, explicit fencing,
+  legacy metadata, malformed responses and 390x844 / 1024x600 / 1366x768 layouts.
+- Credential, staff-security, command-recovery and product-import upgrade API
+  suites against disposable local PostgreSQL 16:
+  **32/32 passed, 0 failed, 0 skipped**. The test runner created isolated test
+  databases; its task-owned container was stopped afterward.
+
+The branch still requires exact-head hosted CI and review. No release artifact
+was activated and no Country/Yako database or deployment was touched.

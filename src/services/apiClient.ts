@@ -567,7 +567,7 @@ class ApiClient {
   }
   async submitPasswordOperation(operation:SecretOperationRecovery,newPassword:string,currentPassword?:string):Promise<BackendCommandResult>{
     const session=this.session;
-    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id)throw Object.assign(new Error('Sign in with the account that owns this password operation.'),{code:'COMMAND_NOT_SENT'});
+    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id||operation.outletId!==session.outlet.id||operation.deviceId!==session.deviceId)throw Object.assign(new Error('Sign in with the original account and workspace for this password operation.'),{code:'COMMAND_NOT_SENT'});
     try{await secretOperationJournal.save({...operation,state:'sending'});}
     catch{throw Object.assign(new Error('Password change was not sent because recovery metadata could not be saved.'),{code:'COMMAND_NOT_SENT'});}
     await this.emitSecretRecovery();
@@ -591,7 +591,7 @@ class ApiClient {
   async checkSecretOperationStatus(commandId:string){const operation=(await this.listSecretOperationRecovery()).find(record=>record.commandId===commandId);if(!operation)throw new ApiClientError('The original password recovery metadata could not be found.','RECOVERY_STORAGE_UNAVAILABLE');const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(commandId));return this.finishSecretRecovery(operation,result);}
   async reconcileSecretOperation(operation:SecretOperationRecovery){
     const session=this.session;
-    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id)throw new ApiClientError('Sign in with the account that owns this password operation.','FORBIDDEN',403);
+    if(!session||operation.actorId!==session.user.id||operation.tenantId!==session.tenant.id||!operation.outletId||!operation.deviceId||operation.outletId!==session.outlet.id)throw new ApiClientError('Return to the original account and outlet to close this password operation.','FORBIDDEN',403);
     const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/auth/password/reconcile',{method:'POST',body:JSON.stringify({protocolVersion:1,commandId:operation.commandId,kind:operation.kind,targetUserId:operation.targetUserId,expectedCredentialVersion:operation.expectedCredentialVersion})});
     return this.finishSecretRecovery(operation,result);
   }
