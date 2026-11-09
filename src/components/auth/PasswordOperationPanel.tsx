@@ -29,12 +29,17 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
   };
   useEffect(()=>{void restore();},[session.tenant.id,session.user.id,userId]);
   const complete=async(result:BackendCommandResult,operation:SecretOperationRecovery)=>{
-    if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status))setPending(null);
+    if(['CONFIRMED','REJECTED','CONFLICT'].includes(result.status)){
+      setNotice('');
+      const records=await apiClient.listSecretOperationRecovery();
+      setPending(records.find(record=>record.targetUserId===userId)??null);
+    }
     if(result.status==='CONFIRMED'){
       setConflict(false);setNotice(`Password change confirmed. ${String(result.value?.sessionsRevoked??0)} session(s) signed out.`);
       if(result.value?.reauthenticate===true||operation.kind==='auth.password.change'){apiClient.clearAuthenticatedSession();return;}
       setVersion(Number(result.value?.credentialVersion??version));await onConfirmed?.();
-    }else if(result.status==='CONFLICT'){setConflict(true);setError(result.message??'This password was changed elsewhere. Refresh before trying again.');}
+    }else if(result.code==='CREDENTIAL_OPERATION_FENCED'){setConflict(true);setNotice('The server closed the original operation without applying a password. Reload the password version before entering a new password.');}
+    else if(result.status==='CONFLICT'){setConflict(true);setError(result.message??'This password was changed elsewhere. Refresh before trying again.');}
     else if(result.status==='REJECTED'){if(result.code==='CREDENTIAL_OPERATION_FENCED')setNotice(result.message??'The earlier password request was safely stopped. Enter a new password to continue.');else setError(result.message??'The password was not changed. Review the details and enter it again.');}
     else{setPending(operation);setNotice('We could not confirm the password change. Check its status before trying again. Password fields have been cleared.');}
   };
@@ -47,7 +52,7 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
     clearInputs();setError('');setNotice('');
     if(next.length<12||next.length>256){next='';current='';setError('Use a password between 12 and 256 characters.');return;}
     if(next!==confirmation){next='';current='';setError('Passwords did not match. Enter the new password again.');return;}
-    const operation:SecretOperationRecovery={tenantId:session.tenant.id,actorId:session.user.id,commandId:crypto.randomUUID(),kind:own?'auth.password.change':'staff.password.set',targetUserId:userId,expectedCredentialVersion:version,state:'sending',savedAt:new Date().toISOString()};
+    const operation:SecretOperationRecovery={tenantId:session.tenant.id,actorId:session.user.id,outletId:session.outlet.id,deviceId:session.deviceId,commandId:crypto.randomUUID(),kind:own?'auth.password.change':'staff.password.set',targetUserId:userId,expectedCredentialVersion:version,state:'sending',savedAt:new Date().toISOString()};
     setOperationBusy(true);
     try{await complete(await apiClient.submitPasswordOperation(operation,next,own?current:undefined),operation);}
     catch(cause){
@@ -58,8 +63,15 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
   const check=async()=>{
     if(!pending||inFlight.current)return;
     setOperationBusy(true);setError('');
+    try{const result=await apiClient.checkSecretOperationStatus(pending.commandId);await complete({commandId:pending.commandId,status:result.status,...result.response},pending);}
+    catch(cause){setError((cause as {status?:number}).status===404?'No completed password operation was found yet. Check again or explicitly close the original safely. A missing status alone does not close it.':cause instanceof Error?cause.message:'Password status could not be checked.');}
+    finally{setOperationBusy(false);}
+  };
+  const closeOriginal=async()=>{
+    if(!pending||inFlight.current)return;
+    setOperationBusy(true);setError('');setNotice('');clearInputs();
     try{const result=await apiClient.reconcileSecretOperation(pending);await complete({commandId:pending.commandId,status:result.status,...result.response},pending);}
-    catch(cause){setError((cause as {status?:number}).status===404?'Password recovery is not available in this workspace or server version. Keep this reference and ask your administrator to restore access.':cause instanceof Error?cause.message:'Password status could not be checked.');}
+    catch(cause){setError(cause instanceof Error?cause.message:'The original operation could not be closed. Keep its recovery record and retry.');}
     finally{setOperationBusy(false);}
   };
   const reload=async()=>{
@@ -76,8 +88,8 @@ export function PasswordOperationPanel({userId,displayName,credentialVersion,has
     {!ready&&<p role={error?'alert':'status'} className="text-sm text-amber-200">{error||'Checking for an unfinished password change...'}{error&&<button type="button" className={identityButton+' mt-2'} onClick={()=>void restore()}>Retry password recovery</button>}</p>}
     {ready&&error&&<p role="alert" className="text-sm text-rose-300">{error}</p>}
     {notice&&<p role="status" className="text-sm text-blue-200">{notice}</p>}
-    {pending&&<div className="space-y-3 rounded-lg border border-amber-800 p-3"><h4 className="font-semibold">Check password change status</h4><details className="mt-2 text-xs text-zinc-400"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all font-mono text-xs text-zinc-400">Reference {pending.commandId}</p></details><p className="text-sm text-amber-200">The original password is not retained. Check status before submitting another change.</p><button type="button" className={identityButton} disabled={busy} onClick={()=>void check()}>Check password change status</button></div>}
-    {conflict&&<button type="button" className={identityButton} disabled={busy} onClick={()=>void reload()}>Refresh password details</button>}
+    {pending&&<div className="space-y-3 rounded-lg border border-amber-800 p-3"><h4 className="font-semibold">Check password change status</h4><details className="mt-2 text-xs text-zinc-400"><summary className="min-h-9 cursor-pointer py-2">Support reference</summary><p className="break-all font-mono text-xs text-zinc-400">Reference {pending.commandId}</p></details><p className="text-sm text-amber-200">The original password is not retained. Checking status is read-only. Closing returns an existing result or safely fences a request that never arrived; it does not change the password.</p><div className="flex flex-wrap gap-2"><button type="button" className={identityButton} disabled={busy} onClick={()=>void check()}>Check password change status</button>{pending.outletId&&pending.deviceId&&pending.outletId===session.outlet.id&&<button type="button" className={identityButton} disabled={busy} onClick={()=>void closeOriginal()}>Close original password operation safely</button>}</div>{(!pending.outletId||!pending.deviceId)&&<p className="text-sm text-amber-200">This older recovery record has no original workspace metadata. Keep it, check status and contact an administrator before another password change.</p>}{pending.outletId&&pending.outletId!==session.outlet.id&&<p className="text-sm text-amber-200">Return to the original outlet to close this operation.</p>}</div>}
+    {conflict&&<button type="button" className={identityButton} disabled={busy} onClick={()=>void reload()}>Reload password version</button>}
     <form ref={form} onSubmit={submit} className="space-y-3">
       <fieldset disabled={!canChange||!ready||busy||Boolean(pending)||conflict} className="space-y-3">
         {own&&<label className="block text-sm text-zinc-300" htmlFor={id+'-current'}>Current password<input id={id+'-current'} name="currentPassword" type="password" autoComplete="current-password" required maxLength={256} className={identityInput}/></label>}

@@ -1,6 +1,9 @@
 export interface SecretOperationRecovery {
   tenantId:string;actorId:string;commandId:string;kind:'staff.password.set'|'auth.password.change';
   targetUserId:string;expectedCredentialVersion:number;state:'sending'|'outcome_unknown';savedAt:string;
+  // Optional only for records created before origin metadata was persisted.
+  // Never invent an origin for a legacy recovery record.
+  outletId?:string;deviceId?:string;
 }
 const databaseName='mazao-v1-secret-operations';const storeName='operations';
 let database:Promise<IDBDatabase>|null=null;
@@ -9,8 +12,8 @@ function openDatabase():Promise<IDBDatabase>{
     const request=indexedDB.open(databaseName,1);
     request.onupgradeneeded=()=>request.result.createObjectStore(storeName,{keyPath:'commandId'});
     request.onsuccess=()=>resolve(request.result);
-    request.onerror=()=>reject(new Error('Password operation recovery could not be opened.'));
-    request.onblocked=()=>reject(new Error('Close other Mazao tabs before opening password recovery.'));
+    request.onerror=()=>{database=null;reject(new Error('Password operation recovery could not be opened.'));};
+    request.onblocked=()=>{database=null;reject(new Error('Close other Mazao tabs before opening password recovery.'));};
   });
   return database;
 }
@@ -26,7 +29,7 @@ async function run<T>(mode:IDBTransactionMode,operation:(store:IDBObjectStore,fi
 export const secretOperationJournal={
   save(record:SecretOperationRecovery):Promise<void>{
     // Explicit projection prevents request bodies, credentials and fingerprints entering IndexedDB.
-    const safe:SecretOperationRecovery={tenantId:record.tenantId,actorId:record.actorId,commandId:record.commandId,kind:record.kind,targetUserId:record.targetUserId,expectedCredentialVersion:record.expectedCredentialVersion,state:record.state,savedAt:record.savedAt};
+    const safe:SecretOperationRecovery={tenantId:record.tenantId,actorId:record.actorId,commandId:record.commandId,kind:record.kind,targetUserId:record.targetUserId,expectedCredentialVersion:record.expectedCredentialVersion,state:record.state,savedAt:record.savedAt,...(record.outletId?{outletId:record.outletId}:{}),...(record.deviceId?{deviceId:record.deviceId}:{})};
     return run<void>('readwrite',(store,finish)=>{store.put(safe).onsuccess=()=>finish(undefined);});
   },
   remove(commandId:string):Promise<void>{return run<void>('readwrite',(store,finish)=>{store.delete(commandId).onsuccess=()=>finish(undefined);});},
