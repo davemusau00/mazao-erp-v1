@@ -23,6 +23,21 @@ async function savedCommands(page: Page) {
   });
 }
 
+async function seedPendingCommand(page:Page,command:BackendCommand){
+  await page.addInitScript(async ({original,actorId}:{original:BackendCommand;actorId:string})=>{
+    await new Promise<void>((resolve,reject)=>{
+      const request=indexedDB.open('mazao-v1-command-journal',1);
+      request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('commands'))request.result.createObjectStore('commands',{keyPath:'command.commandId'});};
+      request.onerror=()=>reject(request.error);
+      request.onsuccess=()=>{
+        const database=request.result,transaction=database.transaction('commands','readwrite');
+        transaction.objectStore('commands').put({command:original,actorId,state:'outcome_unknown',savedAt:'2026-10-27T09:00:00Z'});
+        transaction.oncomplete=()=>{database.close();resolve();};transaction.onerror=()=>reject(transaction.error);
+      };
+    });
+  },{original:command,actorId:userId});
+}
+
 async function fixture(page: Page) {
   const posts: BackendCommand[] = [];
   const item = { id: productId, name: 'Retained item', sku: 'KEEP-001', unit: 'each', currency: 'KES', sellingPriceMinor: 1000, costPriceMinor: 500, taxRateBps: 0, quantity: '0', inventoryValueMinor: '0', productVersion: 3, version: 1, category: '', categoryId: null, barcode: null, reorderLevel: '0', active: true };
@@ -206,4 +221,44 @@ test('a denied original import POST retry retains its journal until authorized s
   await expect(page.getByRole('region',{name:'Import actions needing review'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'Import applied',exact:true})).toBeVisible();
   expect(await savedCommands(page)).toEqual([]);expect(posts).toEqual([original,original]);expect(commits).toBe(1);
+});
+
+test('a retained import is checked before an explicit retry and reuses the exact command ID',async({page})=>{
+  const {posts,state}=await fixture(page);
+  const batchId='00000000-0000-4000-8000-000000000716';
+  const command:BackendCommand={protocolVersion:1,commandId:'00000000-0000-4000-8000-000000000717',tenantId,deviceId,type:'catalog.import.apply',occurredAt:'2026-10-27T09:00:00Z',expectedVersions:{['import:'+batchId]:1},payload:{batchId,reviewed:true,acknowledgedWarnings:false}};
+  const csv='sku,name,baseUnit,sellingPrice,costPrice\nRESUME-001,Resume item,each,10,5';
+  const batch={id:batchId,fileName:'resume-items.csv',mode:'CREATE_ONLY',status:'READY',version:1,sourceHash:'b'.repeat(64),sourceBytes:csv.length,businessVersion:1,currency:'KES',defaultTaxRateBps:0,createdAt:'2026-10-27T09:00:00Z',createdBy:userId,appliedAt:null,queueArchivedAt:null,queueArchivedBy:null,source:{csv,mapping:{sku:'sku',name:'name',baseUnit:'baseUnit',sellingPrice:'sellingPrice',costPrice:'costPrice'}},summary:{rowCount:1,createCount:1,updateCount:0,unchangedCount:0,errorCount:0,warningCount:0,openingQuantityLines:0,openingValueMinor:'0'},errors:[],warnings:[],rows:[]};
+  await seedPendingCommand(page,command);
+  await page.route('**/api/v1/catalog/imports**',route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path.endsWith('/'+batchId))return route.fulfill({json:{batch}});
+    return route.fulfill({json:{batches:[]}});
+  });
+  state.statusResponse=()=>({commandId:command.commandId,status:'UNKNOWN',response:{commandId:command.commandId,status:'UNKNOWN'}});
+  state.postResponse={status:'UNKNOWN'};
+
+  await page.goto('/');await page.getByRole('button',{name:'Items and services',exact:true}).last().click();
+  const recovery=page.getByRole('region',{name:'Import actions needing review'});
+  await expect(recovery).toContainText(command.commandId);
+  await expect(page.getByRole('button',{name:'Choose another CSV',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Apply reviewed import',exact:true})).toBeDisabled();
+  expect(posts).toEqual([]);
+
+  await page.reload();await page.getByRole('button',{name:'Items and services',exact:true}).last().click();
+  await expect(recovery).toContainText(command.commandId);
+  expect(posts).toEqual([]);
+
+  await recovery.getByRole('button',{name:'Check status',exact:true}).click();
+  await expect.poll(()=>state.statusReads).toBe(1);
+  expect(posts).toEqual([]);
+  await expect(recovery).toContainText(command.commandId);
+
+  await recovery.getByRole('button',{name:'Retry original action',exact:true}).click();
+  await expect.poll(()=>posts.length).toBe(1);
+  expect(posts[0]).toEqual(command);
+  await expect(recovery.getByRole('button',{name:'Retry original action',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'Choose another CSV',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Apply reviewed import',exact:true})).toBeDisabled();
+  expect((await savedCommands(page)).map(record=>record.command)).toEqual([command]);
 });

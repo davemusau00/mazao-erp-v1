@@ -922,3 +922,27 @@ node --import tsx --test apps/api/test/command-catalogue.test.ts
 node --import ./apps/api/test/support/isolate-database.mjs --import tsx --test apps/api/test/product-import-security.integration.test.ts apps/api/test/product-import-upgrade.integration.test.ts
 npx playwright test --config playwright.integration.config.ts e2e/integration/product-import.spec.ts
 ```
+
+## Pending product import resume
+
+The import screen restores a retained `catalog.import.apply`, `catalog.import.archive`,
+or `catalog.import.restore` command only for the current actor, tenant and workspace
+assignment. It loads the server batch associated with that command and keeps new
+validation, archive, restore and apply actions locked while the outcome is unknown.
+The operator can check the original command's status or explicitly retry the saved
+command. Retry uses the same command ID and payload; opening the screen and checking
+status never submits a command. A validation whose CSV was not retained locally can
+only be checked by its original ID; the CSV source is not added to the recovery
+journal.
+
+Recovery reads are generation-scoped. A stale read cannot replace the currently
+selected pending command, and the screen prefers the already selected command if
+several unresolved import records are present. Import history remains readable while
+recovery is pending, but it does not unlock a new import action.
+
+Local verification on the import-resume slice: `npm run typecheck` and `npm run build`
+passed; `npx playwright test e2e/catalog-recovery-response.spec.ts` passed **6/6**.
+The added restart/status/retry case confirms zero automatic POSTs, blocks changing or
+applying the recovered batch, and verifies that the explicit retry reuses the saved
+command ID. Hosted exact-head cross-browser CI remains the merge gate. No migration
+changed and no deployment is claimed.
