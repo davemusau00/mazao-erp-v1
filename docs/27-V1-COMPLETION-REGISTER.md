@@ -2,6 +2,8 @@
 
 This preserves the full scope of `01-PRODUCT-PRD.md`, the domain specifications and `15-TESTING-ACCEPTANCE.md`. A deployed slice does not complete v1. No unreachable prototype screen counts as a connected feature.
 
+The [Full Functionality, Offline & SaaS Platform Master Plan](MAZAO_ERP_FULL_FUNCTIONALITY_SAAS_OFFLINE_MASTER_PLAN_2026-11-08.md) is the ordered G1–G5/M0–M6 product roadmap. It is planning authority only: this completion register and focused acceptance records remain the evidence for what source, tests and deployments actually cover. The owner-approved immediate sequence is credential recovery, recovery navigation, product-import resume, guest registration and then repaired KDS PR #26, as separate validated PRs. Backup automation remains deferred.
+
 Reconciled against the 20 October source baseline described in [CODEBASE-TRUTH.md](../CODEBASE-TRUTH.md). The [18 October remediation plan](46-POS-PAYMENTS-REPORTING-REMEDIATION-2026-10-18.md) is historical planning: manual M-Pesa, whole-line amount discounts, expenses, supplier/AP and period controls now have executable source workflows. This register describes source coverage, not acceptance of the entire product or a current production check. The preserved [19 October deployment record](47-PRODUCTION-RELEASE-2026-10-19.md) covers `ce5b8ab` and migrations through 020; audited main `6119ee2` adds migration 021. Current runtime SHA/schema remain unverified.
 
 | Order | Area | Connected foundation | Required remaining work |
