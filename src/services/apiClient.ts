@@ -2,6 +2,10 @@ import {historyUrl,type HistoryOptions,type HistoryPage} from '../types/history'
 import {commandJournal,type RecoverableCommand} from './commandJournal';
 import {importValidationJournal,type ImportValidationRecovery} from './importValidationJournal';
 import {secretOperationJournal,type SecretOperationRecovery} from './secretOperationJournal';
+import {guestRegistrationJournal,type GuestRegistrationRecovery} from './guestRegistrationJournal';
+import type {GuestRegistrationOperation,GuestRegistrationSave,GuestRegistrationView,GuestRegistrationPolicy} from '../../apps/api/src/guestRegistrationTypes';
+export type {GuestRegistrationInput,GuestRegistrationOperation,GuestRegistrationSave,GuestRegistrationView,GuestRegistrationPolicy,GuestRegistrationPolicyInput,GuestOccupantInput,GuestOccupantView,GuestDocumentType,RoomCapacityInput} from '../../apps/api/src/guestRegistrationTypes';
+export {GUEST_COUNTRY_CODES} from '../../apps/api/src/guestRegistrationTypes';
 import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
@@ -24,7 +28,7 @@ export interface BackendSession {
   onboardingStatus?:'SETUP'|'LIVE'|'LEGACY_ACTIVE';
 }
 export interface BackendAssignmentChoice {deviceId:string;deviceLabel:string;tenantId:string;tenantName:string;outletId:string;outletName:string}
-export interface BackendContextSwitchBlockers {commands:number;imports:number;credentialChanges:number;ownPasswordChanges:number;staffPasswordChanges:number;countDrafts:number}
+export interface BackendContextSwitchBlockers {commands:number;imports:number;credentialChanges:number;ownPasswordChanges:number;staffPasswordChanges:number;countDrafts:number;guestRegistrations:number}
 export interface BackendAssignmentSelection {status:'ASSIGNMENT_REQUIRED';assignments:BackendAssignmentChoice[]}
 export interface BackendStaffMember {userId:string;displayName:string;email:string;role:string;active:boolean;version:number;credentialVersion:number;hasCredential:boolean;assignmentCount:number;activeSessionCount:number}
 export interface BackendStaffDirectory {page?:HistoryPage;staff:BackendStaffMember[];roles:Array<{role:string;label:string;permissions:string[];assignable:boolean}>;outlets:Array<{id:string;name:string;timeZone:string;active:boolean}>;authorizationModel:'COARSE_ROLE_MAP'}
@@ -106,9 +110,9 @@ export interface BackendCustomerStatement {customer:BackendCustomerAccount;entri
 export interface BackendInventoryCountLine { productId:string;sku:string;name:string;unit:string;expectedQuantity:string|null;expectedBalanceVersion:number;countedQuantity:string|null;varianceReason:string|null;countedBy:string|null;countedAt:string|null;baselineRevision?:number;countedRevision?:number|null;requiresRecount?:boolean;referenceCostMinor?:string;inventoryValueMinor?:string }
 export interface BackendInventoryCount { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;scope:'FULL'|'SELECTED';blind:boolean;version:number;baselineAt:string;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number;lines:BackendInventoryCountLine[];revision?:number;coverage?:CountEvidenceCoverage }
 export interface BackendInventoryCountSummary { id:string;status:'OPEN'|'POSTED'|'CANCELLED';areaLabel:string|null;scope:'FULL'|'SELECTED';blind:boolean;version:number;openedAt:string;openedBy:string;postedAt:string|null;postedBy:string|null;lineCount:number;countedLineCount:number }
-export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
-export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number}
-export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number}
+export interface BackendRoom {id:string;roomNumber:string;roomType:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'READY'|'OCCUPIED'|'DIRTY'|'MAINTENANCE';version:number;maxAdults?:number|null;maxChildren?:number|null;maxOccupants?:number|null;activeStay?:{id:string;guestName:string;checkInDate:string;checkOutDate:string;version:number}|null}
+export interface BackendReservation {id:string;roomId:string;roomNumber:string;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CONFIRMED';version:number;registrationId?:string|null;registrationVersion?:number|null}
+export interface BackendStay {id:string;roomId:string;roomNumber:string;roomVersion:number;guestName:string;guestContact:string|null;checkInDate:string;checkOutDate:string;checkedInAt:string;nightlyRateMinor:number;taxRateBps:number;currency:string;status:'CHECKED_IN';version:number;nights:number;estimatedSubtotalMinor:number;estimatedTaxMinor:number;estimatedTotalMinor:number;registrationId?:string|null;registrationVersion?:number|null}
 export interface BackendCommand { protocolVersion:1;commandId:string;tenantId?:string;deviceId:string;type:string;occurredAt:string;expectedVersions:Record<string,number>;payload:Record<string,unknown> }
 export interface BackendReportAccount { accountCode:string;accountName?:string;classification?:string;debitMinor:string;creditMinor:string;netDebitMinor:string;netCreditMinor:string }
 export interface BackendTrialBalance {
@@ -154,9 +158,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 function isTerminalCredentialOutcome(result:unknown,operation:SecretOperationRecovery):boolean{
   if(!isTerminalOutcome(result,operation.commandId,operation.kind)||!isRecord(result))return false;
-  if(result.status!=='CONFIRMED')return typeof result.code==='string'&&result.code.trim().length>0&&result.code!=='IDEMPOTENCY_MISMATCH';
+  if(result.status!=='CONFIRMED')return typeof result.code==='string'&&/^[A-Z][A-Z0-9_]{0,79}$/.test(result.code)&&result.code!=='IDEMPOTENCY_MISMATCH';
   const value=result.value;
   return isRecord(value)&&value.userId===operation.targetUserId&&Number.isSafeInteger(value.credentialVersion)&&Number(value.credentialVersion)>=1&&Number.isSafeInteger(value.sessionsRevoked)&&Number(value.sessionsRevoked)>=0&&typeof value.reauthenticate==='boolean'&&value.reauthenticate===(operation.kind==='auth.password.change');
+}
+function isTerminalGuestRegistrationOutcome(result:unknown,operation:GuestRegistrationOperation):boolean{
+  if(!isRecord(result)||result.commandId!==operation.commandId||!['CONFIRMED','REJECTED','CONFLICT'].includes(String(result.status)))return false;
+  if(result.status!=='CONFIRMED')return typeof result.code==='string'&&result.code.trim().length>0&&result.code!=='IDEMPOTENCY_MISMATCH';
+  const value=result.value;
+  const expectedReservationVersion=operation.reservationId?(operation.expectedReservationVersion??0)+(operation.kind==='hotel.registration.save'?1:0):null;
+  return isRecord(value)&&value.registrationId===operation.registrationId&&Number.isSafeInteger(value.version)&&value.version===operation.expectedVersion+1
+    &&value.status===(operation.kind==='hotel.registration.correct'?'FINAL':'DRAFT')&&Number.isSafeInteger(value.policyVersion)&&Number(value.policyVersion)>0
+    &&value.reservationId===(operation.reservationId??null)&&value.reservationVersion===expectedReservationVersion;
 }
 function requestIdentifier(): string {
   return globalThis.crypto?.randomUUID?.() ?? `web-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
@@ -176,6 +189,7 @@ class ApiClient {
   private csrf=''; private session:BackendSession|null=null; private listeners=new Set<(session:BackendSession|null)=>void>();private recoveryListeners=new Set<(records:RecoverableCommand[])=>void>();
   private importRecoveryListeners=new Set<(records:ImportValidationRecovery[])=>void>();
   private secretRecoveryListeners=new Set<(records:SecretOperationRecovery[])=>void>();
+  private guestRecoveryListeners=new Set<(records:GuestRegistrationRecovery[])=>void>();
   private pendingReadControllers = new Set<AbortController>();
   private contextChannel:BroadcastChannel|null=null;
   private pendingContextUserId:string|null=null;
@@ -200,6 +214,7 @@ class ApiClient {
   subscribeRecovery(listener:(records:RecoverableCommand[])=>void){this.recoveryListeners.add(listener);return()=>{this.recoveryListeners.delete(listener)}}
   subscribeImportRecovery(listener:(records:ImportValidationRecovery[])=>void){this.importRecoveryListeners.add(listener);return()=>{this.importRecoveryListeners.delete(listener)}}
   subscribeSecretRecovery(listener:(records:SecretOperationRecovery[])=>void){this.secretRecoveryListeners.add(listener);return()=>{this.secretRecoveryListeners.delete(listener)}}
+  subscribeGuestRegistrationRecovery(listener:(records:GuestRegistrationRecovery[])=>void){this.guestRecoveryListeners.add(listener);return()=>{this.guestRecoveryListeners.delete(listener)}}
   getSession(){return this.session}
   private publish(session:BackendSession|null){this.session=session;this.listeners.forEach(listener=>listener(session))}
   cancelPendingReads(){for(const controller of this.pendingReadControllers)controller.abort('navigation');}
@@ -362,13 +377,14 @@ class ApiClient {
     const session=this.session;
     if(!session)throw new ApiClientError('Sign in again before changing workspaces.','UNAUTHENTICATED',401);
     try{
-      const [commands,imports,credentialChanges,countDrafts]=await Promise.all([
+      const [commands,imports,credentialChanges,countDrafts,guestRegistrations]=await Promise.all([
         this.listRecoverableCommands(session.tenant.id),this.listImportValidationRecovery(),this.listSecretOperationRecovery(),
         countDraftStore.listForScope({tenantId:session.tenant.id,actorId:session.user.id,outletId:session.outlet.id}),
+        this.listGuestRegistrationRecovery(),
       ]);
       return {commands:commands.filter(record=>record.command.deviceId===session.deviceId).length,imports:imports.length,credentialChanges:credentialChanges.length,
         ownPasswordChanges:credentialChanges.filter(record=>record.kind==='auth.password.change').length,
-        staffPasswordChanges:credentialChanges.filter(record=>record.kind==='staff.password.set').length,countDrafts:countDrafts.length};
+        staffPasswordChanges:credentialChanges.filter(record=>record.kind==='staff.password.set').length,countDrafts:countDrafts.length,guestRegistrations:guestRegistrations.length};
     }catch(cause){
       if(cause instanceof ApiClientError&&cause.code==='RECOVERY_STORAGE_UNAVAILABLE')throw cause;
       throw new ApiClientError('Local recovery storage could not be checked. Resolve the storage problem before changing workspaces.','RECOVERY_STORAGE_UNAVAILABLE');
@@ -554,9 +570,70 @@ class ApiClient {
   listHotelRooms(signal?:AbortSignal){return this.requestArray<{rooms:BackendRoom[]}>('/hospitality/rooms','rooms',signal)}
   listHotelReservations(signal?:AbortSignal,options:HistoryOptions={}){return this.requestArray<{reservations:BackendReservation[];page?:HistoryPage}>(historyUrl('/hospitality/reservations',options),'reservations',signal)}
   listHotelStays(signal?:AbortSignal){return this.requestArray<{stays:BackendStay[]}>('/hospitality/stays','stays',signal)}
+  getGuestRegistrationPolicy(signal?:AbortSignal){return this.request<{policy:GuestRegistrationPolicy}>('/hospitality/registration-policy',{signal,cache:'no-store'})}
+  async getGuestRegistration(registrationId:string,signal?:AbortSignal){
+    const result=await this.request<{registration:GuestRegistrationView}>('/hospitality/registrations/'+encodeURIComponent(registrationId),{signal,cache:'no-store'});
+    const registration=result.registration;
+    if(!isRecord(registration)||registration.id!==registrationId||!Number.isSafeInteger(registration.version)||!Array.isArray(registration.occupants)||registration.occupants.some(occupant=>!isRecord(occupant)||!isRecord(occupant.identity)||Object.hasOwn(occupant.identity,'number')))throw new ApiClientError('Guest details could not be read safely. Retry the read.','INVALID_SERVER_RESPONSE');
+    return result;
+  }
+  async revealGuestIdentity(registrationId:string,occupantId:string,reason:string){
+    const original=this.session;
+    if(!original)throw new ApiClientError('Sign in before reviewing protected identity.','UNAUTHENTICATED',401);
+    const result=await this.request<{number:string}>('/hospitality/registrations/'+encodeURIComponent(registrationId)+'/reveal',{method:'POST',body:JSON.stringify({occupantId,reason}),cache:'no-store'});
+    const current=this.session;
+    if(!current||current.user.id!==original.user.id||current.tenant.id!==original.tenant.id||current.outlet.id!==original.outlet.id||current.deviceId!==original.deviceId)throw new ApiClientError('The identity review was cancelled because the signed-in workspace changed.','REQUEST_CANCELLED');
+    if(!isRecord(result)||typeof result.number!=='string'||!result.number.length||result.number.length>64)throw new ApiClientError('The protected identity could not be read.','INVALID_SERVER_RESPONSE');
+    return result;
+  }
+  async submitGuestRegistration(operation:GuestRegistrationRecovery,details:GuestRegistrationSave['details'],reason?:string):Promise<BackendCommandResult>{
+    const session=this.session;
+    if(!session||operation.tenantId!==session.tenant.id||operation.actorId!==session.user.id||operation.deviceId!==session.deviceId||operation.outletId!==session.outlet.id)throw Object.assign(new Error('Sign in to the workspace that owns this guest registration.'),{code:'COMMAND_NOT_SENT'});
+    if(!operation.scope||operation.scope.tenantId!==operation.tenantId||operation.scope.actorId!==operation.actorId||operation.scope.outletId!==operation.outletId||operation.scope.deviceId!==operation.deviceId)throw Object.assign(new Error('The captured guest registration scope is invalid.'),{code:'COMMAND_NOT_SENT'});
+    try{await guestRegistrationJournal.save({...operation,state:'sending'});}
+    catch{throw Object.assign(new Error('Guest details were not sent because recovery metadata could not be saved. Restore browser storage and try again.'),{code:'COMMAND_NOT_SENT'});}
+    await this.emitGuestRegistrationRecovery();
+    const input:GuestRegistrationSave={protocolVersion:1,commandId:operation.commandId,registrationId:operation.registrationId,expectedVersion:operation.expectedVersion,kind:operation.kind,scope:{...operation.scope},...(operation.reservationId?{reservationId:operation.reservationId}:{}),...(operation.expectedReservationVersion!==undefined?{expectedReservationVersion:operation.expectedReservationVersion}:{}),details,...(reason?{reason}:{})};
+    try{
+      // Storage and listeners are asynchronous. Recheck the captured scope at
+      // the final send boundary so an old form cannot submit under a new cookie.
+      const current=this.session;
+      if(!current||operation.tenantId!==current.tenant.id||operation.actorId!==current.user.id||operation.outletId!==current.outlet.id||operation.deviceId!==current.deviceId)throw Object.assign(new Error('Guest details were not sent because the signed-in workspace changed. Return to the original workspace to recover the saved operation.'),{code:'COMMAND_NOT_SENT'});
+      const result=await this.request<BackendCommandResult>('/hospitality/registrations/save',{method:'POST',body:JSON.stringify(input)});
+      if(!isTerminalGuestRegistrationOutcome(result,operation))throw new ApiClientError('Guest details need status recovery before another attempt.','OUTCOME_UNKNOWN');
+      await guestRegistrationJournal.remove(operation.commandId);await this.emitGuestRegistrationRecovery();return presentOutcome(result);
+    }catch(cause){await guestRegistrationJournal.save({...operation,state:'outcome_unknown'});await this.emitGuestRegistrationRecovery();throw cause;}
+  }
+  async listGuestRegistrationRecovery():Promise<GuestRegistrationRecovery[]>{
+    const session=this.session;
+    try{return session?await guestRegistrationJournal.list(session.tenant.id,session.user.id,session.outlet.id):[];}
+    catch{throw new ApiClientError('Guest registration recovery could not be checked. Restore browser storage before continuing.','RECOVERY_STORAGE_UNAVAILABLE');}
+  }
+  private async finishGuestRegistrationRecovery(operation:GuestRegistrationRecovery,result:{commandId:string;status:string;response:Record<string,unknown>}){
+    const session=this.session;
+    if(!session||operation.tenantId!==session.tenant.id||operation.actorId!==session.user.id||operation.outletId!==session.outlet.id)throw new ApiClientError('Return to the guest registration operator and outlet before resolving its saved operation.','FORBIDDEN',403);
+    if(!isRecord(result)||result.commandId!==operation.commandId||!isRecord(result.response)||result.status!==result.response.status||(result.response.commandId!==undefined&&result.response.commandId!==operation.commandId)||!isTerminalGuestRegistrationOutcome({...result.response,commandId:result.commandId},operation))throw new ApiClientError('The original guest details outcome is still unconfirmed.','INVALID_SERVER_RESPONSE');
+    await guestRegistrationJournal.remove(operation.commandId);await this.emitGuestRegistrationRecovery();return {...result,response:presentOutcome(result.response)};
+  }
+  async checkGuestRegistrationStatus(operation:GuestRegistrationRecovery){
+    const session=this.session;
+    if(!session||operation.tenantId!==session.tenant.id||operation.actorId!==session.user.id||operation.outletId!==session.outlet.id)throw new ApiClientError('Use the original guest registration operator and outlet to check this action.','FORBIDDEN',403);
+    const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/commands/'+encodeURIComponent(operation.commandId),{cache:'no-store'});
+    return this.finishGuestRegistrationRecovery(operation,result);
+  }
+  async reconcileGuestRegistration(operation:GuestRegistrationRecovery){
+    const session=this.session;
+    if(!session||operation.tenantId!==session.tenant.id||operation.actorId!==session.user.id||operation.outletId!==session.outlet.id)throw new ApiClientError('Use the original guest registration operator and outlet to recover this action.','FORBIDDEN',403);
+    const descriptor:GuestRegistrationOperation={protocolVersion:1,commandId:operation.commandId,registrationId:operation.registrationId,expectedVersion:operation.expectedVersion,kind:operation.kind,scope:{...operation.scope},...(operation.reservationId?{reservationId:operation.reservationId}:{}),...(operation.expectedReservationVersion!==undefined?{expectedReservationVersion:operation.expectedReservationVersion}:{})};
+    const result=await this.request<{commandId:string;status:string;response:Record<string,unknown>}>('/hospitality/registrations/reconcile',{method:'POST',body:JSON.stringify(descriptor)});
+    return this.finishGuestRegistrationRecovery(operation,result);
+  }
+  private async emitGuestRegistrationRecovery(){const records=await this.listGuestRegistrationRecovery();this.guestRecoveryListeners.forEach(listener=>listener(records));}
   async submitCommand(command:BackendCommand){
     const hasSecret=(value:unknown):boolean=>Array.isArray(value)?value.some(hasSecret):!!value&&typeof value==='object'&&Object.entries(value).some(([key,entry])=>/password|credentialhash|passwordhash/i.test(key)||hasSecret(entry));
     if(hasSecret(command.payload))throw Object.assign(new Error('Credentials must use the private password endpoint.'),{code:'COMMAND_NOT_SENT'});
+    const hasIdentity=(value:unknown):boolean=>Array.isArray(value)?value.some(hasIdentity):isRecord(value)&&Object.entries(value).some(([key,entry])=>/documentNumber|passportNumber|identityNumber/i.test(key)||(key==='identity'&&isRecord(entry)&&Object.hasOwn(entry,'number'))||hasIdentity(entry));
+    if(['hotel.registration.save','hotel.registration.correct'].includes(command.type)||hasIdentity(command.payload))throw Object.assign(new Error('Identity details must use the private guest registration endpoint.'),{code:'COMMAND_NOT_SENT'});
     if(command.type==='catalog.import.validate'||command.type==='catalog.import.revalidate')throw new Error('Use import validation transport; CSV source must not enter the command journal.');
     const actorId=this.session?.user.id;
     try{await commandJournal.save(command,'sending',actorId);}

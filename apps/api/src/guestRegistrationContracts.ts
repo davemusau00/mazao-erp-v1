@@ -1,0 +1,24 @@
+import type { ContractSchema } from './contractValidation.js';
+import { uuidSchema, versionSchema } from './contractValidation.js';
+const string=(maxLength:number):ContractSchema=>({type:'string',maxLength});
+const integer=(minimum=0,maximum=100):ContractSchema=>({type:'integer',minimum,maximum});
+const strict=(properties:Record<string,ContractSchema>,required=Object.keys(properties)):ContractSchema=>({type:'object',properties,required,additionalProperties:false});
+const nullableId:ContractSchema={type:['string','null'],format:'uuid'};
+const documentType:ContractSchema={type:'string',pattern:'^(?:NATIONAL_ID|PASSPORT|RESIDENT_ID|OTHER)$'};
+export const GUEST_REGISTRATION_OPERATION_SCHEMA=strict({protocolVersion:{type:'integer',const:1},commandId:uuidSchema,registrationId:uuidSchema,expectedVersion:integer(0,Number.MAX_SAFE_INTEGER),kind:{type:'string',pattern:'^(?:hotel.registration.save|hotel.registration.correct)$'},scope:strict({tenantId:uuidSchema,actorId:uuidSchema,outletId:uuidSchema,deviceId:uuidSchema}),reservationId:uuidSchema,expectedReservationVersion:versionSchema},['protocolVersion','commandId','registrationId','expectedVersion','kind','scope']);
+const identity=strict({action:{type:'string',pattern:'^(?:KEEP|REPLACE|REMOVE)$'},documentType,number:string(64),issuingCountry:string(2),expiresOn:string(10),verified:{type:'boolean'}},['action','verified']);
+const occupant=strict({id:uuidSchema,kind:{type:'string',pattern:'^(?:ADULT|CHILD)$'},primary:{type:'boolean'},fullName:string(160),phone:string(40),email:string(254),nationality:string(2),residenceCountry:string(2),residenceCity:string(160),dateOfBirth:string(10),ageBand:string(40),guardianId:nullableId,identity});
+const details=strict({adultCount:integer(1),childCount:integer(),booker:strict({fullName:string(160),phone:string(40),email:string(254),alternativePhone:string(40),company:string(160),bookingReference:string(100),arrivalTime:string(5),purpose:string(100),notes:string(1000),noContactReason:string(500)}),emergencyContact:strict({name:string(160),phone:string(40),relationship:string(80)}),occupants:{type:'array',items:occupant,minItems:1,maxItems:100}});
+export const GUEST_REGISTRATION_SAVE_SCHEMA:ContractSchema={...GUEST_REGISTRATION_OPERATION_SCHEMA,properties:{...GUEST_REGISTRATION_OPERATION_SCHEMA.properties,details,reason:string(500)},required:[...GUEST_REGISTRATION_OPERATION_SCHEMA.required!,'details']};
+export const GUEST_REGISTRATION_RESULT_SCHEMA=strict({registrationId:uuidSchema,version:versionSchema,status:{type:'string',pattern:'^(?:DRAFT|FINAL)$'},policyVersion:versionSchema,reservationId:nullableId,reservationVersion:{type:['integer','null'],minimum:1,maximum:Number.MAX_SAFE_INTEGER}});
+const result:ContractSchema={type:'object'};
+// The legacy envelope shape remains admissible for canonical committed replay;
+// new check-in execution enforces a reviewed registration in the domain service.
+export const GUEST_COMMAND_SCHEMAS:Record<string,{payload:ContractSchema;output:ContractSchema}>={
+  'hotel.room.create':{payload:strict({roomNumber:string(24),roomType:string(80),nightlyRateMinor:integer(1,Number.MAX_SAFE_INTEGER),taxRateBps:integer(0,10000),maxAdults:integer(1),maxChildren:integer(),maxOccupants:integer(1)},['roomNumber','roomType','nightlyRateMinor']),output:result},
+  'hotel.reservation.create':{payload:strict({roomId:uuidSchema,registrationId:uuidSchema,guestName:string(160),guestContact:{type:['string','null'],maxLength:80},checkInDate:string(10),checkOutDate:string(10)},['roomId','checkInDate','checkOutDate']),output:result},
+  'hotel.checkin':{payload:strict({roomId:uuidSchema,reservationId:uuidSchema,registrationId:uuidSchema,guestName:string(160),guestContact:{type:['string','null'],maxLength:80},checkInDate:string(10),checkOutDate:string(10)},[]),output:result},
+  'hotel.registration.policy.update':{payload:strict({reviewed:{type:'boolean',const:true},acceptedDocumentTypes:{type:'array',items:documentType,minItems:1,maxItems:4,uniqueItems:true},requireNationality:{type:'boolean'},requireResidence:{type:'boolean'},requirePassportExpiry:{type:'boolean'},draftRetentionDays:integer(1,90),identityRetentionDays:integer(1,3650),privacyNotice:string(2000)}),output:strict({version:versionSchema,requireIdentityForAllAdults:{type:'boolean',const:true}})},
+  'hotel.room.capacity.update':{payload:strict({roomId:uuidSchema,maxAdults:integer(1),maxChildren:integer(),maxOccupants:integer(1),reason:string(500),legacyTransitionReason:string(500)},['roomId','maxAdults','maxChildren','maxOccupants','reason']),output:strict({roomId:uuidSchema,version:versionSchema,maxAdults:integer(1),maxChildren:integer(),maxOccupants:integer(1)})},
+  'hotel.registration.retention.run':{payload:strict({reason:string(500)}),output:strict({erasedCount:integer(0,Number.MAX_SAFE_INTEGER),policyVersion:versionSchema})},
+};
