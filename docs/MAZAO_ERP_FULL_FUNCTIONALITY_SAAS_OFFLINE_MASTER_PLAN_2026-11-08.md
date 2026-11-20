@@ -45,7 +45,7 @@ remain separate applications and require DNS/routing verification before use.
 
 | Milestone | Current delivery state | Required evidence before advancing |
 | --- | --- | --- |
-| M0–M1 | In progress: credential recovery PR #28 and recovery navigation PR #29 are merged. Import-resume PR #30 is open pending exact-head hosted CI. Guest registration has been ported onto a clean branch based on merged main and passes local typecheck/build and focused Chromium arrival/recovery checks; PostgreSQL-backed acceptance and hosted CI remain pending. Country/Yako production revision and schema baselines remain to be refreshed. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
+| M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Country/Yako production revision and schema baselines remain to be refreshed. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
 | M2 | Waiting on the prerequisite PRs; PR #26 is open and its lost-fire recovery browser gate remains unresolved. | Repaired exact-command recovery, migration upgrade/rerun, hosted CI, and review before merge; then the full two-station order-to-payment and physical-printer gates. |
 | M3 | Not started as an accepted delivery milestone. | Hotel, location/recipe, procurement and statement corrections each reconcile source records, stock and accounting. |
 | M4 | Eligible for an isolated ADR/spike after the M0 baseline; not a production control plane. | Two isolated tenants prove authenticated database routing, connection/job bounds, migrations, lifecycle and no cross-access. |
@@ -55,20 +55,19 @@ remain separate applications and require DNS/routing verification before use.
 ### Execution evidence update — 20 November 2026
 
 At the latest local remote refresh, `origin/main` was
-`84de6f302cda794b8f37f71befafbea0ce024ac4` (PR #29). PR #28 merged as
-`416ea95`; PR #29 merged as `84de6f3`. PR #30 is open at
-`7bc5c680170ad7e20e439e04cfd98ebb76391fa2`; the last accessible GitHub check
-was still running, so it is not merge-ready evidence. Its change has no API or
-migration delta.
+`b5fe1ba088d301a35cb9649bf17000266fa4c63c` (PR #30). PR #28 merged as
+`416ea95`; PR #29 merged as `84de6f3`; PR #30 merged as `b5fe1ba` after its
+exact-head hosted workflow succeeded. PR #30 has no API or migration delta.
 
-Guest registration is currently a local clean-branch candidate based on
-`84de6f3`, with additive migration `030_guest_registration.sql`. Local
-`npm run typecheck`, `npm run build`, and the five focused Chromium browser
+Guest registration PR #31 is open at
+`0631640fe5a221c80b84a5ea28af86d39f103f7c`, based on the merged main head,
+with additive migration `030_guest_registration.sql`. Local
+`npm run typecheck`, `npm run build`, and all five focused Chromium browser
 cases passed. PostgreSQL-backed API and migration acceptance were skipped
 locally because no disposable PostgreSQL service or `TEST_DATABASE_URL` was
-available; hosted acceptance is still required. The earlier dirty guest
-worktree remains preserved. These source checks do not establish production
-deployment or live release state.
+available; exact-head hosted CI is pending. The earlier dirty guest worktree
+remains preserved. These source checks do not establish production deployment
+or live release state.
 
 PR #26 remains open at `5138f118253eb5ac2e70fd1416ef9bc59189154c`; its
 hosted TypeScript/build check is failed and its lost-fire recovery assertion is
