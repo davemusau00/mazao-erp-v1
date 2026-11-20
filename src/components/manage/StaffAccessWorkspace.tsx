@@ -1,9 +1,10 @@
 import { permissionLabel, roleLabel } from '../../utils/presentation';
 import React, { useEffect, useRef, useState } from 'react';
-import { apiClient, type BackendStaffMember, type BackendWorkspaceAssignment } from '../../services/apiClient';
+import { apiClient, type BackendCommand, type BackendStaffMember, type BackendWorkspaceAssignment } from '../../services/apiClient';
 import { PasswordOperationPanel } from '../auth/PasswordOperationPanel';
 import { OperatorSessionsPanel } from './OperatorSessionsPanel';
 import { IdentityNotices, identityButton, identityCommand, identityInput, useIdentityCommands } from './identityUi';
+import { useCommandRecoveryNavigation } from '../../app/CommandRecoveryNavigation';
 import { HistoryNavigation } from '../common/HistoryNavigation';
 import type { HistoryPage } from '../../types/history';
 
@@ -16,9 +17,19 @@ function readProvisioningRecord(key:string):ProvisioningRecord|null {
   catch{}
   return null;
 }
+function recoveryOperatorId(command:BackendCommand|null,staff:BackendStaffMember[]):string|null {
+  if(typeof command?.payload.userId==='string')return command.payload.userId;
+  if(command?.type==='staff.member.create'&&typeof command.payload.email==='string'){
+    const email=command.payload.email.toLowerCase();
+    return staff.find(person=>person.email.toLowerCase()===email)?.userId??'';
+  }
+  return null;
+}
 
 export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
   const session = apiClient.getSession()!;
+  const recoveryNavigation=useCommandRecoveryNavigation();
+  const recoveryCommand=recoveryNavigation?.destination.kind==='manage'&&recoveryNavigation.destination.section===mode?recoveryNavigation.record.command:null;
   const canManageStaff = session.user.permissions.includes('staff.manage');
   const canManageDevices = session.user.permissions.includes('devices.manage');
   const provisionKey=`mazao-staff-setup:${session.tenant.id}:${session.user.id}`;
@@ -66,17 +77,35 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
         (options.more==='assignments'||options.assignmentSearch!==undefined)&&directory?Promise.resolve(directory):apiClient.listStaff(controller.signal,{q:options.staffSearch??staffQuery,...(options.more==='staff'&&directory?.page?.nextCursor?{after:directory.page.nextCursor}:{})}),
         options.more==='staff'||options.staffSearch!==undefined?Promise.resolve(null):mode === 'devices'||(mode==='staff'&&Boolean(provisionRef.current&&['assignment','verification'].includes(provisionRef.current.step))) ? apiClient.listWorkspaceAssignments(controller.signal,{q:options.assignmentSearch??assignmentQuery,...(options.more==='assignments'&&assignmentPage?.nextCursor?{after:assignmentPage.nextCursor}:{})}) : Promise.resolve(null),
       ]);
-      const ids=[selectedRef.current,provisionRef.current?.userId,assignedUserId,editAssignee].filter((value,index,all):value is string=>Boolean(value)&&all.indexOf(value)===index&&!result.staff.some(person=>person.userId===value));
+      const explicitTarget=typeof recoveryCommand?.payload.userId==='string'?recoveryCommand.payload.userId:'';
+      const ids=[selectedRef.current,explicitTarget,provisionRef.current?.userId,assignedUserId,editAssignee].filter((value,index,all):value is string=>Boolean(value)&&all.indexOf(value)===index&&!result.staff.some(person=>person.userId===value));
       const pinned=(await Promise.all(ids.map(async userId=>(await apiClient.listStaff(controller.signal,{q:userId,limit:1})).staff.find(person=>person.userId===userId)))).filter((value):value is BackendStaffMember=>Boolean(value));
+      let matchedCreatedOperator:BackendStaffMember|undefined;
+      if(recoveryCommand?.type==='staff.member.create'&&typeof recoveryCommand.payload.email==='string'){
+        const email=recoveryCommand.payload.email.toLowerCase();
+        matchedCreatedOperator=result.staff.find(person=>person.email.toLowerCase()===email)||pinned.find(person=>person.email.toLowerCase()===email);
+        if(!matchedCreatedOperator){
+          const byEmail=await apiClient.listStaff(controller.signal,{q:email,limit:25});
+          matchedCreatedOperator=byEmail.staff.find(person=>person.email.toLowerCase()===email);
+        }
+      }
       if(!mounted.current||generation!==loadGeneration.current)return;
       if(options.staffSearch!==undefined)setStaffQuery(options.staffSearch);
       if(options.assignmentSearch!==undefined)setAssignmentQuery(options.assignmentSearch);
-      const people=options.more==='staff'?[...(directory?.staff??[]),...result.staff.filter(person=>!directory?.staff.some(known=>known.userId===person.userId))]:result.staff;
+      let people=options.more==='staff'?[...(directory?.staff??[]),...result.staff.filter(person=>!directory?.staff.some(known=>known.userId===person.userId))]:result.staff;
+      if(matchedCreatedOperator&&!people.some(person=>person.userId===matchedCreatedOperator!.userId))people=[...people,matchedCreatedOperator];
       setDirectory({...result,staff:people});setPinnedMembers(pinned);
       if(assignmentResult){setAssignments(current=>options.more==='assignments'?[...current,...assignmentResult.devices.filter(row=>!current.some(known=>known.id===row.id))]:assignmentResult.devices);setAssignmentPage(assignmentResult.page);}
+      const targetAssignmentId=typeof recoveryCommand?.payload.deviceId==='string'?recoveryCommand.payload.deviceId:'';
+      if(mode==='devices'&&targetAssignmentId&&!assignmentResult?.devices.some(row=>row.id===targetAssignmentId)){
+        const targetAssignments=await apiClient.listWorkspaceAssignments(controller.signal,{q:targetAssignmentId,limit:25});
+        if(!mounted.current||generation!==loadGeneration.current)return;
+        setAssignments(current=>[...current,...targetAssignments.devices.filter(row=>!current.some(known=>known.id===row.id))]);
+      }
       const allPeople=[...people,...pinned];
-      const desiredSelection=selectedRef.current||provisionRef.current?.userId||'';
-      const nextSelected=desiredSelection||people[0]?.userId||'';
+      const recoveryTarget=recoveryCommand?recoveryOperatorId(recoveryCommand,allPeople):null;
+      const desiredSelection=recoveryCommand&&mode==='staff'&&recoveryTarget!==null?(allPeople.some(person=>person.userId===recoveryTarget)?recoveryTarget:''):selectedRef.current||provisionRef.current?.userId||'';
+      const nextSelected=desiredSelection||(recoveryCommand&&mode==='staff'?'':people[0]?.userId??'');
       selectMember(nextSelected);
       setAssignedUserId(current => current && allPeople.some(person => person.userId === current && person.active) ? current : people.find(person => person.active)?.userId ?? '');
       setOutletId(current => current && result.outlets.some(outlet => outlet.id === current && outlet.active) ? current : result.outlets.find(outlet => outlet.active)?.id ?? '');
@@ -92,7 +121,7 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
     finally { if(mounted.current&&generation===loadGeneration.current)setLoading(false);if(loadController.current===controller)loadController.current=null; }
   };
   const controller = useIdentityCommands(
-    ['staff.member.create', 'staff.member.update', 'staff.member.set_active', 'devices.assignment.create', 'devices.assignment.update', 'devices.assignment.revoke'],
+    mode==='staff'?['staff.member.create', 'staff.member.update', 'staff.member.set_active']:['devices.assignment.create', 'devices.assignment.update', 'devices.assignment.revoke'],
     async (command,result) => {
       setNewOperator(false);setEditId('');setReason('');
       if(command.type==='staff.member.create'&&typeof result.value?.userId==='string'){
@@ -103,7 +132,7 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
       await load();
     },
   );
-  useEffect(() => { mounted.current=true;void load();return()=>{mounted.current=false;loadController.current?.abort();}; }, [mode]);
+  useEffect(() => { mounted.current=true;void load();return()=>{mounted.current=false;loadController.current?.abort();}; }, [mode,recoveryNavigation?.requestId]);
 
   const send = (type: string, payload: Record<string, unknown>, versions: Record<string, number> = {}) => {
     if (controller.locked || passwordInFlight.current || !directory) return;
@@ -122,6 +151,8 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
   };
   const allMembers=[...(directory?.staff??[]),...pinnedMembers.filter(person=>!directory?.staff.some(known=>known.userId===person.userId))];
   const selected = allMembers.find(person => person.userId === selectedId) ?? null;
+  const originalOperatorId=mode==='staff'&&recoveryCommand?recoveryOperatorId(recoveryCommand,allMembers):null;
+  const originalAssignment=typeof recoveryCommand?.payload.deviceId==='string'?assignments.find(assignment=>assignment.id===recoveryCommand.payload.deviceId):null;
   const activeOperators = allMembers.filter(person => person.active);
   const searchStaff=(query:string)=>{if(passwordInFlight.current)return;void load({staffSearch:query});};
   const searchAssignments=(query:string)=>{void load({assignmentSearch:query});};
@@ -137,6 +168,7 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
   return <section className="workflow-panel space-y-5" aria-labelledby="staff-access-heading">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs tracking-[.18em] text-blue-300">STAFF ACCESS</p><h2 id="staff-access-heading" className="mt-1 text-2xl font-bold">{mode === 'staff' ? 'Staff access' : 'Workspace assignments'}</h2><p className="mt-1 max-w-3xl text-sm text-zinc-400">{mode === 'staff' ? 'Manage staff accounts and choose from the available roles. Individual role permissions cannot be edited here.' : 'Assign staff to outlets and manage their access.'}</p></div><button type="button" className={identityButton} disabled={loading || controller.busy || passwordBusy} onClick={() => void load()}>Refresh</button></header>
     <IdentityNotices controller={controller} onReload={() => { void load().then(controller.clearConflict); }} />
+    {mode==='staff'&&originalOperatorId!==null&&directory&&!loading&&!allMembers.some(person=>person.userId===originalOperatorId)&&<p role="status" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-200">The original operator is absent from the current directory. Use the command recovery center to check the retained command. Another operator has not been selected.</p>}
     {error && <p role="alert" className="rounded-lg border border-rose-800 p-3 text-sm text-rose-200">{error}</p>}
     {loading && !directory && <p role="status" className="p-5 text-sm text-zinc-400">Loading staff access...</p>}
     {mode === 'staff' && directory && <>
@@ -164,7 +196,8 @@ export function StaffAccessWorkspace({ mode }: { mode: Mode }) {
     {mode === 'devices' && directory && <><section aria-label="Operator search for assignments" className="rounded-xl border border-zinc-800"><HistoryNavigation page={directory.page} loaded={directory.staff.length} busy={loading} label="operators for assignments" onMore={()=>void load({more:'staff'})} onSearch={searchStaff}/></section>
       {canManageDevices && <form className="grid gap-3 rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); send('devices.assignment.create', { label: label.trim(), outletId, assignedUserId }); }}><div className="sm:col-span-2"><h3 className="font-semibold">Create workspace assignment</h3><p className="mt-1 text-xs text-zinc-400">Each assignment gives one active staff member access to one outlet.</p></div><label className="text-sm text-zinc-300">Assignment label<input required maxLength={160} className={identityInput} value={label} onChange={event => setLabel(event.target.value)} /></label><label className="text-sm text-zinc-300">Active outlet<select className={identityInput} value={outletId} onChange={event => setOutletId(event.target.value)}>{directory.outlets.filter(outlet => outlet.active).map(outlet => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label><label className="text-sm text-zinc-300">Active operator<select className={identityInput} value={assignedUserId} onChange={event => setAssignedUserId(event.target.value)}>{activeOperators.map(person => <option key={person.userId} value={person.userId}>{person.displayName} · {roleLabel(person.role)}</option>)}</select></label><button type="submit" className={identityButton + ' self-end border-blue-600 bg-blue-600'} disabled={controller.locked || !outletId || !assignedUserId}>Create assignment</button></form>}
       {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
-      <section className="space-y-3" aria-label="Workspace assignment list">{assignments.map(assignment => <article key={assignment.id} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{assignment.label}</h3><p className="mt-1 text-sm text-zinc-300">{assignment.assignedUserName} · {assignment.outletName}</p><p className="mt-1 text-xs text-zinc-500">{assignment.active ? 'Active assignment' : 'Revoked'}</p></div>{canManageDevices && assignment.active && <button type="button" className={identityButton} onClick={() => { setEditId(editId === assignment.id ? '' : assignment.id); setEditLabel(assignment.label); setEditAssignee(assignment.assignedUserId); void retainOperator(assignment.assignedUserId); setReason(''); }}>{editId === assignment.id ? 'Close assignment actions' : 'Edit assignment'}</button>}</div>
+      {typeof recoveryCommand?.payload.deviceId==='string'&&<p role="status" className="rounded-lg border border-blue-800 p-3 text-sm text-blue-200">{loading?'Checking the original assignment against current server records.':originalAssignment?`Original assignment: ${originalAssignment.label}. Check the retained command before changing this assignment.`:'The original assignment is absent from the current list. Check the retained command before creating or changing an assignment.'}</p>}
+      <section className="space-y-3" aria-label="Workspace assignment list">{assignments.map(assignment => <article key={assignment.id} aria-label={originalAssignment?.id===assignment.id?'Original workspace assignment':undefined} className={`rounded-xl border ${originalAssignment?.id===assignment.id?'border-blue-700':'border-zinc-800'} bg-zinc-950 p-4`}><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{assignment.label}</h3><p className="mt-1 text-sm text-zinc-300">{assignment.assignedUserName} · {assignment.outletName}</p><p className="mt-1 text-xs text-zinc-500">{assignment.active ? 'Active assignment' : 'Revoked'}</p></div>{canManageDevices && assignment.active && <button type="button" className={identityButton} onClick={() => { setEditId(editId === assignment.id ? '' : assignment.id); setEditLabel(assignment.label); setEditAssignee(assignment.assignedUserId); void retainOperator(assignment.assignedUserId); setReason(''); }}>{editId === assignment.id ? 'Close assignment actions' : 'Edit assignment'}</button>}</div>
         {editId === assignment.id && canManageDevices && <div className="mt-4 grid gap-3 border-t border-zinc-800 pt-4 sm:grid-cols-2"><label className="text-sm text-zinc-300">Assignment label<input className={identityInput} maxLength={160} value={editLabel} onChange={event => setEditLabel(event.target.value)} disabled={controller.locked} /></label><label className="text-sm text-zinc-300">Assign to active operator<select className={identityInput} value={editAssignee} onChange={event => setEditAssignee(event.target.value)} disabled={controller.locked}>{activeOperators.map(person => <option key={person.userId} value={person.userId}>{person.displayName} · {roleLabel(person.role)}</option>)}</select></label><button type="button" className={identityButton} disabled={controller.locked || (editLabel.trim() === assignment.label && editAssignee === assignment.assignedUserId)} onClick={() => send('devices.assignment.update', { deviceId: assignment.id, label: editLabel.trim(), assignedUserId: editAssignee }, { ['device:' + assignment.id]: assignment.version })}>Save assignment</button><div className="flex flex-wrap gap-2"><input aria-label="Assignment revocation reason" placeholder="Reason for revocation" className={identityInput + ' mt-0'} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} disabled={controller.locked} /><button type="button" className={identityButton + ' border-rose-800 text-rose-200'} disabled={controller.locked || !reason.trim()} onClick={() => send('devices.assignment.revoke', { deviceId: assignment.id, reason: reason.trim() }, { ['device:' + assignment.id]: assignment.version })}>Revoke assignment</button></div></div>}
       </article>)}{assignments.length === 0 && <p className="rounded-xl border border-zinc-800 p-5 text-sm text-zinc-400">No workspace assignments are recorded for this business.</p>}</section>
       <HistoryNavigation page={assignmentPage} loaded={assignments.length} busy={loading} label="workspace assignments" onMore={()=>void load({more:'assignments'})} onSearch={searchAssignments}/><p className="text-xs text-zinc-500">Assignments control outlet access. Printer setup is unavailable here.</p>
