@@ -92,7 +92,7 @@ guest charge or journal entry. The outbox record proves persistence only.
 
 ## Persistence and lifecycle
 
-Additive migration **029_restaurant_configuration** creates sections, tables,
+Additive migration **031_restaurant_configuration** creates sections, tables,
 stations, menu routes and relational route/assignment links in schema
 `restaurant`. Composite tenant/outlet foreign keys prevent attaching another
 outlet's product, service area, station or logical device. Existing migrations
@@ -256,7 +256,7 @@ clear, tabs wrap and actions remain reachable.
 
 The slice is separate from the inherited PR #24 changes.
 
-- Persistence/domain: `apps/api/migrations/029_restaurant_configuration.sql`,
+- Persistence/domain: `apps/api/migrations/031_restaurant_configuration.sql`,
   `apps/api/src/restaurant.ts`, `restaurantContracts.ts` and migration runner;
   command catalogue/dispatch, contracts/roles, staff/capability setup and HTTP
   routes; opt-in admission in `apps/api/src/db.ts`.

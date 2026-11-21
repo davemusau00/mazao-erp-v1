@@ -3,6 +3,10 @@
 Verified **29 October 2026 (Africa/Nairobi)** for the unpublished restaurant
 configuration worktree described in [P1.1](62-RESTAURANT-CONFIGURATION.md).
 This is local disposable-image acceptance, not hosted CI or deployment evidence.
+The migration totals below describe that dated P1.1 image. In the current
+integration branch, 029 and 030 are already assigned to product-import archival
+and guest registration; the restaurant migration series is therefore numbered
+031–033 and has not yet passed exact-head database CI.
 
 ## Image and source identity
 

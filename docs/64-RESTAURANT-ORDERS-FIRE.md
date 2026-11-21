@@ -90,7 +90,7 @@ Migration **030** adds `restaurant.orders`, `order_lines`, `fire_batches`,
 command, station ticket and source-line/station links are unique. Database
 triggers reject changes/deletes to fired lines, batches, tickets and ticket
 links. Ticket document hashes are SHA-256 of stable serialized snapshots.
-Migrations 001–029 are unchanged. Open orders block table/outlet retirement and
+Migrations 001–031 are unchanged. Open orders block table/outlet retirement and
 restaurant-capability removal; retained tickets block station retirement until
 the completion contract exists. Even an empty durable order locks its currency.
 
@@ -121,7 +121,7 @@ passed **285 tests, zero failures and zero skips** (`api-full.log`), including:
   scoped station paging, complete order search/continuation and setup fencing;
 - real preexisting stock receipt, cash sale, tender, shift, immutable receipt and
   balanced journals remain unchanged throughout the restaurant workflow;
-- populated 029→030 upgrade preserving every preexisting domain row, complete
+- populated 031→032 upgrade preserving every preexisting domain row, complete
   migration/checksum rerun, scoped foreign keys and strict contracts.
 
 UI/API TypeScript and the PWA production build passed. The build precaches 27
@@ -131,7 +131,7 @@ tests (`api-messages-final.log`) after the full API run above.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `030_restaurant_orders_fire.sql` | `b61c65cf8c08e03fccdc1470a7de20a1c865b13fb0756859ae58de499c659118` |
+| `032_restaurant_orders_fire.sql` | `b61c65cf8c08e03fccdc1470a7de20a1c865b13fb0756859ae58de499c659118` |
 | `index-DMxolK_m.js` | `809c9a9936e0f0f1840bca9a19d28975774b9e61f7d49320b63eea18bff8f2e9` |
 | `BackendRestaurantOrdersWorkspace-BhQDybWD.js` | `edebd2a29fc4aef80409bf1dc550c923f9e991e3e08fcb3493738f28118c45e8` |
 | `RestaurantWorkspace-C8fFnyme.js` | `1e7a8c0d541ee7482f6992a5802963aa68ac2e0a37dcf266f1b71d74f999d052` |

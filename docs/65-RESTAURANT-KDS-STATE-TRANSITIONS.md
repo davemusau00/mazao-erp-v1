@@ -35,7 +35,7 @@ stale or competing device from advancing the same ticket twice.
 
 ## Changed files
 
-- `apps/api/migrations/031_restaurant_ticket_lifecycle.sql` adds an append-only
+- `apps/api/migrations/033_restaurant_ticket_lifecycle.sql` adds an append-only
   state-event table, backfills existing fired tickets as `NEW`, validates
   sequential inserts, and protects events from update/delete.
 - `apps/api/src/restaurantOrders.ts`, `apps/api/src/commandCatalogue.ts`,

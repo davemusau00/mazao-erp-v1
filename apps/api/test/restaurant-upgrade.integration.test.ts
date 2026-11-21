@@ -10,7 +10,7 @@ const sourceUrl = process.env.TEST_DATABASE_URL;
 if (!sourceUrl) {
   test('restaurant additive upgrade and scoped foreign keys', { skip: 'Requires disposable localhost PostgreSQL with CREATE DATABASE permission.' }, () => {});
 } else {
-  test('028 to 029 preserves all prior rows, remains checksum-safe and enforces outlet references', { timeout: 120_000 }, async () => {
+  test('028 to 031 preserves all prior rows, remains checksum-safe and enforces outlet references', { timeout: 120_000 }, async () => {
     const source = new URL(sourceUrl); assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(source.hostname));
     const databaseName = `mazao_restaurant_upgrade_${randomUUID().replaceAll('-', '')}`;
     const maintenance = new URL(source); maintenance.pathname = '/postgres';
@@ -49,13 +49,13 @@ if (!sourceUrl) {
         return result;
       };
       const before = await snapshot();
-      const upgradeStarted = performance.now(); migrate('029_restaurant_configuration');
+      const upgradeStarted = performance.now(); migrate('031_restaurant_configuration');
       assert.ok(performance.now() - upgradeStarted < 60_000);
       assert.deepEqual(await snapshot(), before, 'Expansion must not rewrite any prior domain or command record.');
-      const rerun = migrate('029_restaurant_configuration');
-      assert.equal((rerun.match(/already applied; checksum matches/g) ?? []).length, 29);
-      const checksum = createHash('sha256').update(readFileSync(new URL('../migrations/029_restaurant_configuration.sql', import.meta.url))).digest('hex');
-      assert.equal((await client.query("SELECT checksum FROM system.schema_migrations WHERE version='029_restaurant_configuration'")).rows[0].checksum, checksum);
+      const rerun = migrate('031_restaurant_configuration');
+      assert.equal((rerun.match(/already applied; checksum matches/g) ?? []).length, 31);
+      const checksum = createHash('sha256').update(readFileSync(new URL('../migrations/031_restaurant_configuration.sql', import.meta.url))).digest('hex');
+      assert.equal((await client.query("SELECT checksum FROM system.schema_migrations WHERE version='031_restaurant_configuration'")).rows[0].checksum, checksum);
       const section = randomUUID(), station = randomUUID();
       await client.query("INSERT INTO restaurant.sections(id,tenant_id,outlet_id,name) VALUES($1,$2,$3,'Original dining room')", [section, tenant, outlet]);
       await client.query("INSERT INTO restaurant.stations(id,tenant_id,outlet_id,name,kind,characters_per_line) VALUES($1,$2,$3,'Kitchen','KITCHEN',42)", [station, tenant, outlet]);
