@@ -45,7 +45,7 @@ remain separate applications and require DNS/routing verification before use.
 
 | Milestone | Current delivery state | Required evidence before advancing |
 | --- | --- | --- |
-| M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Country/Yako production revision and schema baselines remain to be refreshed. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
+| M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Public Country/Yako endpoints respond, but runtime SHAs and schema heads remain unverified because SSH to the user-confirmed host is unavailable from this workstation. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
 | M2 | Waiting on the prerequisite PRs; PR #26 is open and its lost-fire recovery browser gate remains unresolved. | Repaired exact-command recovery, migration upgrade/rerun, hosted CI, and review before merge; then the full two-station order-to-payment and physical-printer gates. |
 | M3 | Not started as an accepted delivery milestone. | Hotel, location/recipe, procurement and statement corrections each reconcile source records, stock and accounting. |
 | M4 | Eligible for an isolated ADR/spike after the M0 baseline; not a production control plane. | Two isolated tenants prove authenticated database routing, connection/job bounds, migrations, lifecycle and no cross-access. |
@@ -72,8 +72,41 @@ or live release state.
 PR #26 remains open at `5138f118253eb5ac2e70fd1416ef9bc59189154c`; its
 hosted TypeScript/build check is failed and its lost-fire recovery assertion is
 not accepted. Do not merge it until the recovery semantics and required checks
-pass after the four prerequisite slices. No Country/Yako live schema or release
-baseline was refreshed in this update, and no production activation is claimed.
+pass after the four prerequisite slices. No production activation is claimed.
+
+### Public deployment probe — 21 November 2026
+
+Current main is `2a5da2d` (roadmap integration PR #32). Guest-registration PR
+#31 now has exact head `901f84a`; local typecheck/build and the combined
+guest-registration plus directory-history browser run pass. Its first hosted
+run completed PostgreSQL/API acceptance but failed the full browser run because
+the directory-history fixture did not stub the new registration-policy read.
+That fixture now returns the reviewed policy, and the new exact-head hosted run
+is pending. Do not merge until that run passes.
+
+Read-only HTTPS probes returned `200` for the Country application at
+`country.mazaoyako.co.ke`, its `/api/v1/health/ready` endpoint, the Yako
+application at `mazaoyako.co.ke`, and Yako's
+`api.mazaoyako.co.ke/api/v1/health/ready`. Both API bodies reported
+`{"status":"ready","database":"available"}`. Country's page referenced
+`/assets/index-iTu1ccv9.js`; Yako referenced `/assets/index-shlJi_f1.js`.
+This confirms that both public routes respond and serve different asset
+bundles. It does not identify a source SHA, migration head, tenant/database
+identity, or which bundle is newer. Country resolved to `38.247.142.209`, also
+the Yako API response IP; the Yako apex is proxied through Cloudflare. Keep the
+products and data stores separate until runtime identities are verified.
+
+The user confirmed `38.247.142.209` as the correct VPS IP. A direct read-only
+SSH attempt to `administrator@38.247.142.209` was aborted before host-key
+verification; an earlier `admin@38.247.142.209` attempt timed out. The legacy
+`mazao-live` alias still points to `93.127.131.55`, so it is not a valid route
+for the current deployment and must not be used for this baseline. No
+known-hosts entry or SSH configuration was changed. Therefore the Country/Yako
+release SHA and schema baselines remain open. Once SSH is reachable at the
+confirmed IP with a verifiable host key, read the active static symlinks, API
+image revision labels, and each database's applied migration ledger
+independently. The proposed `get.` and `admin.` DNS and routes were not checked
+by this probe.
 
 ## 0. Executive decision
 
