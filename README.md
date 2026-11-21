@@ -55,6 +55,6 @@ The latest preserved [19 October release record](docs/47-PRODUCTION-RELEASE-2026
 
 ## Product specifications
 
-The product requirements, interaction design, domain constraints, and release gates live in `docs/`. Start with `docs/01-PRODUCT-PRD.md`, `docs/02-UX-DESIGN-SYSTEM.md`, and `agents/AGENTS.md` before extending the application.
+The product requirements, interaction design, domain constraints, and release gates live in `docs/`. The [Full Functionality, Offline & SaaS Platform Master Plan](docs/MAZAO_ERP_FULL_FUNCTIONALITY_SAAS_OFFLINE_MASTER_PLAN_2026-11-08.md) is the G1–G5/M0–M6 delivery roadmap; it is a plan, not evidence that planned features are built or live. Start with `docs/01-PRODUCT-PRD.md`, `docs/02-UX-DESIGN-SYSTEM.md`, and `agents/AGENTS.md` before extending the application.
 
 The current role journey review, prototype gaps, service integration gate, report coverage requirements, and unverified accessibility/viewport matrix are recorded in `docs/23-UI-JOURNEY-REVIEW.md`.
