@@ -18,6 +18,7 @@ async function fixture(page: Page, calls: string[]) {
     if (path === '/shifts/current') return route.fulfill({ json: { shift: { id:'shift-1',status:'OPEN',openingFloatMinor:0,cashSalesMinor:0,customerCollectionsMinor:0,cashRefundsMinor:0,cashPaidInMinor:0,cashPayoutMinor:0,expectedCashMinor:0,version:1,openedAt:'2026-10-20T08:00:00Z',cashMovements:[] } } });
     if (path === '/hospitality/rooms') return route.fulfill({ json: { rooms: [] } });
     if (path === '/hospitality/stays') return route.fulfill({ json: { stays: [] } });
+    if (path === '/hospitality/registration-policy') return route.fulfill({ json: { policy: { version: 1, reviewed: true, requireIdentityForAllAdults: true, acceptedDocumentTypes: ['NATIONAL_ID','PASSPORT','RESIDENT_ID','OTHER'], requireNationality: false, requireResidence: false, requirePassportExpiry: false, draftRetentionDays: 7, identityRetentionDays: 365, privacyNotice: 'Guest information is handled according to the reviewed hotel policy.' } } });
     if (path === '/hospitality/reservations') {
       calls.push(path + url.search); const searched = url.searchParams.has('q'), older = url.searchParams.has('after');
       return route.fulfill({ json: { reservations: [reservation(searched || older ? 251 : 1)], page: pageInfo(searched ? 1 : 251, searched || older ? null : 'older-reservations') } });
