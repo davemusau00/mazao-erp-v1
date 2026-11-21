@@ -3,6 +3,13 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from '../../../src/services/apiMessages.js';
 
+test('a cancelled restaurant draft cannot retire recovery with an impossible held result', () => {
+  const commandId=randomUUID(),orderId=randomUUID(),payload={orderId,reason:'Discard unfired draft'},versions={['order:'+orderId]:3};
+  const confirmed={commandId,status:'CONFIRMED',value:{orderId,version:4,status:'CANCELLED',held:false,fireRevision:0}};
+  assert.equal(isTerminalOutcome(confirmed,commandId,'restaurant.order.cancel',payload,versions),true);
+  assert.equal(isTerminalOutcome({...confirmed,value:{...confirmed.value,held:true}},commandId,'restaurant.order.cancel',payload,versions),false);
+});
+
 test('uncertain changes direct the operator to status recovery without implying failure', () => {
   const message = unconfirmedActionMessage('/commands');
   assert.match(message, /Check its status before repeating/);
@@ -96,4 +103,14 @@ test('count review acknowledgement proves original count version and the exact a
   assert.equal(isTerminalOutcome({commandId:'other',status:'CONFIRMED',value},'original','inventory.count.review',payload,expectedVersions),false);
   assert.equal(isTerminalCommandStatus({commandId:'original',status:'CONFIRMED',response:{status:'CONFIRMED',value}},'original','inventory.count.review',payload,expectedVersions),true);
   assert.equal(isTerminalCommandStatus({commandId:'original',status:'CONFIRMED',response:{status:'CONFIRMED',value:{...value,version:5}}},'original','inventory.count.review',payload,expectedVersions),false);
+});
+
+test('kitchen ticket recovery requires the same ticket and the next preparation state',()=>{
+  const commandId=randomUUID(),ticketId=randomUUID(),payload={ticketId,fromStatus:'NEW',toStatus:'ACKNOWLEDGED'},versions={['ticket:'+ticketId]:1};
+  const value={ticketId,version:2,status:'ACKNOWLEDGED',changedAt:'2026-10-31T11:23:46.938Z'};
+  const check=(candidate:Record<string,unknown>)=>isTerminalOutcome({commandId,status:'CONFIRMED',value:candidate},commandId,'restaurant.ticket.advance',payload,versions);
+  assert.equal(check(value),true);
+  for(const candidate of [{},{...value,ticketId:randomUUID()},{...value,version:1},{...value,version:3},{...value,status:'READY'},{...value,changedAt:'not-a-date'}])assert.equal(check(candidate),false);
+  assert.equal(check(value)&&isTerminalCommandStatus({commandId,status:'CONFIRMED',response:{commandId,status:'CONFIRMED',value}},commandId,'restaurant.ticket.advance',payload,versions),true);
+  assert.equal(isTerminalCommandStatus({commandId,status:'CONFIRMED',response:{commandId,status:'CONFIRMED',value:{...value,version:4}}},commandId,'restaurant.ticket.advance',payload,versions),false);
 });

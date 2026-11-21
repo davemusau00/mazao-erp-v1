@@ -87,7 +87,7 @@ export function AppShell({activeTab,onTabChange,children}:{activeTab:ActiveTab;o
     window.addEventListener('keydown',keydown);
     return()=>{cancelAnimationFrame(frame);window.removeEventListener('keydown',keydown);previousFocus?.focus();};
   },[recoveryOpen]);
-  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>featureState(session,item)!=='insufficient_permission'&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
+  const discoverable=useMemo(()=>session?workspaceItems.filter(item=>(item.discoverability==='all'||featureState(session,item)!=='insufficient_permission')&&(session.onboardingStatus!=='SETUP'||setupWorkspaces.has(item.id))):[],[session]);
   const available=useMemo(()=>session?discoverable.filter(item=>canOpenWorkspace(session,item.id)):[],[session,discoverable]);
   useEffect(()=>{if(session&&!available.some(item=>item.id===activeTab))onTabChange('today');},[session,activeTab,available,onTabChange]);
   if(!session)return null;
