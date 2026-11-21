@@ -103,6 +103,9 @@ async function prepareAction(page: Page, workspace: Workspace) {
     await page.getByRole('button', { name: 'Add room', exact: true }).click();
     await page.getByLabel('Room number', { exact: true }).fill('101');
     await page.getByLabel('Nightly rate (KES)', { exact: true }).fill('10.00');
+    await page.getByLabel('Maximum adults', { exact: true }).fill('2');
+    await page.getByLabel('Maximum children', { exact: true }).fill('0');
+    await page.getByLabel('Maximum occupants', { exact: true }).fill('2');
     return page.getByRole('button', { name: 'Create room', exact: true });
   }
   if (workspace === 'receiving') {

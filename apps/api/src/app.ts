@@ -26,6 +26,7 @@ import { getConfiguration, getConfigurationAsset, readTaxPolicy, stageConfigurat
 import { getStockExceptionReport, getStockSalePolicy, getStockShortfallDetail, getStockShortfallEvidence, getStockShortfalls, getStockShortfallsCsv } from './stockShortfalls.js';
 import { assertImportSourceSafe, getProductImport, listProductImports, productImportErrorsCsv, type ProductImportHistoryQuery } from './productImport.js';
 import { changeCredential, reconcileCredentialOperation } from './credentials.js';
+import { getGuestRegistration, guestRegistrationPolicy, reconcileGuestRegistration, revealGuestIdentity, saveGuestRegistration } from './guestRegistration.js';
 import type { CredentialInput, CredentialReconciliationInput } from './credentials.js';
 import { listInventoryMovements, listInventoryCounts, listShiftCashMovements } from './inventoryHistory.js';
 import type { HistoryQuery } from './historyPagination.js';
@@ -40,13 +41,13 @@ import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } f
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
 const sessionHours = Number(process.env.SESSION_HOURS ?? 12);
-const setupCommandTypes = new Set(['configuration.business.update','configuration.outlet.create','configuration.outlet.update','configuration.outlet.set_active','configuration.capabilities.update','configuration.stock_exception_policy.update','configuration.go_live.approve','inventory.receive','inventory.count.open','inventory.count.save','inventory.count.review','inventory.count.post','inventory.count.cancel','staff.member.create','staff.member.update','staff.member.set_active','staff.sessions.revoke','staff.password.set','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','auth.session.revoke']);
+const setupCommandTypes = new Set(['hotel.registration.policy.update','configuration.business.update','configuration.outlet.create','configuration.outlet.update','configuration.outlet.set_active','configuration.capabilities.update','configuration.stock_exception_policy.update','configuration.go_live.approve','inventory.receive','inventory.count.open','inventory.count.save','inventory.count.review','inventory.count.post','inventory.count.cancel','staff.member.create','staff.member.update','staff.member.set_active','staff.sessions.revoke','staff.password.set','devices.assignment.create','devices.assignment.update','devices.assignment.revoke','auth.session.revoke']);
 function setupCommandAllowed(type: unknown): boolean {
   return typeof type==='string'&&(setupCommandTypes.has(type)||type.startsWith('catalog.product.')||type.startsWith('catalog.category.')||type.startsWith('catalog.import.'));
 }
 function setupRequestAllowed(method: string, url: string, body: unknown): boolean {
   const path=url.split('?',1)[0];
-  if(method==='GET')return path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
+  if(method==='GET')return path==='/api/v1/hospitality/registration-policy'||path==='/api/v1/auth/me'||path==='/api/v1/auth/assignments'||path==='/api/v1/auth/sessions'||path==='/api/v1/staff'||path==='/api/v1/devices'||path.startsWith('/api/v1/staff/')&&path.endsWith('/sessions')||path.startsWith('/api/v1/configuration')||path.startsWith('/api/v1/catalog/')||path==='/api/v1/inventory/movements'||path.startsWith('/api/v1/inventory/counts')||path==='/api/v1/shifts/current'||/^\/api\/v1\/commands\/[0-9a-f-]{36}$/i.test(path);
   if(method==='POST') {
     if(['/api/v1/auth/logout','/api/v1/auth/password','/api/v1/auth/password/reconcile','/api/v1/auth/context','/api/v1/configuration/assets'].includes(path)||/^\/api\/v1\/staff\/[0-9a-f-]{36}\/password$/i.test(path))return true;
     if(path==='/api/v1/commands'&&body&&typeof body==='object'&&!Array.isArray(body))return setupCommandAllowed((body as Record<string,unknown>).type);
@@ -57,7 +58,7 @@ function setupRequestAllowed(method: string, url: string, body: unknown): boolea
 export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   const { production, allowedOrigins, trustedProxyIps } = readRuntimeConfig();
   const loggerOptions=options.logger&&typeof options.logger==='object'?options.logger:{};
-  const app = Fastify({ logger: {...loggerOptions,redact:['req.body.payload.csv','req.body.csv']}, bodyLimit: 1_048_576,
+  const app = Fastify({ logger: {...loggerOptions,redact:['req.body','res.body','res.payload','req.headers.authorization','req.headers.cookie']}, bodyLimit: 1_048_576,
     requestIdHeader: 'x-request-id',
     genReqId: request => {
       const candidate = request.headers['x-request-id'];
@@ -176,7 +177,8 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
     if ((error as { statusCode?: number }).statusCode === 429) return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many sign-in attempts. Try again shortly.' } });
     if((error as {code?:string}).code==='FST_ERR_CTP_BODY_TOO_LARGE')return reply.code(413).send({error:{code:'PAYLOAD_TOO_LARGE',message:'The request exceeds the upload limit. CSV source must be 512 KiB or smaller.'}});
     if (['FST_ERR_CTP_INVALID_JSON_BODY', 'FST_ERR_CTP_EMPTY_JSON_BODY'].includes((error as { code?: string }).code ?? '')) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request body must contain valid JSON.' } });
-    request.log.error({ err: error }, 'request failed');
+    if(request.url.startsWith('/api/v1/hospitality/registrations'))request.log.error({errorCode:(error as {code?:string}).code??'INTERNAL_ERROR'},'private guest operation failed');
+    else request.log.error({ err: error }, 'request failed');
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Request fields are invalid.' } });
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'The request could not be completed.' } });
   });
@@ -440,19 +442,24 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.get('/api/v1/hospitality/rooms', async request => {
     const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
     if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'||permission==='hotel.housekeeping'))throw new DomainError('FORBIDDEN','Your role cannot view rooms.',403);
-    const result=await pool.query(`SELECT r.id,r.room_number,r.room_type,r.nightly_rate_minor,r.tax_rate_bps,r.currency,r.status,r.version,
+    const result=await pool.query(`SELECT r.id,r.room_number,r.room_type,r.nightly_rate_minor,r.tax_rate_bps,r.currency,r.status,r.version,r.max_adults,r.max_children,r.max_occupants,
       (SELECT jsonb_build_object('id',s.id,'guestName',s.guest_name,'checkInDate',s.check_in_date,'checkOutDate',s.expected_check_out_date,'version',s.version) FROM hospitality.stays s WHERE s.tenant_id=r.tenant_id AND s.outlet_id=r.outlet_id AND s.room_id=r.id AND s.status='CHECKED_IN' LIMIT 1) active_stay
       FROM hospitality.rooms r WHERE r.tenant_id=$1 AND r.outlet_id=$2 ORDER BY r.room_number`,[operator.tenantId,operator.outletId]);
-    return {rooms:result.rows.map(r=>({id:r.id,roomNumber:r.room_number,roomType:r.room_type,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),activeStay:r.active_stay}))};
+    return {rooms:result.rows.map(r=>({id:r.id,roomNumber:r.room_number,roomType:r.room_type,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),maxAdults:r.max_adults,maxChildren:r.max_children,maxOccupants:r.max_occupants,activeStay:r.active_stay}))};
   });
   app.get<{Querystring:HistoryQuery}>('/api/v1/hospitality/reservations',async request=>listHotelReservations(request.operator!,request.query));
   app.get('/api/v1/hospitality/stays',async request=>{
     const operator=request.operator!;if(!operator.capabilities.includes('hospitality'))throw new DomainError('CAPABILITY_DISABLED','Hospitality is not enabled for this tenant.',403);
     if(!ROLE_PERMISSIONS[operator.role].some(permission=>permission==='hotel.frontdesk'||permission==='hotel.manage'))throw new DomainError('FORBIDDEN','Your role cannot view guest stays.',403);
-    const result=await pool.query(`SELECT s.id,s.room_id,r.room_number,r.version room_version,s.guest_name,s.guest_contact,to_char(s.check_in_date,'YYYY-MM-DD') check_in_date,to_char(s.expected_check_out_date,'YYYY-MM-DD') expected_check_out_date,s.checked_in_at,s.nightly_rate_minor,s.tax_rate_bps,s.currency,s.status,s.version,(s.expected_check_out_date-s.check_in_date)::int nights
-      FROM hospitality.stays s JOIN hospitality.rooms r ON r.id=s.room_id AND r.tenant_id=s.tenant_id AND r.outlet_id=s.outlet_id WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND s.status='CHECKED_IN' ORDER BY s.checked_in_at`,[operator.tenantId,operator.outletId]);
-    return {stays:result.rows.map(r=>{const subtotal=BigInt(r.nightly_rate_minor)*BigInt(r.nights);const tax=(subtotal*BigInt(r.tax_rate_bps)+5000n)/10000n;if(subtotal+tax>BigInt(Number.MAX_SAFE_INTEGER))throw new DomainError('VALIDATION_FAILED','Stay estimate exceeds the supported money range.');return {id:r.id,roomId:r.room_id,roomNumber:r.room_number,roomVersion:Number(r.room_version),guestName:r.guest_name,guestContact:r.guest_contact,checkInDate:r.check_in_date,checkOutDate:r.expected_check_out_date,checkedInAt:r.checked_in_at,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),nights:r.nights,estimatedSubtotalMinor:Number(subtotal),estimatedTaxMinor:Number(tax),estimatedTotalMinor:Number(subtotal+tax)}})};
+    const result=await pool.query(`SELECT s.id,s.room_id,r.room_number,r.version room_version,s.guest_name,s.guest_contact,s.guest_registration_id,g.version registration_version,to_char(s.check_in_date,'YYYY-MM-DD') check_in_date,to_char(s.expected_check_out_date,'YYYY-MM-DD') expected_check_out_date,s.checked_in_at,s.nightly_rate_minor,s.tax_rate_bps,s.currency,s.status,s.version,(s.expected_check_out_date-s.check_in_date)::int nights
+      FROM hospitality.stays s JOIN hospitality.rooms r ON r.id=s.room_id AND r.tenant_id=s.tenant_id AND r.outlet_id=s.outlet_id LEFT JOIN hospitality.guest_registrations g ON g.tenant_id=s.tenant_id AND g.outlet_id=s.outlet_id AND g.id=s.guest_registration_id WHERE s.tenant_id=$1 AND s.outlet_id=$2 AND s.status='CHECKED_IN' ORDER BY s.checked_in_at`,[operator.tenantId,operator.outletId]);
+    return {stays:result.rows.map(r=>{const subtotal=BigInt(r.nightly_rate_minor)*BigInt(r.nights);const tax=(subtotal*BigInt(r.tax_rate_bps)+5000n)/10000n;if(subtotal+tax>BigInt(Number.MAX_SAFE_INTEGER))throw new DomainError('VALIDATION_FAILED','Stay estimate exceeds the supported money range.');return {id:r.id,roomId:r.room_id,roomNumber:r.room_number,roomVersion:Number(r.room_version),guestName:r.guest_name,guestContact:r.guest_contact,registrationId:r.guest_registration_id??null,registrationVersion:r.registration_version===null?null:Number(r.registration_version),checkInDate:r.check_in_date,checkOutDate:r.expected_check_out_date,checkedInAt:r.checked_in_at,nightlyRateMinor:Number(r.nightly_rate_minor),taxRateBps:r.tax_rate_bps,currency:r.currency,status:r.status,version:Number(r.version),nights:r.nights,estimatedSubtotalMinor:Number(subtotal),estimatedTaxMinor:Number(tax),estimatedTotalMinor:Number(subtotal+tax)}})};
   });
+  app.get('/api/v1/hospitality/registration-policy',async(request,reply)=>{reply.header('Cache-Control','no-store');return guestRegistrationPolicy(request.operator!);});
+  app.get<{Params:{registrationId:string}}>('/api/v1/hospitality/registrations/:registrationId',async(request,reply)=>{reply.header('Cache-Control','no-store');return getGuestRegistration(request.operator!,request.params.registrationId);});
+  app.post('/api/v1/hospitality/registrations/save',{bodyLimit:131072},async(request,reply)=>{reply.header('Cache-Control','no-store');return saveGuestRegistration(request.operator!,request.body);});
+  app.post('/api/v1/hospitality/registrations/reconcile',async(request,reply)=>{reply.header('Cache-Control','no-store');return reconcileGuestRegistration(request.operator!,request.body);});
+  app.post<{Params:{registrationId:string}}>('/api/v1/hospitality/registrations/:registrationId/reveal',async(request,reply)=>{reply.header('Cache-Control','no-store');return revealGuestIdentity(request.operator!,request.params.registrationId,request.body);});
   app.post<{ Body: CommandEnvelope }>('/api/v1/commands',{bodyLimit:2_097_152}, async (request, reply) => {
     const envelope=parseCommandEnvelope(request.body); const s=request.operator!;
     if(s.onboardingStatus==='SETUP'&&!setupCommandAllowed(envelope.type))throw new DomainError('ONBOARDING_REQUIRED','Complete the reviewed first-use setup before using this business action.',403);

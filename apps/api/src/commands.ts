@@ -16,6 +16,7 @@ import { executeAccountingCommand, guardFinancialCommand } from './accounting.js
 import { executeAccountCatalogCommand } from './accountCatalog.js';
 import { executeStockExceptionCommand } from './stockShortfalls.js';
 import { COUNT_CAPACITY, appendCountEvent, assertCountPostable, countBefore, ensureCountCheckpoint, loadCountState, reviewStockCount } from './countRecovery.js';
+import { assertGuestRoomCapacity, bindGuestRegistration, executeGuestRegistrationCommand, finalizeGuestRegistration, lockGuestRegistrationScope, registrationForAllocation } from './guestRegistration.js';
 
 const quantityScale = 1_000_000n;
 function quantityMicros(value: unknown): bigint {
@@ -230,6 +231,9 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'customers.account.create': return createCustomerAccount(client, session, envelope);
     case 'customers.account.update': return updateCustomerAccount(client, session, envelope);
     case 'customers.repayment': return recordCustomerRepayment(client, session, envelope);
+    case 'hotel.registration.policy.update':
+    case 'hotel.registration.retention.run':
+    case 'hotel.room.capacity.update': return executeGuestRegistrationCommand(client,session,envelope);
     case 'hotel.room.create': return createHotelRoom(client,session,envelope);
     case 'hotel.reservation.create': return createReservation(client,session,envelope);
     case 'hotel.reservation.cancel': return cancelReservation(client,session,envelope);
@@ -1140,6 +1144,12 @@ async function createHotelRoom(client:PoolClient,session:ApiSession,envelope:Com
   const roomId=randomUUID();const taxRateBps=envelope.payload.taxRateBps===undefined?(readOutletProfile(tenant.rows[0].outlet_profile).taxPolicy??readBusinessProfile(tenant.rows[0].business_profile).taxPolicy).defaultRateBps:envelope.payload.taxRateBps;
   if(typeof taxRateBps!=='number'||!Number.isInteger(taxRateBps)||taxRateBps<0||taxRateBps>10_000)throw new DomainError('VALIDATION_FAILED','Room tax rate must be from 0 through 10000 basis points.');
   try{await client.query(`INSERT INTO hospitality.rooms(id,tenant_id,outlet_id,room_number,room_type,nightly_rate_minor,tax_rate_bps,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[roomId,session.tenantId,session.outletId,roomNumber.trim(),roomType.trim(),rate,taxRateBps,tenant.rows[0].currency])}catch(error){if((error as {code?:string}).code==='23505')throw new DomainError('VALIDATION_FAILED','That room number already exists at this outlet.');throw error}
+  const capacities=['maxAdults','maxChildren','maxOccupants'];
+  if(capacities.some(key=>envelope.payload[key]!==undefined)){
+    const adults=envelope.payload.maxAdults,children=envelope.payload.maxChildren,total=envelope.payload.maxOccupants;
+    if(![adults,children,total].every(Number.isSafeInteger)||(adults as number)<1||(children as number)<0||(total as number)<1||(total as number)>100||(adults as number)>(total as number)||(children as number)>(total as number))throw new DomainError('VALIDATION_FAILED','Room capacities must be complete and consistent.');
+    await client.query('UPDATE hospitality.rooms SET max_adults=$4,max_children=$5,max_occupants=$6 WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3',[session.tenantId,session.outletId,roomId,adults,children,total]);
+  }
   const result={roomId,roomNumber:roomNumber.trim(),version:1};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }
 
@@ -1153,18 +1163,23 @@ async function assertRoomAvailable(client:PoolClient,session:ApiSession,roomId:s
 }
 
 async function createReservation(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
-  const roomId=envelope.payload.roomId;const guestName=envelope.payload.guestName;const guestContact=envelope.payload.guestContact;
-  if(typeof roomId!=='string'||typeof guestName!=='string'||!guestName.trim()||guestName.trim().length>160||(guestContact!==undefined&&(typeof guestContact!=='string'||guestContact.length>80)))throw new DomainError('VALIDATION_FAILED','Room and guest name are required.');
+  await lockGuestRegistrationScope(client,session);
+  const registration=typeof envelope.payload.registrationId==='string'?await registrationForAllocation(client,session,envelope,false):null;
+  const roomId=envelope.payload.roomId;const guestName=registration?.guestName??envelope.payload.guestName;const guestContact=registration?.guestContact??envelope.payload.guestContact;
+  if(typeof roomId!=='string'||typeof guestName!=='string'||!guestName.trim()||guestName.trim().length>160||(guestContact!==undefined&&guestContact!==null&&(typeof guestContact!=='string'||guestContact.length>80)))throw new DomainError('VALIDATION_FAILED','Room and guest name are required.');
   const checkIn=dateOnly(envelope.payload.checkInDate,'checkInDate');const checkOut=dateOnly(envelope.payload.checkOutDate,'checkOutDate');if(checkOut<=checkIn)throw new DomainError('VALIDATION_FAILED','Check-out date must be after check-in date.');
   const expected=versionFor(envelope,`room:${roomId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected room version is required.');
   const room=await roomForUpdate(client,session,roomId);if(room.status==='MAINTENANCE')throw new DomainError('ROOM_UNAVAILABLE','Room is unavailable for maintenance.',409);if(Number(room.version)!==expected)throw new DomainError('VERSION_CONFLICT','Room availability changed. Refresh and select a room again.',409,{currentVersion:Number(room.version)});
   await assertRoomAvailable(client,session,roomId,checkIn,checkOut);
+  if(registration)await assertGuestRoomCapacity(client,session,roomId,registration.row);
   const reservationId=randomUUID();await client.query(`INSERT INTO hospitality.reservations(id,tenant_id,outlet_id,room_id,guest_name,guest_contact,check_in_date,check_out_date,nightly_rate_minor,tax_rate_bps,currency,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7::date,$8::date,$9,$10,$11,'CONFIRMED',$12)`,[reservationId,session.tenantId,session.outletId,roomId,guestName.trim(),typeof guestContact==='string'?guestContact.trim()||null:null,checkIn,checkOut,room.nightly_rate_minor,room.tax_rate_bps,room.currency,session.userId]);
   const bumped=await client.query<{version:string}>('UPDATE hospitality.rooms SET version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND version=$4 RETURNING version',[roomId,session.tenantId,session.outletId,expected]);if(!bumped.rowCount)throw new DomainError('VERSION_CONFLICT','Room availability changed while creating the reservation.',409);
-  const result={reservationId,roomId,roomVersion:Number(bumped.rows[0].version),checkInDate:checkIn,checkOutDate:checkOut,status:'CONFIRMED'};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
+  if(registration)await bindGuestRegistration(client,session,envelope,registration.row.id,reservationId);
+  const result={reservationId,roomId,roomVersion:Number(bumped.rows[0].version),checkInDate:checkIn,checkOutDate:checkOut,status:'CONFIRMED',...(registration?{registrationId:registration.row.id,registrationVersion:Number(registration.row.version)+1}:{})};await audit(client,session,envelope.commandId,envelope.type,result);await outbox(client,session,envelope.commandId,envelope.type,result);return result;
 }
 
 async function cancelReservation(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
+  await lockGuestRegistrationScope(client,session);
   const reservationId=envelope.payload.reservationId;
   if(typeof reservationId!=='string')throw new DomainError('VALIDATION_FAILED','reservationId is required.');const expected=versionFor(envelope,`reservation:${reservationId}`);if(!expected)throw new DomainError('VALIDATION_FAILED','Expected reservation version is required.');
   const result=await client.query<{version:string;room_id:string}>(`UPDATE hospitality.reservations SET status='CANCELLED',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' AND version=$4 RETURNING version,room_id`,[reservationId,session.tenantId,session.outletId,expected]);
@@ -1174,12 +1189,15 @@ async function cancelReservation(client:PoolClient,session:ApiSession,envelope:C
 }
 
 async function checkInGuest(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){
+  await lockGuestRegistrationScope(client,session);
   const reservationId=envelope.payload.reservationId;let roomId=envelope.payload.roomId;let guestName=envelope.payload.guestName;let guestContact=envelope.payload.guestContact;let checkIn='';let checkOut='';
   if(typeof reservationId==='string'){
     const reservation=await client.query<{room_id:string;guest_name:string;guest_contact:string|null;check_in_date:string;check_out_date:string;nightly_rate_minor:string;tax_rate_bps:number;currency:string;version:string}>(`SELECT room_id,guest_name,guest_contact,to_char(check_in_date,'YYYY-MM-DD') check_in_date,to_char(check_out_date,'YYYY-MM-DD') check_out_date,nightly_rate_minor,tax_rate_bps,currency,version FROM hospitality.reservations WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND status='CONFIRMED' FOR UPDATE`,[reservationId,session.tenantId,session.outletId]);
     if(!reservation.rowCount)throw new DomainError('NOT_FOUND','Confirmed reservation was not found.',404);const r=reservation.rows[0];const expectedReservation=versionFor(envelope,`reservation:${reservationId}`);if(!expectedReservation||Number(r.version)!==expectedReservation)throw new DomainError('VERSION_CONFLICT','Reservation changed. Refresh arrivals before check-in.',409,{currentVersion:Number(r.version)});
     roomId=r.room_id;guestName=r.guest_name;guestContact=r.guest_contact;checkIn=r.check_in_date;checkOut=r.check_out_date;
   }else{checkIn=dateOnly(envelope.payload.checkInDate,'checkInDate');checkOut=dateOnly(envelope.payload.checkOutDate,'checkOutDate')}
+  const registration=await registrationForAllocation(client,session,envelope,true,typeof reservationId==='string'?reservationId:undefined);
+  guestName=registration.guestName;guestContact=registration.guestContact;
   if(typeof roomId!=='string'||typeof guestName!=='string'||!guestName.trim()||checkOut<=checkIn||(guestContact!==undefined&&guestContact!==null&&(typeof guestContact!=='string'||guestContact.length>80)))throw new DomainError('VALIDATION_FAILED','Room, guest name, and valid check-in/check-out dates are required.');
   const businessDate=await client.query<{currency:string;local_today:string}>(`SELECT t.currency,to_char(now() AT TIME ZONE o.time_zone,'YYYY-MM-DD') local_today FROM core.tenants t JOIN core.outlets o ON o.tenant_id=t.id WHERE t.id=$1 AND o.id=$2`,[session.tenantId,session.outletId]);
   if(checkIn>businessDate.rows[0].local_today||checkOut<=businessDate.rows[0].local_today)throw new DomainError('VALIDATION_FAILED','Check-in is allowed only on or after the arrival date and before the booked departure date.',409,{businessDate:businessDate.rows[0].local_today,checkInDate:checkIn,checkOutDate:checkOut});
@@ -1187,13 +1205,15 @@ async function checkInGuest(client:PoolClient,session:ApiSession,envelope:Comman
   const expectedRoom=versionFor(envelope,`room:${roomId}`);if(!expectedRoom)throw new DomainError('VALIDATION_FAILED','Expected room version is required.');const room=await roomForUpdate(client,session,roomId);
   if(room.status!=='READY'||Number(room.version)!==expectedRoom)throw new DomainError('VERSION_CONFLICT','Room is not ready or changed. Refresh room status before check-in.',409,{currentVersion:Number(room.version),roomStatus:room.status});
   await assertRoomAvailable(client,session,roomId,checkIn,checkOut,typeof reservationId==='string'?reservationId:undefined);
+  await assertGuestRoomCapacity(client,session,roomId,registration.row);
   const stayId=randomUUID();const folioId=randomUUID();const tenant=businessDate;
   if(room.currency!==tenant.rows[0].currency)throw new DomainError('VALIDATION_FAILED','Room rate currency differs from the tenant.');
   await client.query(`INSERT INTO hospitality.stays(id,tenant_id,outlet_id,room_id,reservation_id,guest_name,guest_contact,check_in_date,expected_check_out_date,nightly_rate_minor,tax_rate_bps,currency,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8::date,$9::date,$10,$11,$12,'CHECKED_IN',$13)`,[stayId,session.tenantId,session.outletId,roomId,typeof reservationId==='string'?reservationId:null,guestName.trim(),typeof guestContact==='string'?guestContact.trim()||null:null,checkIn,checkOut,room.nightly_rate_minor,room.tax_rate_bps,room.currency,session.userId]);
   await client.query('INSERT INTO hospitality.folios(id,tenant_id,outlet_id,stay_id,currency) VALUES($1,$2,$3,$4,$5)',[folioId,session.tenantId,session.outletId,stayId,room.currency]);
   await client.query(`UPDATE hospitality.rooms SET status='OCCUPIED',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3 AND version=$4`,[roomId,session.tenantId,session.outletId,expectedRoom]);
   if(typeof reservationId==='string')await client.query(`UPDATE hospitality.reservations SET status='CHECKED_IN',version=version+1 WHERE id=$1 AND tenant_id=$2 AND outlet_id=$3`,[reservationId,session.tenantId,session.outletId]);
-  const value={stayId,folioId,roomId,roomVersion:expectedRoom+1,guestName:guestName.trim(),checkInDate:checkIn,checkOutDate:checkOut,status:'CHECKED_IN'};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
+  await finalizeGuestRegistration(client,session,envelope,registration.row.id,stayId);
+  const value={stayId,folioId,roomId,roomVersion:expectedRoom+1,guestName:guestName.trim(),checkInDate:checkIn,checkOutDate:checkOut,status:'CHECKED_IN',registrationId:registration.row.id,registrationVersion:Number(registration.row.version)+1,registrationPolicyVersion:registration.policyVersion};await audit(client,session,envelope.commandId,envelope.type,value);await outbox(client,session,envelope.commandId,envelope.type,value);return value;
 }
 
 async function checkOutGuest(client:PoolClient,session:ApiSession,envelope:CommandEnvelope){

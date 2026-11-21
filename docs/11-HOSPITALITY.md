@@ -12,5 +12,13 @@ A room cannot be assigned to overlapping active stays; race-safe transaction wit
 ## Dashboard
 Arrivals, departures, checked-in guests, available/occupied/dirty/out-of-service, room blocks, unsettled balances and today's occupancy. Managers have rate/room setup; front desk sees operational tasks only.
 
+## Guest registration delivery
+
+The approved property policy requires ID/passport details and receptionist verification for every adult occupant before check-in. Children link to a responsible adult in the same registration. Reservations collect structured contact and party details; arrival completes the private registration. Reserved arrival and walk-in share the same review form, and only the confirmed room command occupies the room.
+
+Private saves use metadata-only recovery with canonical status and a server fence against late originals. The final room command contains a versioned registration reference. Identity numbers are encrypted server-side, masked in ordinary detail views and excluded from routine command/audit/outbox/browser durable storage. Corrections preserve revision evidence. Owner policy/retention review and explicit room capacities support rollout to legacy reservations and stays.
+
+See [the implementation plan](GUEST-REGISTRATION-AND-CHECK-IN-PLAN.md) and [integration/acceptance evidence](GUEST-REGISTRATION-IMPLEMENTATION.md). Returning profiles, registration print/export and document attachments are subsequent slices.
 ## Acceptance matrix
+
 Same room race across two devices, cancellation vs check-in race, early/late checkout, day stay, rate-plan validity and tax, move between rooms, multiple payment methods, offline draft while occupancy cannot be safely asserted, refund and reopen policy, room maintenance hold, hotel-only tenant with POS disabled.

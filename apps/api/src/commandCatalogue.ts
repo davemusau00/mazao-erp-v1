@@ -1,10 +1,11 @@
 import { DomainError, type ApiPermission, type CommandEnvelope } from './contracts.js';
 import { assertContract, type ContractSchema, uuidSchema, versionSchema, versionsSchema } from './contractValidation.js';
 import { COMMAND_ENVELOPE_SCHEMA } from './publicInputs.js';
+import { GUEST_COMMAND_SCHEMAS, GUEST_REGISTRATION_SAVE_SCHEMA, GUEST_REGISTRATION_RESULT_SCHEMA } from './guestRegistrationContracts.js';
 
 export interface CommandContract {
   schemaVersion: 1;
-  transport: 'commands' | 'credential';
+  transport: 'commands' | 'credential' | 'guest_registration';
   permissions: readonly ApiPermission[];
   capabilities: readonly string[];
   offlineMode: 'ONLINE_ONLY';
@@ -45,6 +46,7 @@ const affectedProductsSchema: ContractSchema = {type:'array',items:uuidSchema,mi
 // describe only the object boundary; their referenced domain validator remains
 // authoritative until that command receives a reviewed schema migration.
 const migrated: Record<string, { payload: ContractSchema; output: ContractSchema }> = {
+  ...GUEST_COMMAND_SCHEMAS,
   'inventory.count.post': {
     payload: strictObject({countId:uuidSchema,valuationReason:reasonSchema}, ['countId']),
     output: objectResult,
@@ -207,6 +209,11 @@ export const COMMAND_CATALOGUE: Readonly<Record<string, CommandContract>> = {
   'hotel.checkin': contract('hotel.checkin', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#checkInGuest', ['reservation', 'stay', 'room']),
   'hotel.checkout': contract('hotel.checkout', ['hotel.frontdesk'], ['hospitality'], 'commands.ts#checkOutGuest', ['stay', 'room', 'tender', 'shift', 'journal']),
   'hotel.room.mark_ready': contract('hotel.room.mark_ready', ['hotel.housekeeping'], ['hospitality'], 'commands.ts#markRoomReady', ['room', 'housekeeping']),
+  'hotel.registration.save': {...contract('hotel.registration.save',['hotel.frontdesk'],['hospitality'],'guestRegistration.ts#saveGuestRegistration',['guest_registration'],'guest_registration'),validation:'SCHEMA_AND_DOMAIN',inputSchema:GUEST_REGISTRATION_SAVE_SCHEMA,outputSchema:GUEST_REGISTRATION_RESULT_SCHEMA},
+  'hotel.registration.correct': {...contract('hotel.registration.correct',['hotel.frontdesk'],['hospitality'],'guestRegistration.ts#saveGuestRegistration',['guest_registration_revision'],'guest_registration'),validation:'SCHEMA_AND_DOMAIN',inputSchema:GUEST_REGISTRATION_SAVE_SCHEMA,outputSchema:GUEST_REGISTRATION_RESULT_SCHEMA},
+  'hotel.registration.policy.update': contract('hotel.registration.policy.update',['hotel.guest.policy'],['hospitality'],'guestRegistration.ts#executeGuestRegistrationCommand',['guest_registration_policy']),
+  'hotel.registration.retention.run': contract('hotel.registration.retention.run',['hotel.guest.retention'],['hospitality'],'guestRegistration.ts#executeGuestRegistrationCommand',['guest_identity_retention']),
+  'hotel.room.capacity.update': contract('hotel.room.capacity.update',['hotel.manage'],['hospitality'],'guestRegistration.ts#executeGuestRegistrationCommand',['room']),
   'configuration.business.update': contract('configuration.business.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
   'configuration.outlet.update': contract('configuration.outlet.update', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration']),
   'configuration.outlet.create': contract('configuration.outlet.create', ['config.manage'], [], 'configuration.ts#executeConfigurationCommand', ['configuration','outlet']),

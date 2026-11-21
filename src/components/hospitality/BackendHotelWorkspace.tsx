@@ -6,19 +6,25 @@ import {
   type BackendReservation,
   type BackendRoom,
   type BackendStay,
+  type GuestRegistrationPolicy,
 } from '../../services/apiClient';
 import { formatBasisPoints, formatMinorMoney, minorToMoneyInput, moneyInputToMinor } from '../../utils/money';
 import { useCommandRecoveryReadiness } from '../../hooks/useCommandRecoveryReadiness';
 import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
 import { HistoryNavigation } from '../common/HistoryNavigation';
 import type { HistoryPage, HistoryOptions } from '../../types/history';
+import type { GuestRegistrationRecovery } from '../../services/guestRegistrationJournal';
+import { GuestRegistrationDialog, type GuestDialogMode } from './GuestRegistrationDialog';
+import { HotelRegistrationSettings } from './HotelRegistrationSettings';
+import { ResponsiveDialog } from '../common/ResponsiveDialog';
+import { guestControl, GuestField } from './GuestRegistrationFields';
 
-type HotelView = 'rooms' | 'reservations' | 'stays' | 'housekeeping';
+type HotelView = 'rooms' | 'reservations' | 'stays' | 'housekeeping' | 'settings';
 type DialogState =
   | { type: 'room' }
-  | { type: 'reservation' }
-  | { type: 'walkin'; room: BackendRoom }
   | { type: 'checkout'; stay: BackendStay }
+  | { type: 'guest'; mode: GuestDialogMode; room?: BackendRoom; reservation?: BackendReservation; stay?: BackendStay; registrationId?: string | null }
+  | { type: 'capacity'; room: BackendRoom }
   | null;
 
 const controlClass = 'mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-white';
@@ -50,6 +56,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const canFrontdesk = permissions.includes('hotel.frontdesk');
   const canManage = permissions.includes('hotel.manage');
   const canHousekeep = permissions.includes('hotel.housekeeping');
+  const canGuestPolicy = permissions.includes('hotel.guest.policy');
   const today = todayLocal((session.outlet.timeZone ?? session.tenant.timeZone));
 
   const [view, setView] = useState<HotelView>(initialView);
@@ -66,23 +73,39 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busy, setBusy] = useState(false);
   const [unknownId, setUnknownId] = useState('');
+  const [guestPolicy, setGuestPolicy] = useState<GuestRegistrationPolicy | null>(null);
+  const [guestRecovery, setGuestRecovery] = useState<GuestRegistrationRecovery[]>([]);
+  const [guestRecoveryReady, setGuestRecoveryReady] = useState(false);
+  const [guestRecoveryError, setGuestRecoveryError] = useState('');
+  const [missingGuestOperation, setMissingGuestOperation] = useState('');
+  const [recoveredRegistrationId, setRecoveredRegistrationId] = useState('');
   const pending = useRef<BackendCommand | null>(null);
   const recovery = useCommandRecoveryReadiness('hotel.', command => {
     pending.current = command; setUnknownId(command.commandId);
     setNotice('A guest or room action needs review. Check its status before starting another action.');
   });
-  const locked = loading || !!error || !recovery.ready || busy || !!unknownId;
+  const locked = loading || !!error || !recovery.ready || !guestRecoveryReady || busy || !!unknownId || guestRecovery.length > 0;
 
   const [roomNumber, setRoomNumber] = useState('');
   const [roomType, setRoomType] = useState('Standard');
   const [nightlyRate, setNightlyRate] = useState('');
   const [roomTax, setRoomTax] = useState('');
-  const [guestName, setGuestName] = useState('');
-  const [guestContact, setGuestContact] = useState('');
-  const [roomId, setRoomId] = useState('');
-  const [checkInDate, setCheckInDate] = useState(today);
-  const [checkOutDate, setCheckOutDate] = useState(addDays(today, 1));
   const [tendered, setTendered] = useState('');
+  const [maxAdults, setMaxAdults] = useState('');
+  const [maxChildren, setMaxChildren] = useState('');
+  const [maxOccupants, setMaxOccupants] = useState('');
+  const [capacityReason, setCapacityReason] = useState('');
+  const [capacityTransitionReason, setCapacityTransitionReason] = useState('');
+
+  const inspectGuestRecovery = useCallback(async () => {
+    setGuestRecoveryReady(false); setGuestRecoveryError('');
+    try { setGuestRecovery(await apiClient.listGuestRegistrationRecovery()); setGuestRecoveryReady(true); }
+    catch (cause) { setGuestRecoveryError(cause instanceof Error ? cause.message : 'Guest recovery could not be checked.'); }
+  }, [session.tenant.id, session.user.id, session.deviceId, session.outlet.id]);
+  useEffect(() => {
+    void inspectGuestRecovery();
+    return apiClient.subscribeGuestRegistrationRecovery(records => { setGuestRecovery(records); setGuestRecoveryReady(true); setGuestRecoveryError(''); });
+  }, [inspectGuestRecovery]);
 
   const refresh = useCallback(async () => {
     const reservationRequest = ++reservationGeneration.current;
@@ -91,6 +114,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     try {
       const roomResult = await apiClient.listHotelRooms();
       setRooms(roomResult.rooms);
+      if (canFrontdesk || canManage) setGuestPolicy((await apiClient.getGuestRegistrationPolicy()).policy);
       if (canFrontdesk) {
         const [reservationResult, stayResult] = await Promise.all([
           apiClient.listHotelReservations(undefined,{q:reservationSearch.current}), apiClient.listHotelStays(),
@@ -109,7 +133,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     } finally {
       setLoading(false);
     }
-  }, [canFrontdesk]);
+  }, [canFrontdesk, canManage]);
 
   useEffect(() => { void refresh(); }, [refresh, session.tenant.id]);
 
@@ -137,6 +161,9 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
     if (type === 'hotel.reservation.cancel') return 'Reservation cancelled.';
     if (type === 'hotel.room.mark_ready') return 'Room marked ready for the next guest.';
     if (type === 'hotel.room.create') return 'Room created.';
+    if (type === 'hotel.room.capacity.update') return 'Room capacity updated.';
+    if (type === 'hotel.registration.policy.update') return 'Guest registration policy reviewed and saved.';
+    if (type === 'hotel.registration.retention.run') return 'Approved retention completed for eligible expired guest details.';
     return 'Hotel action completed.';
   };
 
@@ -205,42 +232,55 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
       await run('hotel.room.create', {
         roomNumber: roomNumber.trim(), roomType: roomType.trim(),
         nightlyRateMinor: moneyInputToMinor(nightlyRate, session.tenant.currency), ...(roomTax.trim() ? { taxRateBps: percentToBps(roomTax) } : {}),
+        maxAdults: capacityNumber(maxAdults, 'adult'), maxChildren: capacityNumber(maxChildren, 'child', true), maxOccupants: capacityNumber(maxOccupants, 'total'),
       });
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'Room details are invalid.');
     }
   };
 
-  const createReservation = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const room = rooms.find(item => item.id === roomId);
-    if (!room) return;
-    await run('hotel.reservation.create', {
-      roomId, guestName: guestName.trim(), guestContact: guestContact.trim(), checkInDate, checkOutDate,
-    }, { [`room:${room.id}`]: room.version });
-  };
-
-  const checkIn = (room: BackendRoom, reservation?: BackendReservation) => {
-    const expectedVersions: Record<string, number> = { [`room:${room.id}`]: room.version };
-    const payload: Record<string, unknown> = { roomId: room.id };
-    if (reservation) {
-      expectedVersions[`reservation:${reservation.id}`] = reservation.version;
-      payload.reservationId = reservation.id;
-    } else {
-      payload.guestName = guestName.trim();
-      payload.guestContact = guestContact.trim();
-      payload.checkInDate = checkInDate;
-      payload.checkOutDate = checkOutDate;
-    }
-    return run('hotel.checkin', payload, expectedVersions);
-  };
-
   const openWalkin = (room: BackendRoom) => {
-    setGuestName('');
-    setGuestContact('');
-    setCheckInDate(today);
-    setCheckOutDate(addDays(today, 1));
-    setDialog({ type: 'walkin', room });
+    setDialog({ type: 'guest', mode: 'arrival', room });
+  };
+
+  const openCapacity = (room: BackendRoom) => {
+    setMaxAdults(room.maxAdults == null ? '' : String(room.maxAdults)); setMaxChildren(room.maxChildren == null ? '' : String(room.maxChildren));
+    setMaxOccupants(room.maxOccupants == null ? '' : String(room.maxOccupants)); setCapacityReason(''); setCapacityTransitionReason(''); setDialog({ type: 'capacity', room });
+  };
+  const saveCapacity = async (event: React.FormEvent) => {
+    event.preventDefault(); if (dialog?.type !== 'capacity') return;
+    try { await run('hotel.room.capacity.update', { roomId: dialog.room.id, maxAdults: capacityNumber(maxAdults, 'adult'), maxChildren: capacityNumber(maxChildren, 'child', true), maxOccupants: capacityNumber(maxOccupants, 'total'), reason: capacityReason.trim(), ...(capacityTransitionReason.trim() ? { legacyTransitionReason: capacityTransitionReason.trim() } : {}) }, { [`room:${dialog.room.id}`]: dialog.room.version }); }
+    catch (cause) { setNotice(cause instanceof Error ? cause.message : 'Room capacity needs review.'); }
+  };
+  const recoverGuest = async (operation: GuestRegistrationRecovery, fence = false) => {
+    if (busy) return;
+    setBusy(true); setNotice('');
+    try {
+      const result = fence ? await apiClient.reconcileGuestRegistration(operation) : await apiClient.checkGuestRegistrationStatus(operation);
+      setMissingGuestOperation(''); setDialog(null);
+      if (result.status === 'CONFIRMED') { setRecoveredRegistrationId(operation.registrationId); setNotice('Guest details were saved. Review them before continuing the reservation or check-in.'); }
+      else setNotice(String(result.response.message ?? 'The original guest save is resolved. Re-enter any details needed for a new attempt.'));
+    } catch (cause) {
+      if ((cause as {status?: number}).status === 404) { setMissingGuestOperation(operation.commandId); setNotice('The guest save is not yet recorded. Safely stop the original request before re-entering private details.'); }
+      else setNotice(cause instanceof Error ? cause.message : 'Guest details still need status recovery.');
+    } finally { await inspectGuestRecovery(); setBusy(false); }
+  };
+  const continueRecoveredGuest = async () => {
+    setBusy(true);
+    try {
+      const { registration } = await apiClient.getGuestRegistration(recoveredRegistrationId);
+      if (registration.stayId && registration.status === 'FINAL') {
+        const stay = stays.find(item => item.id === registration.stayId);
+        if (!stay) throw new Error('Refresh the current guest stays before reviewing this registration.');
+        setDialog({ type: 'guest', mode: 'correction', stay, registrationId: registration.id });
+      } else if (registration.reservationId) {
+        const booking = reservations.find(item => item.id === registration.reservationId);
+        if (!booking) throw new Error('The original reservation is no longer in active arrivals. Refresh its records before continuing.');
+        setDialog({ type: 'guest', mode: 'edit', reservation: booking, room: rooms.find(item => item.id === booking.roomId), registrationId: registration.id });
+      } else setDialog({ type: 'guest', mode: 'booking', registrationId: registration.id });
+      setRecoveredRegistrationId('');
+    } catch (cause) { setNotice(cause instanceof Error ? cause.message : 'Saved guest details could not be reopened.'); }
+    finally { setBusy(false); }
   };
 
   const openCheckout = (stay: BackendStay) => {
@@ -277,15 +317,19 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
   );
 
   const recoveryMessage = unknownId && <div role="alert" className="mb-4 rounded-lg border border-amber-800 p-3 text-sm text-amber-100">{notice}<button type="button" disabled={busy || !recovery.ready} onClick={() => void checkStatus()} className="mt-2 min-h-11 rounded-lg border border-amber-700 px-4 underline">Check status</button></div>;
+  const privateRecoveryPanel = guestRecovery.length > 0 && <section aria-label="Guest registration recovery" className="space-y-2 rounded-xl border border-amber-800 p-3 text-sm text-amber-100"><h2 className="font-semibold">Guest details need status recovery</h2><p>Private input is not stored on this device. Check the original save before starting another guest action.</p>{guestRecovery.map(operation => <div key={operation.commandId} className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void recoverGuest(operation)} className="min-h-11 rounded-lg border border-amber-700 px-3">Check guest save status</button>{missingGuestOperation === operation.commandId && <button type="button" disabled={busy} onClick={() => void recoverGuest(operation, true)} className="min-h-11 rounded-lg border border-amber-700 px-3">Safely stop original guest save</button>}</div>)}</section>;
 
   const tabs: Array<[HotelView, string]> = [
     ['rooms', 'Rooms'],
     ...(canFrontdesk ? [['reservations', 'Reservations'], ['stays', 'Checked-in guests']] as Array<[HotelView, string]> : []),
     ...(canHousekeep ? [['housekeeping', 'Housekeeping']] as Array<[HotelView, string]> : []),
+    ...(canGuestPolicy ? [['settings', 'Guest registration policy']] as Array<[HotelView, string]> : []),
   ];
 
   return <main className="min-h-full space-y-5 overflow-y-auto p-4 pb-24 text-zinc-100 sm:p-6">
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />
+    {!guestRecoveryReady && <div role="alert" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-100">{guestRecoveryError || 'Checking private guest registration recovery…'}<button type="button" onClick={() => void inspectGuestRecovery()} className="ml-2 min-h-11 underline">Retry guest recovery</button></div>}
+    {dialog?.type !== 'guest' && privateRecoveryPanel}
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p className="text-xs tracking-[.18em] text-blue-300">HOTEL · {session.outlet.name.toUpperCase()}</p>
@@ -302,6 +346,7 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
 
     {error && <p role="alert" className="rounded-xl border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
     {notice && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-800 bg-blue-950/40 p-3 text-sm text-blue-200"><span>{notice}</span>{unknownId && <button onClick={() => void checkStatus()} disabled={busy || !recovery.ready} className="min-h-11 underline">Check status</button>}</div>}
+    {recoveredRegistrationId && <button type="button" onClick={() => void continueRecoveredGuest()} disabled={locked} className="min-h-11 rounded-lg border border-blue-700 px-4 text-blue-200">Continue saved guest details</button>}
 
     <nav className="flex gap-2 overflow-x-auto border-b border-zinc-800 pb-2" aria-label="Hotel tasks">
       {tabs.map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`min-h-11 whitespace-nowrap rounded-lg px-3 text-sm ${view === id ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-900'}`} aria-current={view === id ? 'page' : undefined}>{label}</button>)}
@@ -313,23 +358,23 @@ export function BackendHotelWorkspace({ initialView = 'rooms' }: { initialView?:
           <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-zinc-500">{room.roomType}</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2></div><span className={`rounded-full px-2.5 py-1 text-xs ${room.status === 'READY' ? 'bg-emerald-950 text-emerald-300' : room.status === 'OCCUPIED' ? 'bg-blue-950 text-blue-300' : room.status === 'DIRTY' ? 'bg-amber-950 text-amber-300' : 'bg-rose-950 text-rose-300'}`}>{room.status.toLowerCase()}</span></div>
           <p className="mt-4 text-sm text-zinc-300">{formatMinorMoney(room.nightlyRateMinor, room.currency)} / night <span className="ml-2 text-xs text-zinc-500">Tax {formatBasisPoints(room.taxRateBps)}%</span></p>
           {room.activeStay && <p className="mt-2 flex items-center gap-2 text-sm text-blue-200"><UserRound size={15} />{room.activeStay.guestName}</p>}
-          <div className="mt-4 flex flex-wrap justify-end gap-2">{canFrontdesk && room.status === 'READY' && <button onClick={() => openWalkin(room)} disabled={locked} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs font-semibold">Walk-in check-in</button>}{canHousekeep && room.status === 'DIRTY' && <button onClick={() => void markReady(room)} disabled={locked} className="min-h-11 rounded-lg border border-emerald-800 px-3 text-xs text-emerald-200">Mark room ready</button>}</div>
+          <p className="mt-2 text-xs text-zinc-500">{room.maxOccupants == null ? 'Capacity not configured' : String(room.maxAdults)+' adults · '+String(room.maxChildren)+' children · '+String(room.maxOccupants)+' total'}</p><div className="mt-4 flex flex-wrap justify-end gap-2">{canManage && <button type="button" onClick={() => openCapacity(room)} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-xs">Set capacity</button>}{canFrontdesk && room.status === 'READY' && <button onClick={() => openWalkin(room)} disabled={locked} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs font-semibold">Walk-in check-in</button>}{canHousekeep && room.status === 'DIRTY' && <button onClick={() => void markReady(room)} disabled={locked} className="min-h-11 rounded-lg border border-emerald-800 px-3 text-xs text-emerald-200">Mark room ready</button>}</div>
         </article>)}</section> : view === 'reservations' ?
       <section className="space-y-4">
         <HistoryNavigation page={reservationPage} loaded={reservations.length} busy={reservationsBusy||loading} label="reservations" onMore={()=>void loadReservations({q:reservationSearch.current,after:reservationPage?.nextCursor??undefined},true)} onSearch={q=>void loadReservations({q})}/>
-        <div className="flex justify-end"><button onClick={() => { setGuestName(''); setGuestContact(''); setRoomId(rooms.find(room => room.status !== 'MAINTENANCE')?.id ?? ''); setCheckInDate(today); setCheckOutDate(addDays(today, 1)); setDialog({ type: 'reservation' }); }} disabled={locked} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-semibold">New reservation</button></div>
+        <div className="flex justify-end"><button onClick={() => setDialog({ type: 'guest', mode: 'booking' })} disabled={locked} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-semibold">New reservation</button></div>
         {reservations.length === 0 ? <Empty title="No confirmed reservations" detail="Create a reservation to hold a room across the requested dates." /> : <div className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">{reservations.map(reservation => {
           const room = rooms.find(item => item.id === reservation.roomId);
           const arrivalReady = reservation.checkInDate <= today && reservation.checkOutDate > today;
-          return <article key={reservation.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><h2 className="font-semibold">{reservation.guestName} · Room {reservation.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{reservation.checkInDate} → {reservation.checkOutDate} · {formatMinorMoney(reservation.nightlyRateMinor, reservation.currency)} / night</p></div><div className="flex gap-2"><button onClick={() => { if (room) void checkIn(room, reservation); }} disabled={!room || !arrivalReady || room?.status !== 'READY' || locked} title={!arrivalReady ? 'Check-in is available on the arrival date.' : undefined} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs disabled:opacity-40">Check in</button><button onClick={() => void cancelReservation(reservation)} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-xs">Cancel</button></div></article>;
+          return <article key={reservation.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><h2 className="font-semibold">{reservation.guestName} · Room {reservation.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{reservation.checkInDate} → {reservation.checkOutDate} · {formatMinorMoney(reservation.nightlyRateMinor, reservation.currency)} / night</p><p className="mt-1 text-xs text-zinc-500">{reservation.registrationId ? 'Guest registration saved · review identity before arrival' : 'Arrival registration pending'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => setDialog({ type: 'guest', mode: 'edit', room, reservation, registrationId: reservation.registrationId })} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-xs">Review guest details</button><button onClick={() => { if (room) setDialog({ type: 'guest', mode: 'arrival', room, reservation, registrationId: reservation.registrationId }); }} disabled={!room || !arrivalReady || room?.status !== 'READY' || locked} title={!arrivalReady ? 'Check-in is available on the arrival date.' : undefined} className="min-h-11 rounded-lg bg-emerald-700 px-3 text-xs disabled:opacity-40">Check in</button><button onClick={() => void cancelReservation(reservation)} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-xs">Cancel</button></div></article>;
         })}</div>}
       </section> : view === 'stays' ?
-      <section className="space-y-3">{stays.length === 0 ? <Empty title="No current guest stays" detail="Guests appear here after check-in is confirmed." /> : stays.map(stay => <article key={stay.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div><h2 className="font-semibold">{stay.guestName} · Room {stay.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{stay.checkInDate} → {stay.checkOutDate} · {stay.nights} booked nights · estimated bill {formatMinorMoney(stay.estimatedTotalMinor, stay.currency)}</p></div><button onClick={() => openCheckout(stay)} disabled={locked || stay.checkOutDate > today} title={stay.checkOutDate > today ? 'Checkout is available from the booked departure date.' : undefined} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40">Review bill and check out</button></article>)}</section> :
+      <section className="space-y-3">{stays.length === 0 ? <Empty title="No current guest stays" detail="Guests appear here after check-in is confirmed." /> : stays.map(stay => <article key={stay.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><div><h2 className="font-semibold">{stay.guestName} · Room {stay.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{stay.checkInDate} → {stay.checkOutDate} · {stay.nights} booked nights · estimated bill {formatMinorMoney(stay.estimatedTotalMinor, stay.currency)}</p></div><div className="flex flex-wrap gap-2">{stay.registrationId && <button type="button" onClick={() => setDialog({ type: 'guest', mode: 'correction', stay, registrationId: stay.registrationId })} disabled={locked} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm">Guest details</button>}<button onClick={() => openCheckout(stay)} disabled={locked || stay.checkOutDate > today} title={stay.checkOutDate > today ? 'Checkout is available from the booked departure date.' : undefined} className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40">Review bill and check out</button></div></article>)}</section> : view === 'settings' ? <HotelRegistrationSettings policy={guestPolicy} blocked={locked} onRun={run} /> :
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rooms.filter(room => room.status === 'DIRTY').length === 0 ? <Empty title="No rooms waiting for cleaning" detail="Checked-out rooms will appear here until housekeeping marks them ready." /> : rooms.filter(room => room.status === 'DIRTY').map(room => <article key={room.id} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"><p className="text-xs uppercase tracking-widest text-amber-300">Cleaning required</p><h2 className="mt-1 text-2xl font-bold">Room {room.roomNumber}</h2><p className="mt-1 text-sm text-zinc-400">{room.roomType}</p><button onClick={() => void markReady(room)} disabled={locked} className="mt-4 min-h-11 w-full rounded-xl bg-emerald-700 font-semibold">Mark clean and ready</button></article>)}</section>}
 
-    {dialog?.type === 'room' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title="Add room"><form onSubmit={createRoom} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Room number"><input required maxLength={24} value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className={controlClass} /></Field><Field label="Room type"><input required maxLength={80} value={roomType} onChange={event => setRoomType(event.target.value)} className={controlClass} /></Field><Field label={`Nightly rate (${session.tenant.currency})`}><input required inputMode="decimal" value={nightlyRate} onChange={event => setNightlyRate(event.target.value)} className={controlClass} /></Field><Field label="Tax rate (%) ? optional override"><input placeholder="Use configured business default" inputMode="decimal" value={roomTax} onChange={event => setRoomTax(event.target.value)} className={controlClass} /></Field><Actions busy={busy} close={() => setDialog(null)} action="Create room" /></fieldset></form></Modal>}
-    {dialog?.type === 'reservation' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title="New room reservation"><form onSubmit={createReservation} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Room"><select required value={roomId} onChange={event => setRoomId(event.target.value)} className={controlClass}>{rooms.filter(room => room.status !== 'MAINTENANCE').map(room => <option key={room.id} value={room.id}>Room {room.roomNumber} · {room.roomType} · {room.status.toLowerCase()}</option>)}</select></Field><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Check in"><input required type="date" min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Check out"><input required type="date" min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy} close={() => setDialog(null)} action="Confirm reservation" /></fieldset></form></Modal>}
-    {dialog?.type === 'walkin' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title={`Walk-in · Room ${dialog.room.roomNumber}`}><form onSubmit={event => { event.preventDefault(); void checkIn(dialog.room); }} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Guest name"><input required maxLength={160} value={guestName} onChange={event => setGuestName(event.target.value)} className={controlClass} /></Field><Field label="Guest contact (optional)"><input maxLength={80} value={guestContact} onChange={event => setGuestContact(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-2 gap-3"><Field label="Arrival"><input type="date" required min={today} value={checkInDate} onChange={event => setCheckInDate(event.target.value)} className={controlClass} /></Field><Field label="Expected departure"><input type="date" required min={addDays(checkInDate || today, 1)} value={checkOutDate} onChange={event => setCheckOutDate(event.target.value)} className={controlClass} /></Field></div><Actions busy={busy} close={() => setDialog(null)} action="Check in guest" /></fieldset></form></Modal>}
+    {dialog?.type === 'room' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title="Add room"><form onSubmit={createRoom} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><Field label="Room number"><input required maxLength={24} value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className={controlClass} /></Field><Field label="Room type"><input required maxLength={80} value={roomType} onChange={event => setRoomType(event.target.value)} className={controlClass} /></Field><Field label={`Nightly rate (${session.tenant.currency})`}><input required inputMode="decimal" value={nightlyRate} onChange={event => setNightlyRate(event.target.value)} className={controlClass} /></Field><Field label="Tax rate (%) ? optional override"><input placeholder="Use configured business default" inputMode="decimal" value={roomTax} onChange={event => setRoomTax(event.target.value)} className={controlClass} /></Field><div className="grid grid-cols-3 gap-2"><Field label="Maximum adults"><input className={controlClass} required type="number" min="1" value={maxAdults} onChange={event => setMaxAdults(event.target.value)} /></Field><Field label="Maximum children"><input className={controlClass} required type="number" min="0" value={maxChildren} onChange={event => setMaxChildren(event.target.value)} /></Field><Field label="Maximum occupants"><input className={controlClass} required type="number" min="1" value={maxOccupants} onChange={event => setMaxOccupants(event.target.value)} /></Field></div><Actions busy={busy} close={() => setDialog(null)} action="Create room" /></fieldset></form></Modal>}
+    {dialog?.type === 'guest' && <GuestRegistrationDialog key={[dialog.mode,dialog.registrationId ?? dialog.reservation?.id ?? dialog.stay?.id ?? dialog.room?.id ?? 'new'].join('-')} mode={dialog.mode} registrationId={dialog.registrationId} room={dialog.room} reservation={dialog.reservation} stay={dialog.stay} rooms={rooms} policy={guestPolicy} today={today} blocked={locked} recovery={<>{recoveryMessage}{privateRecoveryPanel}</>} onClose={() => setDialog(null)} onBusy={setBusy} onSend={send} onSaved={async message => { setNotice(message); setDialog(null); await refresh(); }} />}
+    {dialog?.type === 'capacity' && <ResponsiveDialog isOpen title={'Room '+dialog.room.roomNumber+' capacity'} onClose={() => setDialog(null)} closeDisabled={busy} maxWidth="lg" footerActions={<><button type="button" className="min-h-11 rounded-lg border border-zinc-700 px-3" disabled={busy} onClick={() => setDialog(null)}>Cancel</button><button type="submit" form="room-capacity-form" className="min-h-11 rounded-lg bg-blue-600 px-3 font-semibold disabled:opacity-50" disabled={locked}>Save room capacity</button></>}><form id="room-capacity-form" onSubmit={event => void saveCapacity(event)} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><div className="grid grid-cols-3 gap-2"><GuestField label="Maximum adults"><input className={guestControl} required type="number" min="1" value={maxAdults} onChange={event => setMaxAdults(event.target.value)} /></GuestField><GuestField label="Maximum children"><input className={guestControl} required type="number" min="0" value={maxChildren} onChange={event => setMaxChildren(event.target.value)} /></GuestField><GuestField label="Maximum occupants"><input className={guestControl} required type="number" min="1" value={maxOccupants} onChange={event => setMaxOccupants(event.target.value)} /></GuestField></div><GuestField label="Reason for capacity change"><textarea className={guestControl} required maxLength={500} value={capacityReason} onChange={event => setCapacityReason(event.target.value)} /></GuestField><details><summary className="cursor-pointer py-2 text-sm text-blue-200">Existing bookings with unrecorded party counts</summary><GuestField label="Legacy party review and transition reason"><textarea className={guestControl} maxLength={500} value={capacityTransitionReason} onChange={event => setCapacityTransitionReason(event.target.value)} /></GuestField><p className="mt-2 text-xs text-zinc-400">Record the actual party review when older bookings have no counts. Existing guests and reservations are preserved.</p></details></fieldset></form></ResponsiveDialog>}
     {dialog?.type === 'checkout' && <Modal close={() => setDialog(null)} recovery={<><CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={() => void recovery.inspect()} />{recoveryMessage}</>} title={`Checkout · Room ${dialog.stay.roomNumber}`}><form onSubmit={event => void checkout(event, dialog.stay)} className="space-y-3"><fieldset disabled={locked} className="space-y-3"><div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3"><p className="font-semibold">{dialog.stay.guestName}</p><p className="mt-1 text-sm text-zinc-400">{dialog.stay.nights} booked nights · room revenue {formatMinorMoney(dialog.stay.estimatedSubtotalMinor, dialog.stay.currency)} · tax {formatMinorMoney(dialog.stay.estimatedTaxMinor, dialog.stay.currency)}</p><p className="mt-2 text-lg font-bold">Amount due {formatMinorMoney(dialog.stay.estimatedTotalMinor, dialog.stay.currency)}</p></div><Field label={`Cash received (${session.tenant.currency})`}><input required inputMode="decimal" value={tendered} onChange={event => setTendered(event.target.value)} className={controlClass} /></Field><p className="text-xs text-amber-200">Checkout takes full cash payment for booked nights. Open a till first. Deposits, extras, partial payments and early departure adjustments are unavailable here.</p><Actions busy={busy} close={() => setDialog(null)} action="Take cash and checkout" /></fieldset></form></Modal>}
   </main>;
 }
@@ -349,3 +394,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Actions({ busy, close, action }: { busy: boolean; close: () => void; action: string }) {
   return <div className="flex justify-end gap-2 pt-2"><button type="button" disabled={busy} onClick={close} className="min-h-11 rounded-xl border border-zinc-700 px-4">Cancel</button><button disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 font-semibold disabled:opacity-50">{busy ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />}{busy ? 'Working…' : action}</button></div>;
 }
+
+function capacityNumber(value: string, label: string, allowZero = false) { const number = Number(value); if (!value.trim() || !Number.isSafeInteger(number) || number < (allowZero ? 0 : 1)) throw new Error('Enter the room '+label+' capacity as a whole number.'); return number; }

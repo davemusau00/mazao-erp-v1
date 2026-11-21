@@ -31,6 +31,14 @@ for (const viewport of [{ width: 1024, height: 600 }, { width: 390, height: 844 
     await page.getByLabel('Password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByLabel('Signed in as Calendar Browser Operator')).toBeVisible();
+    const me = await (await page.request.get('/api/v1/auth/me')).json();
+    const policy = await (await page.request.get('/api/v1/hospitality/registration-policy')).json();
+    const reviewedPolicy = await page.request.post('/api/v1/commands', {
+      headers: { origin: new URL(page.url()).origin, 'x-csrf-token': me.csrfToken },
+      data: { protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type: 'hotel.registration.policy.update', occurredAt: new Date().toISOString(), expectedVersions: { 'guest-policy': policy.policy.version },
+        payload: { reviewed: true, acceptedDocumentTypes: ['NATIONAL_ID'], requireNationality: false, requireResidence: false, requirePassportExpiry: false, draftRetentionDays: 2, identityRetentionDays: 30, privacyNotice: 'Disposable hotel registration acceptance notice.' } },
+    });
+    expect((await reviewedPolicy.json()).status).toBe('CONFIRMED');
     if (viewport.width < 768) {
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await page.locator('.mobile-more-panel').getByRole('button', { name: 'Hotel Limited', exact: true }).click();
@@ -45,12 +53,19 @@ for (const viewport of [{ width: 1024, height: 600 }, { width: 390, height: 844 
     await expect(current).not.toContainText('T00:00');
     await page.screenshot({ path: testInfo.outputPath(`arrivals-${viewport.width}x${viewport.height}.png`), fullPage: true });
     await current.getByRole('button', { name: 'Check in', exact: true }).click();
+    const arrival = page.getByRole('dialog', { name: 'Guest check-in · Room 1' });
+    await expect(arrival.getByLabel('Primary guest full name')).toHaveValue('Arrival Today');
+    await arrival.getByLabel('Booking contact phone', { exact: true }).fill('+254711222333');
+    await arrival.getByRole('checkbox', { name: 'Enter identity document', exact: true }).check();
+    await arrival.getByLabel('Adult 1 ID/passport number').fill('00001234');
+    await arrival.getByLabel('Adult 1 issuing country').selectOption('KE');
+    await arrival.getByRole('checkbox', { name: "I have sighted and verified adult 1's original identity document.", exact: true }).check();
+    await arrival.getByRole('button', { name: 'Complete check-in', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Guest checked in' })).toBeVisible();
     await tasks.getByRole('button', { name: 'Checked-in guests', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Review bill and check out', exact: true })).toBeDisabled();
     await expect(page.locator('article').filter({ hasText: 'Arrival Today' })).toContainText('1 booked nights');
 
-    const me = await (await page.request.get('/api/v1/auth/me')).json();
     const active = await (await page.request.get('/api/v1/hospitality/stays')).json();
     const stay = active.stays[0];
     expect(stay.checkInDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);

@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import type { CommandEnvelope } from '../src/contracts.js';
+import { createGuestRegistration, readGuestRegistration, reviewGuestPolicy } from './support/guest-registration-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl) {
   test('hotel calendar guards and projections', { skip: 'Set TEST_DATABASE_URL to a migrated disposable PostgreSQL database.' }, () => {});
 } else {
   process.env.DATABASE_URL = databaseUrl;
+  process.env.GUEST_IDENTITY_KEYS ??= JSON.stringify({v1:'1'.repeat(64)});
+  process.env.GUEST_IDENTITY_ACTIVE_KEY ??= 'v1';
+  process.env.CREDENTIAL_FINGERPRINT_KEY ??= 'c'.repeat(64);
   const [{ buildApp }, { hashPassword }, { pool }] = await Promise.all([
     import('../src/app.js'), import('../src/security.js'), import('../src/db.js'),
   ]);
@@ -39,6 +43,8 @@ if (!databaseUrl) {
         const rawCookies = login.headers['set-cookie'];
         const cookie = (Array.isArray(rawCookies) ? rawCookies : [rawCookies]).filter((value): value is string => typeof value === 'string').map(value => value.split(';', 1)[0]).join('; ');
         const headers = { cookie, origin, 'x-csrf-token': login.json().csrfToken };
+        const guestActor = {tenantId,outletId,userId,deviceId,headers};
+        await reviewGuestPolicy(app,guestActor);
         const make = (type: string, payload: Record<string, unknown>, expectedVersions: Record<string, number> = {}): CommandEnvelope => ({
           protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId, type, occurredAt: new Date().toISOString(), expectedVersions, payload,
         });
@@ -56,13 +62,15 @@ if (!databaseUrl) {
         const room = () => confirmed(make('hotel.room.create', { roomNumber: String(++roomIndex), roomType: 'Standard', nightlyRateMinor: 10000, taxRateBps: 0 }));
         const reservation = async (arrival: string, departure: string) => {
           const createdRoom = await room();
-          const booked = await confirmed(make('hotel.reservation.create', { roomId: createdRoom.roomId, guestName: 'Calendar Guest', checkInDate: arrival, checkOutDate: departure }, { [`room:${createdRoom.roomId}`]: 1 }));
-          return { ...booked, roomId: createdRoom.roomId };
+          const {registration} = await createGuestRegistration(app,guestActor);
+          const booked = await confirmed(make('hotel.reservation.create', { roomId: createdRoom.roomId, registrationId:registration.id, checkInDate: arrival, checkOutDate: departure }, { [`room:${createdRoom.roomId}`]: 1,[`registration:${registration.id}`]:registration.version }));
+          const currentRegistration = await readGuestRegistration(app,guestActor,registration.id);
+          return { ...booked, roomId: createdRoom.roomId,registrationId:registration.id,registrationVersion:currentRegistration.version };
         };
 
         for (const [arrival, departure] of [[dates.tomorrow, dates.later], [dates.before, dates.yesterday]]) {
           const booked = await reservation(arrival, departure);
-          const command = make('hotel.checkin', { reservationId: booked.reservationId }, { [`room:${booked.roomId}`]: 2, [`reservation:${booked.reservationId}`]: 1 });
+          const command = make('hotel.checkin', { reservationId: booked.reservationId,registrationId:booked.registrationId }, { [`room:${booked.roomId}`]: 2, [`reservation:${booked.reservationId}`]: 1,[`registration:${booked.registrationId}`]:booked.registrationVersion });
           const rejected = await submit(command);
           assert.equal(rejected.json().status, 'REJECTED', rejected.body);
           assert.equal(rejected.json().code, 'VALIDATION_FAILED', rejected.body);
@@ -83,7 +91,7 @@ if (!databaseUrl) {
           assert.match(row.checkInDate, /^\d{4}-\d{2}-\d{2}$/);
           assert.match(row.checkOutDate, /^\d{4}-\d{2}-\d{2}$/);
         }
-        const checkIn = make('hotel.checkin', { reservationId: arrival.reservationId }, { [`room:${arrival.roomId}`]: 2, [`reservation:${arrival.reservationId}`]: 1 });
+        const checkIn = make('hotel.checkin', { reservationId: arrival.reservationId,registrationId:arrival.registrationId }, { [`room:${arrival.roomId}`]: 2, [`reservation:${arrival.reservationId}`]: 1,[`registration:${arrival.registrationId}`]:arrival.registrationVersion });
         const active = await confirmed(checkIn);
         assert.equal(active.checkInDate, dates.today); assert.equal(active.checkOutDate, dates.tomorrow);
         assert.equal((await confirmed(checkIn)).stayId, active.stayId, 'arrival replay cannot create a second stay');

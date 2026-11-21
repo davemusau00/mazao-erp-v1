@@ -21,5 +21,11 @@ Pinned dependency lockfile, audit policy, secret scanners and SAST, SBOM, signed
 ## Audit
 Append-only evidence for login, financial posting, stock correction, refund, permission change, device enrollment/revocation, offline lease, import apply, period close, and admin access. Audit retention and access restrictions. Hash chain optional defense, not a substitute for restricted DB permissions and offsite records.
 
+## Protected guest identity
+
+Guest ID/passport numbers use versioned server-side encryption keys supplied outside Git and the PWA build. Full numbers are revealed only through an explicitly authorized and audited private endpoint. Registration lists, normal audit/outbox events and command results carry safe identifiers and versions. Private details use no-store responses.
+
+The guest private-save journal persists allowlisted recovery metadata before sending input; storage failure sends nothing. Reconciliation and the original operation serialize on the same authoritative scope and record a durable fence for a missing original. Final reservation/check-in commands retain reference-only envelopes for exact replay. Raw document values never belong in generic command journals, service-worker caches or logs. Key retention, rotation and separate-key restore verification accompany database backup/retention policy.
 ## Security release gates
+
 Authorization tests across tenants/roles, API fuzz/schema negative tests, CSRF/CORS, session expiration, offline grant forgery, replay attacks, print bridge origin validation, upload sanitization, secret scan, backup recovery encryption and annual policy review.

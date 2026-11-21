@@ -29,6 +29,8 @@ The existing Mazao API sees Nginx's loopback-published connection from its Docke
 
 ## Initial owner and browser acceptance
 
+Guest ID/passport capture requires the API-only `GUEST_IDENTITY_KEYS` JSON key map and `GUEST_IDENTITY_ACTIVE_KEY`. Fresh host preparation generates an independent `v1` key in the restricted server environment. Existing deployments must add securely generated keys and pass them through the reviewed Compose configuration before enabling guest registration. Keep prior key versions while retained encrypted records or revisions depend on them, and verify database plus separate-key recovery. The owner must review the privacy notice and retention policy in Hotel before recording identity details. See [guest registration integration](../../docs/GUEST-REGISTRATION-IMPLEMENTATION.md).
+
 The activation script runs both migration passes against the new empty database, starts only the Yako API and database, checks their bindings and readiness, verifies allowed and rejected CORS preflights, activates the static PWA by an atomic symlink, and checks both HTTPS hosts.
 
 Run `bash bootstrap-initial-tenant.sh` interactively after activation. It refuses a non-empty tenant table and uses the application's terminal prompts for actual owner/business details and a hidden password. Do not put the owner password in a command, shell history, `.env`, or deployment artifact. Record the business name and owner email, but not the password.

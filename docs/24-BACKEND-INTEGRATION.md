@@ -97,6 +97,11 @@ Routes use `/api/v1`; JSON errors have `{ error: { code, message } }` shape. The
 | `GET /hospitality/rooms` | Session + hospitality capability + hotel view role | Outlet room status, rate snapshot and active guest summary. |
 | `GET /hospitality/reservations` | Session + hospitality capability + front desk/manage role | Confirmed reservations for the outlet. |
 | `GET /hospitality/stays` | Session + hospitality capability + front desk/manage role | Active stays and an estimate based on booked nights and the stored tax-rate snapshot. |
+| `GET /hospitality/registration-policy` | Session + hospitality + front desk authority | Current owner-reviewed collection/retention policy; no-store. |
+| `GET /hospitality/registrations/:registrationId` | Session + hospitality + front desk authority + outlet scope | Private roster/contact detail with masked identity; no-store. |
+| `POST /hospitality/registrations/save` | Session/CSRF + hospitality + front desk + captured request scope | Protected save/correction with a keyed command fingerprint, expected registration/reservation versions and metadata-only browser recovery. |
+| `POST /hospitality/registrations/reconcile` | Session/CSRF + original actor/outlet + current authority | Recover canonical private result or fence an absent original against late execution. |
+| `POST /hospitality/registrations/:registrationId/reveal` | `hotel.guest.reveal` + hospitality + outlet scope | No-store identity reveal; controlled purpose code and target/actor/time audit. |
 | `POST /commands` | Session + CSRF | Idempotent command receipt; the canonical stored outcome is returned unchanged on exact replay. Domain mutation, audit and outbox are one serializable transaction. |
 | `GET /commands/:commandId` | Session | Tenant-scoped command status and stored outcome for unknown-result recovery. |
 
@@ -124,6 +129,11 @@ Command envelope: `{ protocolVersion: 1, commandId, tenantId?, deviceId, type, o
 | `hotel.checkin` | `hotel.frontdesk` + `hospitality` | Reservation or walk-in details; expected room and reservation versions | Checks outlet-local business date and availability, creates stay and open folio, occupies room, advances versions, audit/outbox. Walk-ins must start on the current outlet business date. |
 | `hotel.checkout` | `hotel.frontdesk` + `hospitality` | Stay, cash tender/currency, current shift; expected stay, room and shift versions | On/after booked departure date, settles booked nights by cash, posts room revenue/VAT/cash, closes folio/stay, dirties room, advances shift, audit/outbox. |
 | `hotel.room.mark_ready` | `hotel.housekeeping` + `hospitality` | Dirty room and expected `room:<id>` version | Marks room ready, records housekeeping event, audit/outbox. |
+| `hotel.registration.policy.update` | `hotel.guest.policy` + hospitality + owner/admin | Reviewed collection notice/retention and expected `guest-policy` version | Versions policy; every-adult identity remains required; safe audit/outbox. |
+| `hotel.room.capacity.update` | `hotel.manage` + hospitality | Room capacity, reason and expected room version | Checks current/future party allocations and explicit legacy transition; audit/outbox. |
+| `hotel.registration.retention.run` | `hotel.guest.retention` + hospitality + owner/admin | Reason and expected policy version | Erases eligible private payload/revisions while protecting active stays and accounting anchors; audit/outbox. |
+
+Guest registration adds a protected save/correct transport rather than sending document numbers through ordinary `/commands`. New reservation/check-in commands reference the saved registration and its expected version. Check-in verifies every adult, the roster/guardians and capacity before one stay/folio/room transition. Legacy confirmed command results replay unchanged; new unregistered arrivals receive a canonical registration-required outcome. [Guest integration and acceptance](GUEST-REGISTRATION-IMPLEMENTATION.md) records the schema, privacy and release boundary.
 
 Cash sale tender values express cash handed over; only the amount due is recorded as payment, with excess returned as change. Active customer accounts may be charged in full within their server-approved credit limit. Cash is the only confirmed repayment/refund tender. Card and M-Pesa remain rejected until a provider can verify them; cash/account mixed tender is unsupported. Money is integer minor units, quantities are decimal strings (six places maximum), and tax is stored as basis points. Outlet time zone determines hotel business-date checks.
 

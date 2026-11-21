@@ -1,6 +1,7 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createGuestRegistration, readGuestRegistration, reviewGuestPolicy } from './support/guest-registration-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -8,6 +9,9 @@ if (!databaseUrl) {
   test('PostgreSQL migration, catalog and idempotency acceptance', { skip: 'Set TEST_DATABASE_URL to a migrated disposable PostgreSQL database.' }, () => {});
 } else {
   process.env.DATABASE_URL = databaseUrl;
+  process.env.GUEST_IDENTITY_KEYS ??= JSON.stringify({v1:'1'.repeat(64)});
+  process.env.GUEST_IDENTITY_ACTIVE_KEY ??= 'v1';
+  process.env.CREDENTIAL_FINGERPRINT_KEY ??= 'c'.repeat(64);
   process.env.APP_ORIGINS ??= 'http://localhost:3000';
 
   const [{ buildApp }, { hashPassword }, db] = await Promise.all([
@@ -121,18 +125,22 @@ if (!databaseUrl) {
       const businessDateResult = await db.pool.query<{ business_date: string }>(`SELECT to_char(now() AT TIME ZONE time_zone, 'YYYY-MM-DD') business_date FROM core.outlets WHERE id=$1`, [outletId]);
       const arrivalDate = businessDateResult.rows[0].business_date;
       const departureDate = new Date(Date.parse(`${arrivalDate}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10);
+      const guestActor = {tenantId,outletId,userId,deviceId,headers};
+      await reviewGuestPolicy(app,guestActor);
+      const {registration} = await createGuestRegistration(app,guestActor);
       const lifecycleReservation = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
-        type: 'hotel.reservation.create', occurredAt: new Date().toISOString(), expectedVersions: { [`room:${lifecycleRoomId}`]: 1 },
-        payload: { roomId: lifecycleRoomId, guestName: 'Lifecycle Guest', guestContact: '+254700000001', checkInDate: arrivalDate, checkOutDate: departureDate },
+        type: 'hotel.reservation.create', occurredAt: new Date().toISOString(), expectedVersions: { [`room:${lifecycleRoomId}`]: 1,[`registration:${registration.id}`]:registration.version },
+        payload: { roomId: lifecycleRoomId, registrationId:registration.id, checkInDate: arrivalDate, checkOutDate: departureDate },
       });
       assert.equal(lifecycleReservation.json().status, 'CONFIRMED');
       const lifecycleReservationId = String(lifecycleReservation.json().value.reservationId);
+      const currentRegistration = await readGuestRegistration(app,guestActor,registration.id);
       const lifecycleCheckIn = await postCommand({
         protocolVersion: 1, commandId: randomUUID(), tenantId, deviceId,
         type: 'hotel.checkin', occurredAt: new Date().toISOString(),
-        expectedVersions: { [`room:${lifecycleRoomId}`]: 2, [`reservation:${lifecycleReservationId}`]: 1 },
-        payload: { reservationId: lifecycleReservationId },
+        expectedVersions: { [`room:${lifecycleRoomId}`]: 2, [`reservation:${lifecycleReservationId}`]: 1,[`registration:${registration.id}`]:currentRegistration.version },
+        payload: { reservationId: lifecycleReservationId,registrationId:registration.id },
       });
       assert.equal(lifecycleCheckIn.json().status, 'CONFIRMED');
       const lifecycleStayId = String(lifecycleCheckIn.json().value.stayId);

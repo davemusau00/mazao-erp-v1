@@ -1,0 +1,20 @@
+/** Browser-safe data contracts: no runtime dependencies or raw identity in DTOs. */
+export const GUEST_COUNTRY_CODES = 'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(' ');
+export type GuestDocumentType = 'NATIONAL_ID'|'PASSPORT'|'RESIDENT_ID'|'OTHER';
+export type GuestIdentityRevealReason = 'VERIFY_DOCUMENT'|'CORRECT_REGISTRATION'|'GUEST_REQUEST'|'INCIDENT_REVIEW';
+export interface GuestBooker {fullName:string;phone:string;email:string;alternativePhone:string;company:string;bookingReference:string;arrivalTime:string;purpose:string;notes:string;noContactReason:string}
+export interface GuestEmergencyContact {name:string;phone:string;relationship:string}
+export interface GuestIdentityInput {action:'KEEP'|'REPLACE'|'REMOVE';documentType?:GuestDocumentType;number?:string;issuingCountry?:string;expiresOn?:string;verified:boolean}
+export interface GuestIdentityView {documentType:GuestDocumentType|null;issuingCountry:string|null;expiresOn:string|null;maskedNumber:string|null;verified:boolean;verifiedAt:string|null}
+export interface GuestOccupantFields {id:string;kind:'ADULT'|'CHILD';primary:boolean;fullName:string;phone:string;email:string;nationality:string;residenceCountry:string;residenceCity:string;dateOfBirth:string;ageBand:string;guardianId:string|null}
+export interface GuestOccupantInput extends GuestOccupantFields {identity:GuestIdentityInput}
+export interface GuestOccupantView extends GuestOccupantFields {identity:GuestIdentityView}
+export interface GuestRegistrationInput {adultCount:number;childCount:number;booker:GuestBooker;emergencyContact:GuestEmergencyContact;occupants:GuestOccupantInput[]}
+export interface GuestRegistrationView {id:string;version:number;status:'DRAFT'|'FINAL';reservationId:string|null;reservationVersion:number|null;stayId:string|null;policyVersion:number;adultCount:number;childCount:number;booker:GuestBooker;emergencyContact:GuestEmergencyContact;occupants:GuestOccupantView[];missingFields:string[];dataErasedAt:string|null}
+export interface GuestRegistrationScope {tenantId:string;actorId:string;outletId:string;deviceId:string}
+export interface GuestRegistrationOperation {protocolVersion:1;commandId:string;registrationId:string;expectedVersion:number;kind:'hotel.registration.save'|'hotel.registration.correct';scope:GuestRegistrationScope;reservationId?:string;expectedReservationVersion?:number}
+export interface GuestRegistrationSave extends GuestRegistrationOperation {details:GuestRegistrationInput;reason?:string}
+export interface GuestRegistrationResult {registrationId:string;version:number;status:'DRAFT'|'FINAL';policyVersion:number;reservationId:string|null;reservationVersion:number|null}
+export interface GuestRegistrationPolicy {version:number;reviewed:boolean;requireIdentityForAllAdults:true;acceptedDocumentTypes:GuestDocumentType[];requireNationality:boolean;requireResidence:boolean;requirePassportExpiry:boolean;draftRetentionDays:number;identityRetentionDays:number|null;privacyNotice:string}
+export interface GuestRegistrationPolicyInput {reviewed:true;acceptedDocumentTypes:GuestDocumentType[];requireNationality:boolean;requireResidence:boolean;requirePassportExpiry:boolean;draftRetentionDays:number;identityRetentionDays:number;privacyNotice:string}
+export interface RoomCapacityInput {roomId:string;maxAdults:number;maxChildren:number;maxOccupants:number;reason:string;legacyTransitionReason?:string}

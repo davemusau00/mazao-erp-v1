@@ -33,6 +33,7 @@ fi
 command -v openssl >/dev/null
 database_password=$(openssl rand -hex 32)
 credential_key=$(openssl rand -hex 32)
+guest_identity_key=$(openssl rand -hex 32)
 sudo -n install -d -o "$operator" -g "$operator_group" -m 750 "$root"
 install -d -m 700 "$root/incoming" "$root/backups"
 install -d -m 750 "$root/deployment-config"
@@ -49,6 +50,8 @@ API_PORT=4102
 APP_ORIGINS=https://mazaoyako.co.ke
 TRUSTED_PROXY_IPS=172.26.0.1
 CREDENTIAL_FINGERPRINT_KEY=$credential_key
+GUEST_IDENTITY_KEYS={"v1":"$guest_identity_key"}
+GUEST_IDENTITY_ACTIVE_KEY=v1
 DB_NAME=mazaoyako
 DB_USER=mazaoyako_app
 DB_PASSWORD=$database_password
@@ -58,6 +61,6 @@ EOF
 chmod 600 "$env_file"
 mv -T "$env_file" "$root/.env"
 trap - EXIT
-unset database_password credential_key
+unset database_password credential_key guest_identity_key
 
 printf 'Prepared isolated Mazao Yako host configuration for %s. Secrets were written only to %s/.env.\n' "$release" "$root"
