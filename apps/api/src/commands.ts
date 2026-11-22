@@ -183,6 +183,10 @@ export async function executeCommand(client: PoolClient, session: ApiSession, en
     case 'restaurant.order.cancel':
     case 'restaurant.order.fire': return executeRestaurantOrderCommand(client,session,envelope);
     case 'restaurant.ticket.advance': return executeRestaurantOrderCommand(client,session,envelope);
+    case 'restaurant.print.job.claim':
+    case 'restaurant.print.job.confirm':
+    case 'restaurant.print.job.fail':
+    case 'restaurant.print.job.copy': return executeRestaurantOrderCommand(client,session,envelope);
     case 'restaurant.section.save':
     case 'restaurant.table.save':
     case 'restaurant.station.save':

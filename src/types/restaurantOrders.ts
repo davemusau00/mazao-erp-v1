@@ -30,3 +30,11 @@ export interface RestaurantOrderTicket {
     waiter:{id:string;name:string};firedBy:{id:string;name:string};deviceId:string;firedAt:string;originalBatchId:string|null;lines:RestaurantTicketLine[]};
 }
 export interface RestaurantOrderDetail {order:RestaurantOrder;tickets:RestaurantOrderTicket[];ticketPage:HistoryPage;currentQuotes:RestaurantMenuItem[]}
+export type RestaurantPrintJobStatus='QUEUED'|'CLAIMED'|'OPERATOR_CONFIRMED'|'FAILED';
+export interface RestaurantPrintJob {
+  id:string;ticketId:string;orderId:string;stationId:string;jobType:'NEW'|'ADD_ON'|'COPY';copyNumber:number;sourceJobId:string|null;
+  documentHash:string;status:RestaurantPrintJobStatus;version:number;claimId:string|null;claimExpiresAt:string|null;
+  claimedByName:string|null;outcomeByName:string|null;outcomeAt:string|null;failureReason:string|null;
+  createdByName:string;createdAt:string;updatedAt:string;
+  documentSnapshot:RestaurantOrderTicket['snapshot'];
+}

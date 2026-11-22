@@ -12,6 +12,10 @@ export const RESTAURANT_ORDER_CONTRACTS:Record<string,{payload:ContractSchema;ou
   'restaurant.order.cancel':{payload:object({orderId:uuidSchema,reason:text(500,true)}),output:cancelledOutput},
   'restaurant.order.fire':{payload:object({orderId:uuidSchema}),output:object({...properties,status:{type:'string',const:'FIRED'},held:{type:'boolean',const:false},fireRevision:{type:'integer',minimum:1,maximum:100},batchId:uuidSchema,ticketIds:{type:'array',items:uuidSchema,minItems:1,maxItems:100,uniqueItems:true},ticketType:{type:'string',pattern:'^(?:NEW|ADD_ON)$'}})},
   'restaurant.ticket.advance':{payload:object({ticketId:uuidSchema,fromStatus:{type:'string',pattern:'^(?:NEW|ACKNOWLEDGED|PREPARING)$'},toStatus:{type:'string',pattern:'^(?:ACKNOWLEDGED|PREPARING|READY)$'}}),output:object({ticketId:uuidSchema,version:versionSchema,status:{type:'string',pattern:'^(?:ACKNOWLEDGED|PREPARING|READY)$'},changedAt:{type:'string',format:'date-time'}})},
+  'restaurant.print.job.claim':{payload:object({jobId:uuidSchema}),output:object({jobId:uuidSchema,claimId:uuidSchema,status:{type:'string',const:'CLAIMED'},version:versionSchema,leaseExpiresAt:{type:'string',format:'date-time'}})},
+  'restaurant.print.job.confirm':{payload:object({jobId:uuidSchema,claimId:uuidSchema}),output:object({jobId:uuidSchema,status:{type:'string',const:'OPERATOR_CONFIRMED'},version:versionSchema,confirmedAt:{type:'string',format:'date-time'},delivery:{type:'string',const:'OPERATOR_REPORTED'}})},
+  'restaurant.print.job.fail':{payload:object({jobId:uuidSchema,claimId:uuidSchema,reason:text(300,true)}),output:object({jobId:uuidSchema,status:{type:'string',const:'FAILED'},version:versionSchema,failedAt:{type:'string',format:'date-time'}})},
+  'restaurant.print.job.copy':{payload:object({ticketId:uuidSchema}),output:object({jobId:uuidSchema,ticketId:uuidSchema,jobType:{type:'string',const:'COPY'},copyNumber:versionSchema,status:{type:'string',const:'QUEUED'},version:versionSchema,documentHash:{type:'string',pattern:'^[a-f0-9]{64}$'}})},
 };
 export const RESTAURANT_ORDER_LIMITS={openOrders:200,linesPerOrder:100,historicalLinesPerOrder:500} as const;
 

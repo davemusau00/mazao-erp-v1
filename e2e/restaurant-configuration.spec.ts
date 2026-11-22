@@ -116,7 +116,7 @@ test('restaurant setup creates durable area table stations menu routing and logi
   expect(posts[4].expectedVersions).toEqual({[`product:${productId}`]:3});expect(posts[5].expectedVersions).toEqual({[`device:${deviceId}`]:2});
   expect(new Set(posts.map(command=>command.commandId)).size).toBe(6);expect(await retained(page)).toEqual([]);
   await page.reload();await openRestaurant(page);await page.getByRole('button',{name:'Tables',exact:true}).click();await expect(page.getByRole('heading',{name:'Garden 4',exact:true})).toBeVisible();
-  await expect(page.getByText(/Taking table orders, sending kitchen or bar tickets, printing, live kitchen preparation and room charges are unavailable/)).toBeVisible();
+  await expect(page.getByText(/Table orders, tickets and printing are unavailable until the business is approved for operation/)).toBeVisible();
   expect(reads.some(path=>path.startsWith('/sales/')||path.startsWith('/hotel/'))).toBe(false);
 });
 

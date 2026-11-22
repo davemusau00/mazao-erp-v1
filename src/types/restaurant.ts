@@ -14,6 +14,6 @@ export interface RestaurantConfiguration {
   devices:RestaurantDevice[];products:RestaurantProduct[];
   productPage:HistoryPage|null;
   permissions:{manage:boolean;assignDevices:boolean};
-  availability:{ordering:boolean;fire:boolean;kds:false;printing:false;roomCharge:false;recipeConsumption:false};
+  availability:{ordering:boolean;fire:boolean;kds:boolean;printing:boolean;roomCharge:boolean;recipeConsumption:boolean};
   limits:{sections:number;tables:number;stations:number;menuRoutes:number};
 }

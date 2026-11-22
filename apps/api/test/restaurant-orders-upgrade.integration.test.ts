@@ -84,6 +84,14 @@ if(!sourceUrl) {
         assert.equal((await client!.query("SELECT checksum FROM system.schema_migrations WHERE version='033_restaurant_ticket_lifecycle'")).rows[0].checksum,checksum);
         await assert.rejects(client!.query("UPDATE restaurant.ticket_state_events SET status='READY' WHERE ticket_id=$1",[ticketId]),{code:'23514'});
       });
+      await t.test('034 creates an empty durable queue without reprinting historical kitchen tickets',async()=>{
+        const ticketId=(await client!.query('SELECT id FROM restaurant.tickets LIMIT 1')).rows[0].id;
+        const applied=migrate('034_restaurant_print_queue');assert.match(applied,/Applied 034_restaurant_print_queue/);
+        assert.equal((await client!.query('SELECT count(*)::int total FROM restaurant.print_jobs WHERE ticket_id=$1',[ticketId])).rows[0].total,0,'Upgrade must not silently enqueue old tickets for printing.');
+        const rerun=migrate('034_restaurant_print_queue');assert.equal((rerun.match(/already applied; checksum matches/g)??[]).length,34);
+        const checksum=createHash('sha256').update(readFileSync(new URL('../migrations/034_restaurant_print_queue.sql',import.meta.url))).digest('hex');
+        assert.equal((await client!.query("SELECT checksum FROM system.schema_migrations WHERE version='034_restaurant_print_queue'")).rows[0].checksum,checksum);
+      });
       await t.test('new source table references cannot cross the upgraded outlet boundary',async()=>{
         const beforeScopeAttack=await snapshot();
         const otherDevice=randomUUID();

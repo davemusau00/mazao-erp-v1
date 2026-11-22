@@ -1,6 +1,15 @@
 # Infrastructure and deployment
 
-## Verified shared host
+## Historical shared-host snapshot — 14 October 2026
+
+The host inventory below records the environment observed on 14 October 2026;
+it is not a current production release record. On 22 November 2026 the owner
+identified `38.247.142.209` as the correct VPS address and reported that Country
+at `country.mazaoyako.co.ke` is behind Yako at `mazaoyako.co.ke`. The current
+SSH host identity, DNS routing, and release/database state for either hostname
+have not been reverified. Use the current per-deployment release record before
+any production work; do not treat this historical snapshot as authorization to
+connect or deploy.
 
 Read-only inventory was performed on 14 October 2026 before installing Mazao.
 
@@ -51,7 +60,10 @@ For each release:
 5. Install only the Mazao Nginx site. Obtain a certificate for mazao.davemusau.co.ke using the existing Certbot installation and verified DNS, run nginx -t, then perform a graceful reload. Do not add an API subdomain vhost.
 6. Verify the PWA and same-origin live/readiness endpoints over HTTPS. Check existing Nginx routes and containers before and after activation.
 
-The local SSH alias mazao-live points to administrator@93.127.131.55 using the existing id_ed25519 key with strict host checking. No new key needs to be installed on this server.
+The local SSH alias `mazao-live` was recorded as `administrator@93.127.131.55`
+at the time of this snapshot. It is historical and has not been updated or
+verified against the owner-confirmed current address `38.247.142.209`. Confirm
+the host key and routing before using an SSH connection.
 
 Keep the prior PWA symlink target and a dated copy of the Mazao Nginx file for rollback. Roll back only Mazao's API image, static symlink, and vhost. Never stop or recreate another Compose project, remove an existing volume, or reverse a database migration. Do not open the pilot for business data until its off-host backup and restore procedure has been verified.
 

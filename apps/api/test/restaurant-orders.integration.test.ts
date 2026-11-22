@@ -138,6 +138,46 @@ if (!process.env.TEST_DATABASE_URL) {
         assert.equal((await db.pool.query('SELECT count(*)::int n FROM restaurant.ticket_lines WHERE order_id=$1', [order.id])).rows[0].n, 5);
         reject(await submit(waiter, envelope(waiter, 'restaurant.order.fire', { orderId: order.id }, { [`order:${order.id}`]: order.version })), 'RESTAURANT_NO_UNFIRED_LINES');
       });
+      await t.test('durable print jobs are station-scoped, leased, recoverable and operator-confirmed',async()=>{
+        const kitchenTicket=firstTickets.find((ticket:any)=>ticket.stationId===kitchen)!;
+        const queue=await get(cook,`/restaurant/stations/${kitchen}/print-jobs`);
+        assert.equal(queue.pendingCount,1);assert.equal(queue.jobs.length,1);
+        const original=queue.jobs[0];assert.equal(original.ticketId,kitchenTicket.id);assert.equal(original.jobType,'NEW');assert.equal(original.status,'QUEUED');
+        assert.equal(original.documentHash,kitchenTicket.documentHash);assert.deepEqual(original.documentSnapshot,kitchenTicket.snapshot);assert.equal(original.claimId,null);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM restaurant.print_jobs WHERE order_id=$1',[order.id])).rows[0].total,3,'One durable job must be created in the same fire transaction for every station ticket.');
+        reject(await app.inject({url:`/api/v1/restaurant/stations/${kitchen}/print-jobs`,headers:waiter.headers}),'FORBIDDEN');
+        reject(await app.inject({url:`/api/v1/restaurant/stations/${bar}/print-jobs`,headers:cook.headers}),'FORBIDDEN');
+        reject(await app.inject({url:`/api/v1/restaurant/stations/${kitchen}/print-jobs`,headers:other.headers}),'FORBIDDEN');
+        reject(await submit(waiter,envelope(waiter,'restaurant.print.job.copy',{ticketId:kitchenTicket.id})),'FORBIDDEN');
+
+        const claim=envelope(cook,'restaurant.print.job.claim',{jobId:original.id},{[`printJob:${original.id}`]:1});
+        const claimed=await submit(cook,claim);assert.equal(claimed.json().status,'CONFIRMED',claimed.body);assert.equal(claimed.json().value.status,'CLAIMED');assert.equal(claimed.json().value.version,2);
+        assert.deepEqual((await submit(cook,claim)).json(),claimed.json(),'A lost claim response must recover its original claim id.');
+        reject(await submit(admin,envelope(admin,'restaurant.print.job.claim',{jobId:original.id},{[`printJob:${original.id}`]:2})),'RESTAURANT_PRINT_JOB_CLAIMED');
+        reject(await submit(admin,envelope(admin,'restaurant.print.job.confirm',{jobId:original.id,claimId:claimed.json().value.claimId},{[`printJob:${original.id}`]:2})),'FORBIDDEN');
+        const confirm=envelope(cook,'restaurant.print.job.confirm',{jobId:original.id,claimId:claimed.json().value.claimId},{[`printJob:${original.id}`]:2});
+        const confirmed=await submit(cook,confirm);assert.equal(confirmed.json().status,'CONFIRMED',confirmed.body);assert.equal(confirmed.json().value.status,'OPERATOR_CONFIRMED');assert.equal(confirmed.json().value.delivery,'OPERATOR_REPORTED');
+        assert.deepEqual((await submit(cook,confirm)).json(),confirmed.json());assert.equal((await get(cook,`/restaurant/stations/${kitchen}/print-jobs`)).pendingCount,0);
+        const confirmedRow=(await get(cook,`/restaurant/stations/${kitchen}/print-jobs`)).jobs.find((row:any)=>row.id===original.id);assert.equal(confirmedRow.outcomeByName,'Restaurant cook');assert.ok(confirmedRow.outcomeAt);assert.equal(confirmedRow.failureReason,null);
+
+        const copy=envelope(cook,'restaurant.print.job.copy',{ticketId:kitchenTicket.id});
+        const copied=await submit(cook,copy);assert.equal(copied.json().status,'CONFIRMED',copied.body);assert.equal(copied.json().value.copyNumber,1);assert.equal(copied.json().value.status,'QUEUED');
+        assert.deepEqual((await submit(cook,copy)).json(),copied.json());
+        const copyRow=(await db.pool.query('SELECT job_type,copy_number,source_job_id,document_hash,document_snapshot,status FROM restaurant.print_jobs WHERE id=$1',[copied.json().value.jobId])).rows[0];
+        assert.equal(copyRow.job_type,'COPY');assert.equal(copyRow.copy_number,1);assert.equal(copyRow.source_job_id,original.id);assert.equal(copyRow.document_hash,kitchenTicket.documentHash);assert.deepEqual(copyRow.document_snapshot,kitchenTicket.snapshot);
+        const copyClaim=await submit(cook,envelope(cook,'restaurant.print.job.claim',{jobId:copied.json().value.jobId},{[`printJob:${copied.json().value.jobId}`]:1}));assert.equal(copyClaim.json().status,'CONFIRMED',copyClaim.body);
+        const failed=await submit(cook,envelope(cook,'restaurant.print.job.fail',{jobId:copied.json().value.jobId,claimId:copyClaim.json().value.claimId,reason:'Paper jam on test printer'},{[`printJob:${copied.json().value.jobId}`]:2}));assert.equal(failed.json().status,'CONFIRMED',failed.body);assert.equal(failed.json().value.status,'FAILED');
+        const nextCopy=await save(cook,'restaurant.print.job.copy',{ticketId:kitchenTicket.id});assert.equal(nextCopy.copyNumber,2);
+        const copyTwoClaim=await submit(cook,envelope(cook,'restaurant.print.job.claim',{jobId:nextCopy.jobId},{[`printJob:${nextCopy.jobId}`]:1}));assert.equal(copyTwoClaim.json().status,'CONFIRMED',copyTwoClaim.body);
+        await db.pool.query("UPDATE restaurant.print_jobs SET claim_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[nextCopy.jobId]);
+        const reclaimed=await submit(cook,envelope(cook,'restaurant.print.job.claim',{jobId:nextCopy.jobId},{[`printJob:${nextCopy.jobId}`]:2}));assert.equal(reclaimed.json().status,'CONFIRMED',reclaimed.body);assert.equal(reclaimed.json().value.version,4);
+        const failedAgain=await submit(cook,envelope(cook,'restaurant.print.job.fail',{jobId:nextCopy.jobId,claimId:reclaimed.json().value.claimId,reason:'The station recovered after its old print lease expired'},{[`printJob:${nextCopy.jobId}`]:4}));assert.equal(failedAgain.json().status,'CONFIRMED',failedAgain.body);
+        const failedRow=(await get(cook,`/restaurant/stations/${kitchen}/print-jobs`)).jobs.find((row:any)=>row.id===nextCopy.jobId);assert.equal(failedRow.status,'FAILED');assert.equal(failedRow.outcomeByName,'Restaurant cook');assert.equal(failedRow.failureReason,'The station recovered after its old print lease expired');assert.ok(failedRow.outcomeAt);
+        assert.equal((await db.pool.query('SELECT count(*)::int total FROM restaurant.print_job_events e JOIN restaurant.print_jobs j ON j.tenant_id=e.tenant_id AND j.outlet_id=e.outlet_id AND j.id=e.job_id WHERE j.ticket_id=$1',[kitchenTicket.id])).rows[0].total,11);
+        await assert.rejects(db.pool.query("UPDATE restaurant.print_job_events SET event_type='FAILED' WHERE job_id=$1",[original.id]),{code:'23514'});
+        await assert.rejects(db.pool.query("UPDATE restaurant.print_jobs SET document_snapshot='{}'::jsonb WHERE id=$1",[original.id]),{code:'23514'});
+        const after=await details(waiter,order.id);assert.deepEqual(after.tickets.find((ticket:any)=>ticket.id===kitchenTicket.id),kitchenTicket,'Printing and copies cannot rewrite the original immutable kitchen ticket.');
+      });
       await t.test('fired source rows and ticket evidence cannot be rewritten or cancelled', async () => {
         reject(await submit(waiter, envelope(waiter, 'restaurant.order.save', { orderId: order.id, instructions: '', lines: [{ ...prep(meal), lineId: originalLines[0].id }] }, { [`order:${order.id}`]: order.version })), 'RESTAURANT_FIRED_LINES_IMMUTABLE');
         reject(await submit(waiter, envelope(waiter, 'restaurant.order.cancel', { orderId: order.id, reason: 'Try to erase sent items' }, { [`order:${order.id}`]: order.version })), 'RESTAURANT_FIRED_LINES_IMMUTABLE');
@@ -221,7 +261,7 @@ if (!process.env.TEST_DATABASE_URL) {
         reject(await submit(blank, envelope(blank, 'configuration.business.update', { ...configuration.business, currency: 'USD' }, { [`business:${blank.tenantId}`]: configuration.business.version })), 'CURRENCY_LOCKED');
         await db.pool.query('INSERT INTO core.tenant_onboarding(tenant_id,bootstrap_key_hash) VALUES($1,$2)', [blank.tenantId, `setup-orders-${blank.tenantId}`]);
         const setup = (await get(blank, '/restaurant/configuration')).configuration;
-        assert.equal(setup.availability.ordering, false); assert.equal(setup.availability.fire, false);
+        assert.equal(setup.availability.ordering, false); assert.equal(setup.availability.fire, false); assert.equal(setup.availability.printing, false);
         for (const path of ['/restaurant/orders', `/restaurant/orders/${created.orderId}`, '/restaurant/menu', '/restaurant/ticket-stations']) {
           reject(await app.inject({ url: `/api/v1${path}`, headers: blank.headers }), 'ONBOARDING_REQUIRED');
         }

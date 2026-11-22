@@ -203,7 +203,7 @@ export async function getRestaurantConfiguration(session:ApiSession) {
       stationAssignments:assignments.rows.map(row=>({deviceId:row.device_id,stationIds:row.station_ids,version:Number(row.version),deviceVersion:Number(row.device_version),effectiveActive:row.effective_active})),
       devices:devices.rows.map(row=>({id:row.id,label:row.label,active:row.active,version:Number(row.version)})),
       products:candidates?.products??[],productPage:candidates?.page??null,
-      permissions:{manage,assignDevices},limits:RESTAURANT_LIMITS,availability:session.onboardingStatus==='SETUP'?{...RESTAURANT_AVAILABILITY,ordering:false,fire:false}:RESTAURANT_AVAILABILITY,
+      permissions:{manage,assignDevices},limits:RESTAURANT_LIMITS,availability:session.onboardingStatus==='SETUP'?{...RESTAURANT_AVAILABILITY,ordering:false,fire:false,printing:false}:RESTAURANT_AVAILABILITY,
     }};
   });
 }

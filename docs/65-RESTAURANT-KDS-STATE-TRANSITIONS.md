@@ -28,8 +28,10 @@ stale or competing device from advancing the same ticket twice.
   station, device, previous state, new state, command ID and event version.
 - Ticket state changes do not create sales, payment, stock movement, ingredient
   consumption, journal entries or guest-folio charges.
-- Physical 80 mm KOT/BOT printing and paper-delivery evidence are unavailable.
-  `READY` does not mean served. `SERVED`, cancellation/void, print queues,
+- Durable station print jobs, an 80 mm browser document and operator-reported
+  outcomes are implemented separately in [P03](66-RESTAURANT-PRINT-QUEUE.md).
+  They do not verify physical printer delivery; device acceptance remains
+  pending. `READY` does not mean served. `SERVED`, cancellation/void,
   transfer/split and settlement remain unsupported. The restaurant/KDS
   availability gate remains closed until its full acceptance boundary passes.
 
@@ -47,6 +49,8 @@ stale or competing device from advancing the same ticket twice.
   `src/services/apiClient.ts`, `src/services/apiMessages.ts` and
   `src/types/restaurantOrders.ts` add status display, polling, guarded actions
   and original-command recovery.
+- The later P03 queue and print-document implementation is described in
+  [the dedicated print queue record](66-RESTAURANT-PRINT-QUEUE.md).
 - API contract/recovery tests, database integration/upgrade tests, and focused
   Playwright acceptance cover state progression, stale versions, role and
   station authority, lost acknowledgements, offline behavior and responsive
@@ -84,13 +88,15 @@ unavailable, so this correction still requires a green hosted rerun.
 
 ## Next dependencies
 
-1. P1.3: immutable, station-specific NEW/ADD-ON/VOID/COPY 80 mm documents,
-   durable print attempts and recoverable printer outage behavior.
-2. P1.4 continuation: out-of-stock/hold/cancel approval states, waiter-ready
+1. P1.4 continuation: out-of-stock/hold/cancel approval states, waiter-ready
    visibility, served handoff, reconnect/event history and role adversarial
    acceptance.
-3. P1 settlement and P2: use the saved order/line identities for exactly-once
+2. P1 settlement and P2: use the saved order/line identities for exactly-once
    payment or an authorized checked-in guest-folio charge, followed by checkout
    and source reconciliation.
-4. P3: location/transfer, package, recipe, consumption and supplier slices only
+3. P3: location/transfer, package, recipe, consumption and supplier slices only
    after the restaurant-to-hotel authority boundaries are accepted.
+
+The P03 online print queue is implemented in a separate development branch;
+hosted migration acceptance and physical printer/cutter/paper checks remain
+release gates. See [P03 evidence and scope](66-RESTAURANT-PRINT-QUEUE.md).
