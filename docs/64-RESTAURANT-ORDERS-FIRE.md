@@ -158,10 +158,13 @@ container checks cannot use the stopped engine without resolving its ownership.
 ## Remaining dependencies and release boundaries
 
 This slice creates source orders and immutable preparation evidence. Physical
-80mm KOT/BOT documents, durable printer jobs/copy/reprint evidence, printing
-failures, live KDS acknowledgement/preparing/ready/served states, cancellation
-after fire, void tickets, transfers/splits and exactly-once source settlement
-remain P1 work. A ticket row/outbox event does not prove kitchen or paper delivery.
+durable 80 mm KOT/BOT documents, station print jobs/copy/reprint evidence and
+operator-reported print failures are implemented in the separate P03 development
+slice ([print queue record](66-RESTAURANT-PRINT-QUEUE.md)); migration, hosted CI
+and physical-printer acceptance remain pending there. A ticket row/outbox event
+or operator-reported print result does not prove kitchen or paper delivery.
+Live KDS `SERVED`, waiter handoff, cancellation after fire, void tickets,
+transfers/splits and exactly-once source settlement remain P1 work.
 
 No restaurant payment, stock reservation/consumption, recipe COGS, journal,
 receipt or hotel folio charge is created here. Prepared-item payment retains the

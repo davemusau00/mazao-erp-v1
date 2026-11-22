@@ -38,7 +38,7 @@ import { initializeCommandRequirements, prepareCommandRequirements } from './com
 import { getCount, getCountEvent, getCountEvents, getCountReview, getCountReviewMovements } from './countRecovery.js';
 import { elapsedMs, milliseconds, requestMetricsStorage, type RequestMetrics } from './requestMetrics.js';
 import { getRestaurantConfiguration, listRestaurantProducts } from './restaurant.js';
-import { getRestaurantOrder, listRestaurantMenu, listRestaurantOrders, listRestaurantOrderTickets, listRestaurantStationTickets, listRestaurantTicketStations } from './restaurantOrders.js';
+import { getRestaurantOrder, listRestaurantMenu, listRestaurantOrders, listRestaurantOrderTickets, listRestaurantStationTickets, listRestaurantStationPrintJobs, listRestaurantTicketStations } from './restaurantOrders.js';
 
 declare module 'fastify' { interface FastifyRequest { operator?: ApiSession; csrf?: string } }
 const cookieName = 'maz_session';
@@ -306,6 +306,7 @@ export function buildApp(options: Pick<FastifyServerOptions, 'logger'> = {}) {
   app.get<{Params:{orderId:string};Querystring:HistoryQuery}>('/api/v1/restaurant/orders/:orderId/tickets',async request=>listRestaurantOrderTickets(request.operator!,request.params.orderId,request.query));
   app.get('/api/v1/restaurant/ticket-stations',async request=>listRestaurantTicketStations(request.operator!));
   app.get<{Params:{stationId:string};Querystring:HistoryQuery}>('/api/v1/restaurant/stations/:stationId/tickets',async request=>listRestaurantStationTickets(request.operator!,request.params.stationId,request.query));
+  app.get<{Params:{stationId:string}}>('/api/v1/restaurant/stations/:stationId/print-jobs',async request=>listRestaurantStationPrintJobs(request.operator!,request.params.stationId));
   app.get<{Querystring:HistoryQuery}>('/api/v1/staff',async request=>listStaff(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/devices',async request=>listAssignments(request.operator!,request.query));
   app.get<{Querystring:HistoryQuery}>('/api/v1/auth/sessions',async request=>listOperatorSessions(request.operator!,undefined,request.query));

@@ -9,6 +9,7 @@ versions.push('030_guest_registration');
 versions.push('031_restaurant_configuration');
 versions.push('032_restaurant_orders_fire');
 versions.push('033_restaurant_ticket_lifecycle');
+versions.push('034_restaurant_print_queue');
 const migrationTarget=process.env.MIGRATION_TARGET;
 if(migrationTarget&&!versions.includes(migrationTarget))throw new Error(`MIGRATION_TARGET must be a known migration version; received ${migrationTarget}.`);
 const client=await pool.connect();

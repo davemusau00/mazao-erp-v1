@@ -7,6 +7,7 @@ import { lockCatalogOutlet } from './catalogMaintenance.js';
 import { stableStringify } from './security.js';
 import { readHistoryPage, type HistoryQuery } from './historyPagination.js';
 import { normalizeRestaurantModifiers, RESTAURANT_ORDER_LIMITS } from './restaurantOrderContracts.js';
+import { RESTAURANT_AVAILABILITY } from './restaurantContracts.js';
 
 type Row=Record<string,any>;
 type Station={id:string;name:string;kind:'KITCHEN'|'BAR'|'EXPO';version:number;charactersPerLine:number};
@@ -156,6 +157,14 @@ async function holdOrCancel(client:PoolClient,session:ApiSession,envelope:Comman
   const updated=await client.query(`UPDATE restaurant.orders SET held=$4,status=$5,version=version+1,updated_at=clock_timestamp() WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 RETURNING *`,[session.tenantId,session.outletId,order.id,cancel?false:envelope.payload.held,cancel?'CANCELLED':order.status]);
   const value=result(updated.rows[0]);await evidence(client,session,envelope,order,{...value,reason,scope:'UNSENT_LINES_ONLY'});return value;
 }
+async function createPrintJob(client:PoolClient,session:ApiSession,envelope:CommandEnvelope,ticket:{id:string;orderId:string;stationId:string;jobType:'NEW'|'ADD_ON';documentHash:string;snapshot:unknown}) {
+  const jobId=randomUUID();
+  await client.query(`INSERT INTO restaurant.print_jobs(id,tenant_id,outlet_id,order_id,ticket_id,station_id,job_type,copy_number,document_hash,document_snapshot,status,version,created_by_command_id,created_by_actor_id,created_by_device_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9::jsonb,'QUEUED',1,$10,$11,$12)`,[jobId,session.tenantId,session.outletId,ticket.orderId,ticket.id,ticket.stationId,ticket.jobType,ticket.documentHash,JSON.stringify(ticket.snapshot),envelope.commandId,session.userId,session.deviceId]);
+  await client.query(`INSERT INTO restaurant.print_job_events(id,tenant_id,outlet_id,job_id,event_version,event_type,command_id,actor_id,actor_name_snapshot,device_id,details)
+    VALUES($1,$2,$3,$4,1,'QUEUED',$5,$6,$7,$8,$9::jsonb)`,[randomUUID(),session.tenantId,session.outletId,jobId,envelope.commandId,session.userId,session.fullName,session.deviceId,JSON.stringify({jobType:ticket.jobType,documentHash:ticket.documentHash})]);
+  return jobId;
+}
 async function fireOrder(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
   const order=await lockedOrder(client,session,envelope);
   if(order.held)throw new DomainError('RESTAURANT_ORDER_HELD','Resume the held unsent lines before sending them to preparation.',409);
@@ -190,6 +199,7 @@ async function fireOrder(client:PoolClient,session:ApiSession,envelope:CommandEn
     for(const line of routed)await client.query('INSERT INTO restaurant.ticket_lines(tenant_id,outlet_id,order_id,ticket_id,order_line_id,station_id) VALUES($1,$2,$3,$4,$5,$6)',[session.tenantId,session.outletId,order.id,ticketId,line.id,station.id]);
     await client.query(`INSERT INTO restaurant.ticket_state_events(id,tenant_id,outlet_id,order_id,ticket_id,station_id,event_version,status,previous_status,command_id,actor_id,actor_name_snapshot,device_id,created_at)
       VALUES($1,$2,$3,$4,$5,$6,1,'NEW',NULL,$7,$8,$9,$10,$11)`,[randomUUID(),session.tenantId,session.outletId,order.id,ticketId,station.id,envelope.commandId,session.userId,session.fullName,session.deviceId,firedAt]);
+    await createPrintJob(client,session,envelope,{id:ticketId,orderId:order.id,stationId:station.id,jobType:type,documentHash,snapshot});
     ticketIds.push(ticketId);
   }
   await client.query('UPDATE restaurant.order_lines SET fire_revision=$4 WHERE tenant_id=$1 AND outlet_id=$2 AND order_id=$3 AND removed_at IS NULL AND fire_revision IS NULL',[session.tenantId,session.outletId,order.id,revision]);
@@ -223,8 +233,90 @@ async function advanceTicket(client:PoolClient,session:ApiSession,envelope:Comma
   await evidence(client,session,envelope,{ticketId,status:currentStatus,version:currentVersion},{...value,actorId:session.userId,stationId:ticketRow.station_id});
   return value;
 }
+type PrintJobStatus='QUEUED'|'CLAIMED'|'OPERATOR_CONFIRMED'|'FAILED';
+const printJobKey=(jobId:string)=>`printJob:${jobId}`;
+async function assertPrintStation(client:PoolClient,session:ApiSession,stationId:string) {
+  const authority=await authorizedStations(client,session);
+  if(!authority.stations.some(station=>station.id===stationId))throw new DomainError('FORBIDDEN','This device is not currently assigned to the print job station.',403);
+}
+async function printJobForUpdate(client:PoolClient,session:ApiSession,jobId:string) {
+  const found=await client.query('SELECT * FROM restaurant.print_jobs WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 FOR UPDATE',[session.tenantId,session.outletId,jobId]);
+  if(!found.rowCount)throw new DomainError('NOT_FOUND','Restaurant print job was not found at this outlet.',404);
+  const job=found.rows[0];await assertPrintStation(client,session,job.station_id);return job;
+}
+async function addPrintEvent(client:PoolClient,session:ApiSession,envelope:CommandEnvelope,jobId:string,eventVersion:number,eventType:string,details:unknown) {
+  await client.query(`INSERT INTO restaurant.print_job_events(id,tenant_id,outlet_id,job_id,event_version,event_type,command_id,actor_id,actor_name_snapshot,device_id,details)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,[randomUUID(),session.tenantId,session.outletId,jobId,eventVersion,eventType,envelope.commandId,session.userId,session.fullName,session.deviceId,JSON.stringify(details)]);
+}
+async function claimPrintJob(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
+  const jobId=envelope.payload.jobId as string,job=await printJobForUpdate(client,session,jobId);
+  const expectedVersion=expected(envelope,printJobKey(jobId));
+  if(Number(job.version)!==expectedVersion)throw new DomainError('VERSION_CONFLICT','This print job changed on another station. Refresh the queue before trying again.',409,{status:job.status,currentVersion:Number(job.version)});
+  if(job.status==='CLAIMED') {
+    const expires=job.claim_expires_at instanceof Date?job.claim_expires_at.getTime():new Date(job.claim_expires_at).getTime();
+    if(expires>Date.now())throw new DomainError('RESTAURANT_PRINT_JOB_CLAIMED','Another station session is handling this print job. Wait for its short lease to expire or ask that operator to finish.',409,{currentVersion:Number(job.version)});
+    const expiredVersion=Number(job.version)+1;
+    await client.query("UPDATE restaurant.print_jobs SET status='QUEUED',version=$4,claim_expires_at=NULL,updated_at=clock_timestamp() WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3",[session.tenantId,session.outletId,jobId,expiredVersion]);
+    await addPrintEvent(client,session,envelope,jobId,expiredVersion,'CLAIM_EXPIRED',{claimId:job.claim_id,claimedByActorId:job.claimed_by_actor_id,claimedByDeviceId:job.claimed_by_device_id});
+    job.status='QUEUED';job.version=expiredVersion;
+  }
+  if(job.status!=='QUEUED')throw new DomainError('RESTAURANT_PRINT_JOB_CLOSED','This print attempt is already complete. Create a clearly marked copy to print the ticket again.',409,{status:job.status,currentVersion:Number(job.version)});
+  const claimId=randomUUID(),version=Number(job.version)+1;
+  const updated=await client.query(`UPDATE restaurant.print_jobs SET status='CLAIMED',version=$4,claim_id=$5,claimed_by_actor_id=$6,claimed_by_device_id=$7,claim_expires_at=clock_timestamp()+interval '5 minutes',updated_at=clock_timestamp()
+    WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 RETURNING claim_expires_at`,[session.tenantId,session.outletId,jobId,version,claimId,session.userId,session.deviceId]);
+  const leaseExpiresAt=asIso(updated.rows[0].claim_expires_at);
+  await addPrintEvent(client,session,envelope,jobId,version,'CLAIMED',{claimId,leaseExpiresAt});
+  const value={jobId,claimId,status:'CLAIMED' as const,version,leaseExpiresAt};
+  await evidence(client,session,envelope,{status:job.status,version:Number(job.version)},{...value,stationId:job.station_id});return value;
+}
+async function finishPrintJob(client:PoolClient,session:ApiSession,envelope:CommandEnvelope,failed:boolean) {
+  const jobId=envelope.payload.jobId as string,job=await printJobForUpdate(client,session,jobId),expectedVersion=expected(envelope,printJobKey(jobId));
+  if(Number(job.version)!==expectedVersion)throw new DomainError('VERSION_CONFLICT','This print job changed on another station. Refresh the queue before recording its result.',409,{status:job.status,currentVersion:Number(job.version)});
+  if(job.status!=='CLAIMED'||job.claim_id!==envelope.payload.claimId)throw new DomainError('RESTAURANT_PRINT_CLAIM_INVALID','The print attempt no longer belongs to this claim. Refresh the station queue and keep its original record.',409,{status:job.status});
+  if(job.claimed_by_actor_id!==session.userId||job.claimed_by_device_id!==session.deviceId)throw new DomainError('FORBIDDEN','Only the operator and device holding this print attempt may finish it.',403);
+  const expiry=job.claim_expires_at instanceof Date?job.claim_expires_at.getTime():new Date(job.claim_expires_at).getTime();
+  if(expiry<=Date.now())throw new DomainError('RESTAURANT_PRINT_CLAIM_EXPIRED','This print attempt lease expired. Refresh the queue and claim it again before recording an outcome.',409);
+  const reason=failed?text(envelope.payload.reason,300,true):undefined,eventType=failed?'FAILED':'OPERATOR_CONFIRMED';
+  const status:PrintJobStatus=failed?'FAILED':'OPERATOR_CONFIRMED',version=Number(job.version)+1;
+  const changed=await client.query('UPDATE restaurant.print_jobs SET status=$4,version=$5,claim_expires_at=NULL,updated_at=clock_timestamp() WHERE tenant_id=$1 AND outlet_id=$2 AND id=$3 RETURNING updated_at',[session.tenantId,session.outletId,jobId,status,version]);
+  const finishedAt=asIso(changed.rows[0].updated_at);
+  await addPrintEvent(client,session,envelope,jobId,version,eventType,failed?{claimId:job.claim_id,reason}:{claimId:job.claim_id,delivery:'OPERATOR_REPORTED'});
+  const value=failed?{jobId,status:'FAILED' as const,version,failedAt:finishedAt}:{jobId,status:'OPERATOR_CONFIRMED' as const,version,confirmedAt:finishedAt,delivery:'OPERATOR_REPORTED' as const};
+  await evidence(client,session,envelope,{status:job.status,version:Number(job.version),documentHash:job.document_hash},{...value,stationId:job.station_id,reason});return value;
+}
+async function copyPrintJob(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
+  const ticketId=envelope.payload.ticketId as string;
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('restaurant-print-ticket:'||$1::text||':'||$2::text||':'||$3::text,0))",[session.tenantId,session.outletId,ticketId]);
+  const found=await client.query(`SELECT t.id,t.order_id,t.station_id,t.document_hash,t.snapshot,b.ticket_type
+    FROM restaurant.tickets t JOIN restaurant.fire_batches b ON b.tenant_id=t.tenant_id AND b.outlet_id=t.outlet_id AND b.order_id=t.order_id AND b.id=t.batch_id
+    WHERE t.tenant_id=$1 AND t.outlet_id=$2 AND t.id=$3 FOR SHARE OF t`,[session.tenantId,session.outletId,ticketId]);
+  if(!found.rowCount)throw new DomainError('NOT_FOUND','Restaurant ticket was not found at this outlet.',404);
+  const ticket=found.rows[0];await assertPrintStation(client,session,ticket.station_id);
+  if(createHash('sha256').update(stableStringify(ticket.snapshot)).digest('hex')!==ticket.document_hash)throw new DomainError('INTERNAL_ERROR','The saved ticket document hash does not match its immutable content.',500);
+  const active=await client.query("SELECT id FROM restaurant.print_jobs WHERE tenant_id=$1 AND outlet_id=$2 AND ticket_id=$3 AND status IN ('QUEUED','CLAIMED') LIMIT 1",[session.tenantId,session.outletId,ticketId]);
+  if(active.rowCount)throw new DomainError('RESTAURANT_PRINT_JOB_PENDING','Finish or recover the existing queued print job before creating a copy.',409,{jobId:active.rows[0].id});
+  const previous=await client.query('SELECT id,copy_number FROM restaurant.print_jobs WHERE tenant_id=$1 AND outlet_id=$2 AND ticket_id=$3 ORDER BY copy_number DESC LIMIT 1',[session.tenantId,session.outletId,ticketId]);
+  const copyNumber=Number(previous.rows[0]?.copy_number??0)+1,jobId=randomUUID(),sourceJobId=previous.rows[0]?.id??null;
+  await client.query(`INSERT INTO restaurant.print_jobs(id,tenant_id,outlet_id,order_id,ticket_id,station_id,job_type,copy_number,source_job_id,document_hash,document_snapshot,status,version,created_by_command_id,created_by_actor_id,created_by_device_id)
+    VALUES($1,$2,$3,$4,$5,$6,'COPY',$7,$8,$9,$10::jsonb,'QUEUED',1,$11,$12,$13)`,[jobId,session.tenantId,session.outletId,ticket.order_id,ticket.id,ticket.station_id,copyNumber,sourceJobId,ticket.document_hash,JSON.stringify(ticket.snapshot),envelope.commandId,session.userId,session.deviceId]);
+  await addPrintEvent(client,session,envelope,jobId,1,'QUEUED',{jobType:'COPY',copyNumber,sourceJobId,documentHash:ticket.document_hash});
+  const value={jobId,ticketId,jobType:'COPY' as const,copyNumber,status:'QUEUED' as const,version:1,documentHash:ticket.document_hash};
+  await evidence(client,session,envelope,{ticketId,documentHash:ticket.document_hash,sourceJobId},{...value,stationId:ticket.station_id});return value;
+}
+async function executeRestaurantPrintCommand(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
+  access(session,'restaurant.ticket.work');
+  if(!RESTAURANT_AVAILABILITY.printing)throw new DomainError('CAPABILITY_DISABLED','Restaurant browser printing is not enabled for this release.',403);
+  switch(envelope.type) {
+    case 'restaurant.print.job.claim': return claimPrintJob(client,session,envelope);
+    case 'restaurant.print.job.confirm': return finishPrintJob(client,session,envelope,false);
+    case 'restaurant.print.job.fail': return finishPrintJob(client,session,envelope,true);
+    case 'restaurant.print.job.copy': return copyPrintJob(client,session,envelope);
+    default: throw new DomainError('VALIDATION_FAILED','Unsupported restaurant print operation.');
+  }
+}
 export async function executeRestaurantOrderCommand(client:PoolClient,session:ApiSession,envelope:CommandEnvelope) {
   requireCommandAuthority(session,envelope.type);
+  if(envelope.type.startsWith('restaurant.print.job.'))return executeRestaurantPrintCommand(client,session,envelope);
   if(envelope.type==='restaurant.ticket.advance')return advanceTicket(client,session,envelope);
   access(session,'restaurant.order');await lockOrders(client,session);
   try {
@@ -316,5 +408,38 @@ export async function listRestaurantStationTickets(session:ApiSession,stationId:
     if(!authority.stations.some(station=>station.id===stationId))throw new DomainError('FORBIDDEN','This logical workspace does not currently have access to the requested station.',403);
     const result=await readHistoryPage(client,session,`restaurant-station-tickets:${stationId}`,query,`${ticketSource} AND t.station_id=$3`,[session.tenantId,session.outletId,stationId]);
     return {tickets:result.rows.map(ticket),page:result.page,authority:authority.authority};
+  });
+}
+function printJobDto(row:Row,session:ApiSession) {
+  const ownsClaim=row.status==='CLAIMED'&&row.claimed_by_actor_id===session.userId&&row.claimed_by_device_id===session.deviceId;
+  return {id:row.id,ticketId:row.ticket_id,orderId:row.order_id,stationId:row.station_id,jobType:row.job_type as 'NEW'|'ADD_ON'|'COPY',copyNumber:Number(row.copy_number),sourceJobId:row.source_job_id,
+    documentHash:row.document_hash,status:row.status as PrintJobStatus,version:Number(row.version),claimId:ownsClaim?row.claim_id:null,claimExpiresAt:row.claim_expires_at?asIso(row.claim_expires_at):null,
+    claimedByName:row.status==='CLAIMED'&&!ownsClaim?row.claim_actor_name??null:null,outcomeByName:row.outcome_actor_name??null,outcomeAt:row.outcome_at?asIso(row.outcome_at):null,
+    failureReason:row.outcome_type==='FAILED'?row.outcome_details?.reason??null:null,createdByName:row.creator_name,createdAt:asIso(row.created_at),updatedAt:asIso(row.updated_at),documentSnapshot:row.document_snapshot};
+}
+export async function listRestaurantStationPrintJobs(session:ApiSession,stationId:string) {
+  access(session,'restaurant.ticket.view');
+  if(!RESTAURANT_AVAILABILITY.printing)throw new DomainError('CAPABILITY_DISABLED','Restaurant browser printing is not enabled for this release.',403);
+  return inReadSnapshot(async client=>{
+    const authority=await authorizedStations(client,session);
+    if(!authority.stations.some(station=>station.id===stationId))throw new DomainError('FORBIDDEN','This logical workspace does not currently have access to the requested station print queue.',403);
+    const [pending,jobs]=await Promise.all([
+      client.query("SELECT count(*)::int total FROM restaurant.print_jobs WHERE tenant_id=$1 AND outlet_id=$2 AND station_id=$3 AND status IN ('QUEUED','CLAIMED')",[session.tenantId,session.outletId,stationId]),
+      client.query(`WITH pending AS (
+          SELECT j.* FROM restaurant.print_jobs j WHERE j.tenant_id=$1 AND j.outlet_id=$2 AND j.station_id=$3 AND j.status IN ('QUEUED','CLAIMED') ORDER BY j.created_at,j.id LIMIT 250
+        ), history AS (
+          SELECT j.* FROM restaurant.print_jobs j WHERE j.tenant_id=$1 AND j.outlet_id=$2 AND j.station_id=$3 AND j.status IN ('OPERATOR_CONFIRMED','FAILED') ORDER BY j.updated_at DESC,j.id DESC LIMIT 25
+        )
+        SELECT j.*,claim_user.full_name claim_actor_name,creator.full_name creator_name,outcome.actor_name_snapshot outcome_actor_name,outcome.created_at outcome_at,outcome.event_type outcome_type,outcome.details outcome_details
+        FROM (SELECT * FROM pending UNION ALL SELECT * FROM history) j
+        LEFT JOIN identity.users claim_user ON claim_user.id=j.claimed_by_actor_id JOIN identity.users creator ON creator.id=j.created_by_actor_id
+        LEFT JOIN LATERAL (SELECT e.event_type,e.actor_name_snapshot,e.created_at,e.details FROM restaurant.print_job_events e
+          WHERE e.tenant_id=j.tenant_id AND e.outlet_id=j.outlet_id AND e.job_id=j.id AND e.event_type IN ('OPERATOR_CONFIRMED','FAILED')
+          ORDER BY e.event_version DESC LIMIT 1) outcome ON true
+        ORDER BY CASE j.status WHEN 'QUEUED' THEN 0 WHEN 'CLAIMED' THEN 1 ELSE 2 END,
+          CASE WHEN j.status IN ('QUEUED','CLAIMED') THEN j.created_at END ASC,
+          CASE WHEN j.status IN ('OPERATOR_CONFIRMED','FAILED') THEN j.updated_at END DESC,j.id`,[session.tenantId,session.outletId,stationId]),
+    ]);
+    return {jobs:jobs.rows.map(row=>printJobDto(row,session)),pendingCount:pending.rows[0].total,authority:authority.authority,queueLimit:250};
   });
 }

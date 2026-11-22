@@ -7,6 +7,7 @@ import { CommandRecoveryReadiness } from '../common/CommandRecoveryReadiness';
 import { HistoryNavigation } from '../common/HistoryNavigation';
 import { WorkspaceHeading } from '../common/WorkspacePrimitives';
 import { RestaurantTicketCards } from './RestaurantTicketCards';
+import { RestaurantPrintQueue } from './RestaurantPrintQueue';
 
 const nextStatus:Record<RestaurantTicketState,Exclude<RestaurantTicketState,'NEW'>|null>={NEW:'ACKNOWLEDGED',ACKNOWLEDGED:'PREPARING',PREPARING:'READY',READY:null};
 const ticketCommands=['restaurant.ticket.advance'] as const;
@@ -60,7 +61,7 @@ export function RestaurantStationTicketsWorkspace(){
   const actionsDisabled=!online||stale||!recovery.ready||!!recovery.error||!!unknownId||!!busyTicket;
   return <div className="page-stack"><WorkspaceHeading eyebrow={session.outlet.name} title="Station tickets" description="Review assigned preparation tickets and update their server-recorded kitchen status." action={<button type="button" className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm font-semibold disabled:opacity-50" disabled={loading||ticketBusy||!online} onClick={()=>void refresh()}>Refresh station tickets</button>}/>
     <CommandRecoveryReadiness ready={recovery.ready} error={recovery.error} retry={()=>void recovery.inspect()}/>
-    <p className="rounded-lg border border-amber-800 p-3 text-sm text-amber-100">Kitchen staff can acknowledge, start and mark tickets ready on an assigned station. Paper printing and physical delivery are not yet available.</p>
+    <p className="rounded-lg border border-amber-800 p-3 text-sm text-amber-100">Station tickets can be advanced online and sent to the 80 mm browser print dialog. The queue records operator-reported paper output; it cannot verify the printer, cutter or paper path.</p>
     {(!online||stale)&&<p role="alert" className="rounded-lg border border-amber-800 p-3 text-sm text-amber-100">{!online?'You are offline. These saved tickets may be out of date.':loading||ticketBusy?'Ticket access and freshness are being checked. Existing rows may be out of date.':'Ticket access or freshness could not be confirmed. Refresh station tickets before using these records.'}</p>}
     {error&&<p role="alert" className="rounded-lg border border-rose-800 p-3 text-sm text-rose-200">{error}</p>}{actionError&&<p role="alert" className="rounded-lg border border-rose-800 p-3 text-sm text-rose-200">{actionError}</p>}
     {unknownId&&<button type="button" className="min-h-11 rounded-lg border border-amber-700 px-4 font-semibold text-amber-100 disabled:opacity-50" disabled={busyTicket!==''||!online} onClick={()=>void checkPending()}>Check original ticket action status</button>}
@@ -69,6 +70,7 @@ export function RestaurantStationTicketsWorkspace(){
     {!loading&&!stations.length&&!error&&<p className="rounded-lg border border-zinc-800 p-4 text-sm text-zinc-400">No preparation stations are assigned to this workspace. Ask a manager to review its station access.</p>}
     {ticketBusy&&<p role="status" className="text-sm text-zinc-400">Loading saved station tickets...</p>}
     <RestaurantTicketCards tickets={tickets} timeZone={timeZone} onAdvance={canWork?advance:undefined} busyTicket={busyTicket} actionsDisabled={actionsDisabled}/>
+    {selected&&<RestaurantPrintQueue stationId={selected} timeZone={timeZone} online={online}/>}
     {selected&&<HistoryNavigation label="station tickets" page={page} loaded={tickets.length} busy={loading||ticketBusy||!online} onSearch={q=>void readFeed(selected,{q})} onMore={()=>void readFeed(selected,{q:query.current,after:page?.nextCursor??undefined},true)}/>}
   </div>;
 }

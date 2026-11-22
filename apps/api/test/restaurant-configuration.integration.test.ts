@@ -58,7 +58,7 @@ if (!databaseUrl) {
         assert.equal((await app.inject({ url: '/api/v1/restaurant/configuration' })).statusCode, 401);
         const configuration = await read(waiter);
         assert.equal(configuration.permissions.manage, false);
-        assert.deepEqual(configuration.availability, { ordering: true, fire: true, kds: false, printing: false, roomCharge: false, recipeConsumption: false }, 'Only accepted source-order foundations may be exposed.');
+        assert.deepEqual(configuration.availability, { ordering: true, fire: true, kds: false, printing: true, roomCharge: false, recipeConsumption: false }, 'Browser print queue availability does not imply physical-printer acceptance.');
         rejected(await app.inject({ url: '/api/v1/restaurant/products', headers: waiter.headers }), 'FORBIDDEN');
         rejected(await submit(waiter, command(waiter, 'restaurant.section.save', { name: 'Unauthorized area', active: true })), 'FORBIDDEN');
         rejected(await submit(waiter, command(waiter, 'sales.order.settle', { lines: [], tenders: [] })), 'FORBIDDEN');

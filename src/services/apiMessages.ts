@@ -36,6 +36,11 @@ const messages: Record<string, string> = {
   RESTAURANT_MENU_UNAVAILABLE: 'This item or its preparation stations are unavailable. Review the menu setup before adding or firing it.',
   RESTAURANT_NO_UNFIRED_LINES: 'Save at least one unfired draft line before creating station tickets.',
   RESTAURANT_TICKET_TRANSITION_INVALID: 'Refresh this kitchen ticket and use its next available preparation action.',
+  RESTAURANT_PRINT_JOB_CLAIMED: 'Another station session has this ticket temporarily. Wait for its short lease to expire or ask that operator to finish it.',
+  RESTAURANT_PRINT_JOB_CLOSED: 'This print attempt is complete. Create a clearly marked copy if the ticket needs printing again.',
+  RESTAURANT_PRINT_CLAIM_INVALID: 'This print attempt no longer belongs to the active claim. Refresh the station queue before continuing.',
+  RESTAURANT_PRINT_CLAIM_EXPIRED: 'The print attempt lease expired. Refresh the queue and claim the job again before recording its outcome.',
+  RESTAURANT_PRINT_JOB_PENDING: 'Finish or recover the queued print job before creating a copy.',
   IDEMPOTENCY_MISMATCH: 'The saved action differs from this attempt. Check the original action status before continuing.',
   CREDENTIAL_OPERATION_FENCED: 'The earlier password request was safely stopped. Enter a new password to continue.',
   GUEST_REGISTRATION_OPERATION_FENCED: 'The earlier guest details request was safely stopped. Re-enter the private details to continue.',
@@ -127,6 +132,28 @@ export function isTerminalOutcome(result: unknown, commandId: string, commandTyp
     return typeof ticketId==='string'&&value.ticketId===ticketId&&version('version')&&typeof originalVersion==='number'&&Number.isSafeInteger(originalVersion)
       &&value.version===originalVersion+1&&value.status===next[String(commandPayload?.fromStatus)]&&value.status===commandPayload?.toStatus
       &&typeof value.changedAt==='string'&&!Number.isNaN(Date.parse(value.changedAt));
+  }
+  if(commandType?.startsWith('restaurant.print.job.')){
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const date=(key:string)=>typeof value[key]==='string'&&!Number.isNaN(Date.parse(String(value[key])));
+    if(commandType==='restaurant.print.job.claim'){
+      const jobId=commandPayload?.jobId,originalVersion=typeof jobId==='string'?expectedVersions?.['printJob:'+jobId]:undefined;
+      return typeof jobId==='string'&&value.jobId===jobId&&uuid.test(String(value.claimId))&&value.status==='CLAIMED'&&version('version')
+        &&typeof originalVersion==='number'&&Number.isSafeInteger(originalVersion)&&[originalVersion+1,originalVersion+2].includes(Number(value.version))&&date('leaseExpiresAt');
+    }
+    if(commandType==='restaurant.print.job.confirm'||commandType==='restaurant.print.job.fail'){
+      const jobId=commandPayload?.jobId,originalVersion=typeof jobId==='string'?expectedVersions?.['printJob:'+jobId]:undefined;
+      const expectedStatus=commandType==='restaurant.print.job.confirm'?'OPERATOR_CONFIRMED':'FAILED',timeKey=commandType==='restaurant.print.job.confirm'?'confirmedAt':'failedAt';
+      return typeof jobId==='string'&&value.jobId===jobId&&version('version')&&typeof originalVersion==='number'&&Number.isSafeInteger(originalVersion)
+        &&value.version===originalVersion+1&&value.status===expectedStatus&&date(timeKey)
+        &&(commandType!=='restaurant.print.job.confirm'||value.delivery==='OPERATOR_REPORTED');
+    }
+    if(commandType==='restaurant.print.job.copy'){
+      return typeof commandPayload?.ticketId==='string'&&value.ticketId===commandPayload.ticketId&&identifier('jobId')&&uuid.test(String(value.jobId))
+        &&value.jobType==='COPY'&&Number.isSafeInteger(value.copyNumber)&&Number(value.copyNumber)>=1&&value.status==='QUEUED'
+        &&value.version===1&&typeof value.documentHash==='string'&&/^[a-f0-9]{64}$/.test(value.documentHash);
+    }
+    return false;
   }
   if(commandType?.startsWith('restaurant.order.')){
     const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

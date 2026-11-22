@@ -9,7 +9,7 @@ export {GUEST_COUNTRY_CODES} from '../../apps/api/src/guestRegistrationTypes';
 import {countDraftStore} from './countDraftStore';
 import { apiErrorMessage, isTerminalCommandStatus, isTerminalOutcome, presentOutcome, unconfirmedActionMessage } from './apiMessages';
 import type { RestaurantConfiguration, RestaurantProduct } from '../types/restaurant';
-import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket, RestaurantTicketState } from '../types/restaurantOrders';
+import type { RestaurantMenuItem, RestaurantOrderDetail, RestaurantOrderStation, RestaurantOrderSummary, RestaurantOrderTicket, RestaurantPrintJob, RestaurantTicketState } from '../types/restaurantOrders';
 import type { CountEvidenceCoverage, CountEvidenceDetail, CountEvidenceEvent, CountMovementPage, CountReview, CountReviewMovement } from '../types/countRecovery';
 import { isCountEvidenceEvent, isCountEventPage, isCountLineEvidence, isCountMovementPage, isCountReview, isCountReviewMovement } from '../utils/countRecovery';
 import { apiRequestUrl } from './apiOrigin';
@@ -218,6 +218,29 @@ function restaurantTicket(value:unknown):boolean {
     &&isRecord(s.waiter)&&restaurantId(s.waiter.id)&&typeof s.waiter.name==='string'&&isRecord(s.firedBy)&&restaurantId(s.firedBy.id)&&typeof s.firedBy.name==='string'
     &&restaurantId(s.deviceId)&&typeof s.firedAt==='string'&&(s.type==='NEW'?s.originalBatchId===null:restaurantId(s.originalBatchId)&&s.originalBatchId!==s.batchId)&&Array.isArray(s.lines)&&s.lines.length>0&&new Set(s.lines.map(line=>isRecord(line)?line.lineId:undefined)).size===s.lines.length&&s.lines.every(line=>isRecord(line)&&restaurantId(line.lineId)&&restaurantId(line.productId)&&typeof line.sku==='string'&&typeof line.name==='string'
       &&['STOCKED_GOOD','SERVICE','PREPARED'].includes(String(line.itemKind))&&typeof line.baseUnit==='string'&&restaurantQuantity(line.quantity)&&typeof line.preparationLabel==='string'&&typeof line.preparationInstructions==='string'&&restaurantStrings(line.modifiers)&&typeof line.instructions==='string');
+}
+function restaurantPrintJob(value:unknown):value is RestaurantPrintJob {
+  if(!isRecord(value)||!restaurantId(value.id)||!restaurantId(value.ticketId)||!restaurantId(value.orderId)||!restaurantId(value.stationId)
+    ||!['NEW','ADD_ON','COPY'].includes(String(value.jobType))||!restaurantInteger(value.copyNumber)||!((value.jobType==='COPY'&&Number(value.copyNumber)>0)||(value.jobType!=='COPY'&&value.copyNumber===0))
+    ||!(value.sourceJobId===null||restaurantId(value.sourceJobId))||typeof value.documentHash!=='string'||!/^[a-f0-9]{64}$/.test(value.documentHash)
+    ||!['QUEUED','CLAIMED','OPERATOR_CONFIRMED','FAILED'].includes(String(value.status))||!restaurantInteger(value.version,1)
+    ||!(value.claimId===null||restaurantId(value.claimId))||!(value.claimExpiresAt===null||typeof value.claimExpiresAt==='string')
+    ||!(value.claimedByName===null||typeof value.claimedByName==='string')||!(value.outcomeByName===null||typeof value.outcomeByName==='string')
+    ||!(value.outcomeAt===null||typeof value.outcomeAt==='string')||!(value.failureReason===null||typeof value.failureReason==='string')
+    ||typeof value.createdByName!=='string'||typeof value.createdAt!=='string'||typeof value.updatedAt!=='string'||!isRecord(value.documentSnapshot))return false;
+  const snapshot=value.documentSnapshot;
+  const terminal=value.status==='OPERATOR_CONFIRMED'||value.status==='FAILED';
+  const claimIsValid=value.status==='CLAIMED'
+    ?typeof value.claimExpiresAt==='string'&&!Number.isNaN(Date.parse(value.claimExpiresAt))&&(value.claimId===null||restaurantId(value.claimId))
+    :value.claimId===null&&value.claimExpiresAt===null&&value.claimedByName===null;
+  const outcomeIsValid=terminal
+    ?typeof value.outcomeByName==='string'&&value.outcomeByName.trim().length>0&&typeof value.outcomeAt==='string'&&!Number.isNaN(Date.parse(value.outcomeAt))
+      &&(value.status==='FAILED'?typeof value.failureReason==='string'&&value.failureReason.trim().length>0:value.failureReason===null)
+    :value.outcomeByName===null&&value.outcomeAt===null&&value.failureReason===null;
+  return claimIsValid&&outcomeIsValid&&restaurantTicket({id:snapshot.ticketId,orderId:snapshot.orderId,batchId:snapshot.batchId,fireRevision:snapshot.fireRevision,type:snapshot.type,
+    stationId:isRecord(snapshot.station)?snapshot.station.id:undefined,stationName:isRecord(snapshot.station)?snapshot.station.name:undefined,stationKind:isRecord(snapshot.station)?snapshot.station.kind:undefined,
+    createdAt:snapshot.firedAt,documentHash:value.documentHash,status:'NEW',stateVersion:1,stateChangedAt:snapshot.firedAt,stateActorName:isRecord(snapshot.firedBy)?snapshot.firedBy.name:'',snapshot})
+    &&snapshot.ticketId===value.ticketId&&snapshot.orderId===value.orderId&&isRecord(snapshot.station)&&snapshot.station.id===value.stationId;
 }
 function isTerminalCredentialOutcome(result:unknown,operation:SecretOperationRecovery):boolean{
   if(!isTerminalOutcome(result,operation.commandId,operation.kind)||!isRecord(result))return false;
@@ -530,7 +553,7 @@ class ApiClient {
     const versioned=(row:unknown):row is Record<string,unknown>=>isRecord(row)&&typeof row.version==='number'&&Number.isSafeInteger(row.version)&&row.version>=1;
     const directory=(row:unknown)=>versioned(row)&&typeof row.id==='string'&&row.id.length>0&&typeof row.name==='string'&&typeof row.active==='boolean';
     const ids=(value:unknown)=>Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.length>0)&&new Set(value).size===value.length;
-    const unavailable=(value:unknown)=>isRecord(value)&&typeof value.ordering==='boolean'&&typeof value.fire==='boolean'&&['kds','printing','roomCharge','recipeConsumption'].every(key=>value[key]===false);
+    const validAvailability=(value:unknown)=>isRecord(value)&&typeof value.ordering==='boolean'&&typeof value.fire==='boolean'&&typeof value.printing==='boolean'&&['kds','roomCharge','recipeConsumption'].every(key=>value[key]===false);
     const validLimits=(value:unknown)=>isRecord(value)&&['sections','tables','stations','menuRoutes'].every(key=>Number.isSafeInteger(value[key])&&Number(value[key])>0);
     if(!isRecord(configuration)
       ||!Array.isArray(configuration.sections)||!configuration.sections.every(directory)
@@ -542,7 +565,7 @@ class ApiClient {
       ||!Array.isArray(configuration.products)||!configuration.products.every(restaurantProduct)
       ||!isRecord(configuration.permissions)||typeof configuration.permissions.manage!=='boolean'||typeof configuration.permissions.assignDevices!=='boolean'
       ||!(configuration.permissions.manage?restaurantProductPage(configuration.productPage):configuration.productPage===null)
-      ||!unavailable(configuration.availability)||!validLimits(configuration.limits))
+      ||!validAvailability(configuration.availability)||!validLimits(configuration.limits))
       throw new ApiClientError('Restaurant setup was returned without its required directories, permissions or availability. Retry this read.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
@@ -590,6 +613,12 @@ class ApiClient {
   async listRestaurantStationTickets(stationId:string,options:HistoryOptions={},signal?:AbortSignal){
     const result=await this.request<{tickets:RestaurantOrderTicket[];page:HistoryPage}>(historyUrl('/restaurant/stations/'+encodeURIComponent(stationId)+'/tickets',options),{signal});
     if(!Array.isArray(result.tickets)||!result.tickets.every(ticket=>restaurantTicket(ticket)&&ticket.stationId===stationId)||!restaurantProductPage(result.page))throw new ApiClientError('The saved station tickets are incomplete. Retry this read.','INVALID_SERVER_RESPONSE',200);
+    return result;
+  }
+  async listRestaurantStationPrintJobs(stationId:string,signal?:AbortSignal){
+    const result=await this.request<{jobs:RestaurantPrintJob[];pendingCount:number;authority:'LOGICAL_ASSIGNMENT'|'MANAGER';queueLimit:number}>('/restaurant/stations/'+encodeURIComponent(stationId)+'/print-jobs',{signal});
+    if(!Array.isArray(result.jobs)||!result.jobs.every(job=>restaurantPrintJob(job)&&job.stationId===stationId)||!restaurantInteger(result.pendingCount)||!['LOGICAL_ASSIGNMENT','MANAGER'].includes(result.authority)||result.queueLimit!==250)
+      throw new ApiClientError('The station print queue response is incomplete. Refresh the station and retry.','INVALID_SERVER_RESPONSE',200);
     return result;
   }
   advanceRestaurantTicket(ticketId:string,fromStatus:RestaurantTicketState,toStatus:Exclude<RestaurantTicketState,'NEW'>,version:number,commandId:string){
