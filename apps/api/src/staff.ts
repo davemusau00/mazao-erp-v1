@@ -10,7 +10,8 @@ export const STAFF_COMMANDS=['staff.member.create','staff.member.update','staff.
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const roleLabels:Record<ApiRole,string>={admin:'Administrator',owner:'Owner',manager:'Manager',accountant:'Accountant',cashier:'Cashier',storekeeper:'Storekeeper',receptionist:'Receptionist',housekeeper:'Housekeeper',waiter:'Waiter',cook:'Cook',bartender:'Bartender'};
 export function roleAssignable(role:unknown,capabilities:string[]):role is ApiRole {
-  if(typeof role!=='string'||!(role in ROLE_PERMISSIONS)||['waiter','cook','bartender'].includes(role))return false;
+  if(typeof role!=='string'||!(role in ROLE_PERMISSIONS))return false;
+  if(['waiter','cook','bartender'].includes(role))return capabilities.includes('restaurant')&&capabilities.includes('commerce');
   return !['receptionist','housekeeper'].includes(role)||capabilities.includes('hospitality');
 }
 function id(value:unknown,field:string):string{if(typeof value!=='string'||!uuid.test(value))throw new DomainError('VALIDATION_FAILED',`${field} must be a valid identifier.`);return value;}

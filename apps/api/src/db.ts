@@ -109,23 +109,57 @@ export async function inReadSnapshot<T>(read: (client: PoolClient) => Promise<T>
   }
 }
 
-export async function inTransaction<T>(run: (client: PoolClient) => Promise<T>): Promise<T> {
+export interface TransactionAdmission {
+  sharedLockKey: string;
+  exclusiveLockKey: string;
+}
+
+export async function inTransaction<T>(run: (client: PoolClient) => Promise<T>, admission?: TransactionAdmission): Promise<T> {
   // Callbacks must contain database work only. Retrying must never repeat an
   // external payment, print, email, or other effect before the transaction commits.
   const retryable = new Set(['40001', '40P01']);
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const client = await pool.connect();
+    let sharedLocked=false,exclusiveLocked=false,admitted=!admission,begun=false,discard=false;
     try {
+      // An advisory SELECT inside SERIALIZABLE already fixes its snapshot
+      // before waiting. Opt-in setup admission must finish before BEGIN on the
+      // same client, so the next writer observes the previous writer's commit.
+      // Session locks are reentrant with the domain's matching transaction
+      // locks, and must be released before returning this client to the pool.
+      if(admission) {
+        await client.query('SELECT pg_advisory_lock_shared(hashtextextended($1::text,0))',[admission.sharedLockKey]);
+        sharedLocked=true;
+        await client.query('SELECT pg_advisory_lock(hashtextextended($1::text,0))',[admission.exclusiveLockKey]);
+        exclusiveLocked=true;admitted=true;
+      }
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      begun=true;
       const value = await run(client);
       await client.query('COMMIT');
+      begun=false;
       return value;
     } catch (error) {
-      try { await client.query('ROLLBACK'); } catch { /* connection will be released */ }
+      if(!admitted)discard=true;
+      if(begun)try { await client.query('ROLLBACK'); } catch { discard=true; }
       const code = (error as { code?: string }).code;
       if (!retryable.has(code ?? '') || attempt === 3) throw error;
     } finally {
-      client.release();
+      if(admission&&!discard) {
+        try {
+          if(exclusiveLocked) {
+            const result=await client.query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) unlocked',[admission.exclusiveLockKey]);
+            if(result.rows[0]?.unlocked!==true)discard=true;
+          }
+          if(sharedLocked) {
+            const result=await client.query('SELECT pg_advisory_unlock_shared(hashtextextended($1::text,0)) unlocked',[admission.sharedLockKey]);
+            if(result.rows[0]?.unlocked!==true)discard=true;
+          }
+        } catch { discard=true; }
+      }
+      // Closing a failed client releases all its session advisory locks even
+      // when an acknowledgement or explicit unlock could not be obtained.
+      client.release(discard);
     }
     await new Promise(resolve => setTimeout(resolve, attempt * 15));
   }
