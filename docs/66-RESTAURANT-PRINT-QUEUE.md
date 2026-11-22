@@ -8,9 +8,10 @@ merged or deployed, and it does not complete M2.
 
 Firing an order stores one durable `QUEUED` print job per immutable station
 ticket in the same database transaction. The assigned station operator loads
-the queue, claims a job, prepares the 80 mm browser document, opens the system
-print dialog, inspects the paper and records the result. A failed attempt needs
-a reason. A confirmed or failed job can create a separately identified,
+the queue, claims a job, prepares the 76 mm content layout, selects the 80 mm
+roll in the system print dialog, inspects the paper and records the result.
+The browser page size follows the printer profile. A failed attempt needs a
+reason. A confirmed or failed job can create a separately identified,
 clearly labelled copy linked to its source job and original document hash.
 
 Claims are bound to the authenticated actor and logical device and expire after
