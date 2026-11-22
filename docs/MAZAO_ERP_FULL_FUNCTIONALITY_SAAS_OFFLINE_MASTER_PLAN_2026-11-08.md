@@ -43,6 +43,9 @@ this roadmap work does not authorize production activation. The proposed
 `get.mazaoyako.co.ke` marketing site and `admin.mazaoyako.co.ke` platform console
 remain separate applications and require DNS/routing verification before use.
 
+The following milestone table and execution notes are dated snapshots. The
+latest state is recorded in the 22 November update below.
+
 | Milestone | Current delivery state | Required evidence before advancing |
 | --- | --- | --- |
 | M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Public Country/Yako endpoints respond, but runtime SHAs and schema heads remain unverified because SSH to the user-confirmed host is unavailable from this workstation. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
@@ -108,6 +111,38 @@ image revision labels, and each database's applied migration ledger
 independently. The proposed `get.` and `admin.` DNS and routes were not checked
 by this probe.
 
+### Delivery and deployment update — 22 November 2026
+
+PR #31 (guest registration) merged as
+`8df8d67bff6e1020e94a09f2e7d8bfde62d64cec`. PR #26 (restaurant configuration,
+source orders/fire, and KDS ticket lifecycle) then merged as
+`23cc0001d3d14607b2427e61126133bdaa30b359` from exact head
+`01c3566b23ffdc24633e6c8c58826e7bd84afb1b`. Migration 030 remains guest
+registration; migrations 031–033 are the restaurant slices. The existing 029
+import-archive migration and earlier checksums were preserved. Exact-head hosted
+run `45016674680` passed PostgreSQL migrations and checksum rerun, API tests,
+typecheck/build, Chromium/Firefox desktop/mobile acceptance, real API/PostgreSQL
+browser integration, Yako PWA/configuration validation, and production-container
+readiness. Main-release artifact uploads were skipped for this PR. No live
+deployment or production database migration occurred.
+
+The owner reports that Country at `country.mazaoyako.co.ke` is behind the
+deployment at `mazaoyako.co.ke`. This is an owner-reported version comparison;
+the 21 November probes established different public bundles but could not
+identify either source SHA or schema head. Continue to treat Country and Yako as
+independent deployments, tenants, databases, and release artifacts. For Country,
+first capture its active PWA/API release and applied migration head, compare
+them with the intended release, and validate a rollback path. Do not copy Yako's
+database or assume that replacing Country's bundle alone is a safe upgrade.
+
+The correct VPS address is confirmed as `38.247.142.209`; the old `mazao-live`
+SSH alias still points elsewhere. The existing SSH attempt did not complete
+host-key verification, so production SHA/schema inspection remains open. Verify
+the host key through a trusted channel before attempting authenticated release
+inspection. Backup automation remains deferred. M2 is now in progress: the next
+planned code slice is a durable restaurant KOT/BOT print queue; physical printer
+acceptance is still outstanding.
+
 ## 0. Executive decision
 
 Mazao should become a **managed, modular, multi-tenant business operating platform** for Kenyan retail, wholesale, bar/restaurant and hotel operators. The product must be commercially usable as an online ERP before promising offline settlement, and its SaaS administrative layer must be distinct from each tenant's business administration.
@@ -125,6 +160,9 @@ The implementation strategy is **evolutionary, not a rewrite**. Retain the React
 Do not equate a rendered screen, green unit test, merged PR, produced artifact or responding health endpoint with a completed business workflow. Each is a separate evidence gate.
 
 ## 1. Verified baseline and immediate blockers
+
+The baseline bullets below describe the 21 November review. Read the dated
+execution updates below for later merges and acceptance results.
 
 ### What already exists in current main
 
