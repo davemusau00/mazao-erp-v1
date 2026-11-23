@@ -64,7 +64,7 @@ Local checks at the current worktree:
   claim recovery from the station UI, operator confirmation, copy creation and
   the existing responsive flows.
 
-The exact PR #35 candidate head `9283bd35e1218c624f6bc4c244174e3dc0586dc8`
+The pre-documentation PR #35 code candidate at `9283bd35e1218c624f6bc4c244174e3dc0586dc8`
 passed [hosted run 45160206478](https://github.com/davemusau00/mazao-erp-v1/actions/runs/45160206478):
 fresh migration install and checksum rerun; populated upgrade from migration 029
 through 034 with a safe rerun; API 310/310 with zero skips; browser acceptance
@@ -72,7 +72,7 @@ through 034 with a safe rerun; API 310/310 with zero skips; browser acceptance
 API/PostgreSQL browser integration 29 passed; and API-container validation.
 Migration 034's file and checksum are unchanged. The candidate also corrects the
 print CSS by removing Chromium's rejected `80mm auto` page-size
-declaration.
+declaration. Run 45160206478 validates that pre-documentation code head; confirm green hosted checks on the current exact PR head before promotion because this documentation update triggers a fresh run.
 
 Physical printer/cutter/paper acceptance has not been performed. The browser
 records the operator's report, not hardware telemetry; test both stations with
@@ -95,8 +95,7 @@ activation is implied.
    printer model, browser, OS and actual outcomes. Browser confirmation alone
    does not prove hardware output.
 2. Keep the print-queue candidate unmerged until the hardware gate is reviewed.
-   The hosted CI gate is green at the documented head; repeat it if code or
-   documentation changes.
+   Run 45160206478 validates the pre-documentation code candidate. Confirm green hosted checks on the current exact PR head before promotion; documentation changes require a fresh run.
 3. Deliver served/void and waiter handoff, then settlement/split tender and
    recipe/location slices as separate reviewed vertical slices.
 4. Keep restaurant sales, stock and accounting workflows unavailable until the
