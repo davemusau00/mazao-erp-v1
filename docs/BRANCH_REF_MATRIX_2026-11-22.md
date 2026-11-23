@@ -1,0 +1,84 @@
+# Local and remote ref matrix
+
+Refreshed on 23 November 2026 against origin/main = 23cc0001d3d14607b2427e61126133bdaa30b359; 76 local and origin refs are inventoried; this baseline predates the report-only commit on review/branch-consolidation, so that row records its input SHA. Behind/ahead counts use git rev-list --left-right --count origin/main...ref; patch-only/equivalent counts use git cherry -v origin/main ref. Added candidate ref `origin/review/pr34-print-page-size-2026-11-22` for Draft PR #35; no existing remote ref was modified.
+
+| Ref | SHA | Behind | Ahead | Merge base | Patch-only | Patch-equivalent |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| codex/access-recovery-navigation | a0928f2e5a7ff000634e9c8c081471d0cfa415fe | 5 | 1 | 416ea956760d | 0 | 1 |
+| codex/credential-recovery | d88b5805f3a09fc86dccd9e71620b46d93b1f7d9 | 6 | 1 | 0de9799aef24 | 0 | 1 |
+| codex/guest-registration | 901f84a24f79bbf4450fea13495abb3446cecb56 | 2 | 2 | 2a5da2d82157 | 2 | 0 |
+| codex/pr24-review-cleanup | ae7109912d36130453782fd72bae1be19c31c97b | 18 | 0 | ae7109912d36 | 0 | 0 |
+| codex/pr26-repair | 01c3566b23ffdc24633e6c8c58826e7bd84afb1b | 1 | 8 | 8df8d67bff6e | 8 | 0 |
+| codex/product-import-resume | 7bc5c680170ad7e20e439e04cfd98ebb76391fa2 | 4 | 1 | 84de6f302cda | 0 | 1 |
+| codex/restaurant-print-queue | 520deb334411c56c3086ada20d82ffaf7905f98a | 0 | 4 | 23cc0001d3d1 | 4 | 0 |
+| codex/restaurant-ticket-handoff-v1 | 520deb334411c56c3086ada20d82ffaf7905f98a | 0 | 4 | 23cc0001d3d1 | 4 | 0 |
+| deploy/mazao-isolated-vps | 0c9e59396a7fe34866be36d1934096b141a2c2b5 | 135 | 0 | 0c9e59396a7f | 0 | 0 |
+| deploy/mazaoyako-config | 34298383338df70a8551e8cf4ac91a285438b612 | 11 | 0 | 34298383338d | 0 | 0 |
+| docs/csv-pilot-release | 736d1b799ed3d553da8f689f965bd9b33b8cdb30 | 109 | 0 | 736d1b799ed3 | 0 | 0 |
+| docs/live-deployment-baseline | 1477f818e7b6847add67dd5115788b8139253766 | 2 | 3 | 2a5da2d82157 | 3 | 0 |
+| docs/pilot-configuration-evidence | b2dca3ae9ec892fb958f445a7d50257e2607d89a | 116 | 0 | b2dca3ae9ec8 | 0 | 0 |
+| docs/saas-offline-roadmap | c137b63302b686518e23cfbf33b8f5e25321e84f | 3 | 2 | b5fe1ba088d3 | 2 | 0 |
+| feat/catalog-maintenance | 9a4bf8cbca35550f1cf16380f60fd9cbdaa2d9a3 | 66 | 0 | 9a4bf8cbca35 | 0 | 0 |
+| feat/codebase-truth-count-recovery | f36509061cf0f8a69319b11dea6a5ae920dd4a06 | 24 | 0 | f36509061cf0 | 0 | 0 |
+| feat/codebase-truth-s00 | 9df7ca32e4cb90428c90ea82e4a45cece28a664e | 26 | 0 | 9df7ca32e4cb | 0 | 0 |
+| feat/confirmed-stock-exception-sales | 7373a7464812fabae6bf65d8cfa36cae9091f87d | 31 | 4 | ce5b8aba597c | 4 | 0 |
+| feat/guest-registration | 0de9799aef2486547ed54b3d3a78b0475b11c231 | 6 | 0 | 0de9799aef24 | 0 | 0 |
+| feat/hospitality-kds-lifecycle | 5138f118253eb5ac2e70fd1416ef9bc59189154c | 10 | 5 | 64b0cb8f7ab5 | 4 | 0 |
+| feat/hospitality-orders-fire | 3adc220d4fb8c00c273c6c0ae1e6cfd9e7ed58ba | 19 | 2 | e595d9789270 | 2 | 0 |
+| feat/hospitality-p1-configuration | 92e25973601b1b8a5ab575edccc8e4811c20076e | 19 | 1 | e595d9789270 | 1 | 0 |
+| feat/product-csv-import | 86f3e1702e6e81773ba7082dd086a0e81e287be4 | 111 | 0 | 86f3e1702e6e | 0 | 0 |
+| feat/product-finishing | 908bad0b0d07033e6bb2894227eac855e455ab2c | 35 | 0 | 908bad0b0d07 | 0 | 0 |
+| feat/product-import-queue-archive | 4d9e446f02fcb50ffc415fe723ae9f315dd0aaa0 | 7 | 0 | 4d9e446f02fc | 0 | 0 |
+| feat/restaurant-print-queue | 5138f118253eb5ac2e70fd1416ef9bc59189154c | 10 | 5 | 64b0cb8f7ab5 | 4 | 0 |
+| feat/server-configuration | aac34eb22dc7f8a62253081f3804fa7e379b2260 | 118 | 0 | aac34eb22dc7 | 0 | 0 |
+| feat/staff-workspace-access | 8f7fabc887a7b75164e323bb6ebe004017ac832b | 84 | 1 | b1035fe61316 | 0 | 1 |
+| fix/access-recovery-routing | 264200fa978c7aa8f61e6bd7ee6ab54696ecea4a | 71 | 0 | 264200fa978c | 0 | 0 |
+| fix/account-self-service | 7cffafd7c6b42bf421d238c368afda9e162297e9 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| fix/analytics-test-bootstrap | 264200fa978c7aa8f61e6bd7ee6ab54696ecea4a | 71 | 0 | 264200fa978c | 0 | 0 |
+| fix/api-test-isolation | a883e5a1d649a552e73a4fa6e07d7102fbf44ae6 | 69 | 0 | a883e5a1d649 | 0 | 0 |
+| fix/catalog-scan-identities | df1007d9682eed211f7faf4cd71d6fcd54e4f869 | 107 | 0 | df1007d9682e | 0 | 0 |
+| fix/command-recovery-readiness | cda5396176b13953fce2a60c00df85582ecb74d2 | 77 | 1 | 1b1915de47f3 | 0 | 1 |
+| fix/command-recovery-scope | 65d390b77426288c6f1b53e7e93d1b932f5252d9 | 78 | 3 | 5a74b5430203 | 1 | 2 |
+| fix/credential-operation-fencing | d46c53451016df21c207293a14c552952a0491d8 | 78 | 4 | 5a74b5430203 | 1 | 3 |
+| fix/customer-statement-snapshot | 377f288ea0c731de582dc30329ea850144cb3ca8 | 77 | 1 | 1b1915de47f3 | 0 | 1 |
+| fix/hotel-calendar-dates | 69cbd213069c9d012ca1204bfa39f690a47406f6 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| fix/login-runtime-guard | e65c258b08df7ad6e902071251f0f512414f7cf9 | 78 | 2 | 5a74b5430203 | 0 | 2 |
+| fix/mixed-stock-count | 4319b9af800d691ace21ecf4db3f0dbb2d6c52b4 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| fix/operational-analytics-500 | 1be8da7eb751a38f310d33edeff9f262898c5b29 | 79 | 0 | 1be8da7eb751 | 0 | 0 |
+| fix/pilot-server-login | bf55aff4f1907976cd8ab595c60527513a1516e0 | 125 | 0 | bf55aff4f190 | 0 | 0 |
+| fix/product-import-resume | 0de9799aef2486547ed54b3d3a78b0475b11c231 | 6 | 0 | 0de9799aef24 | 0 | 0 |
+| fix/release-gate-reliability | 75d701161181a175bbd5b128b1446a7785c0522d | 30 | 0 | 75d701161181 | 0 | 0 |
+| fix/staff-name-evidence | adde772d592373d513da4de3d965f20a5c00bb1f | 71 | 1 | 264200fa978c | 0 | 1 |
+| main | 23cc0001d3d14607b2427e61126133bdaa30b359 | 0 | 0 | 23cc0001d3d1 | 0 | 0 |
+| review/branch-consolidation-2026-11-22 | 23cc0001d3d14607b2427e61126133bdaa30b359 | 0 | 0 | 23cc0001d3d1 | 0 | 0 |
+| review/deployment-baseline-mainline-2026-11-22 | 055607f2114b3590289af10e57483bee449c70ce | 0 | 3 | 23cc0001d3d1 | 3 | 0 |
+| review/deployment-baseline-refresh-2026-11-22 | 812d1a9e70f8fa1133a51b3b17c207ba1f6aa258 | 2 | 5 | 2a5da2d82157 | 5 | 0 |
+| review/pr34-print-page-size-2026-11-22 | c6c09f4996d087850c29d8eef0a3f230a1668eda | 0 | 7 | 23cc0001d3d1 | 7 | 0 |
+| origin | 23cc0001d3d14607b2427e61126133bdaa30b359 | 0 | 0 | 23cc0001d3d1 | 0 | 0 |
+| origin/codex/access-recovery-navigation | a0928f2e5a7ff000634e9c8c081471d0cfa415fe | 5 | 1 | 416ea956760d | 0 | 1 |
+| origin/codex/credential-recovery | d88b5805f3a09fc86dccd9e71620b46d93b1f7d9 | 6 | 1 | 0de9799aef24 | 0 | 1 |
+| origin/codex/restaurant-print-queue | 520deb334411c56c3086ada20d82ffaf7905f98a | 0 | 4 | 23cc0001d3d1 | 4 | 0 |
+| origin/deploy/mazao-isolated-vps | 0c9e59396a7fe34866be36d1934096b141a2c2b5 | 135 | 0 | 0c9e59396a7f | 0 | 0 |
+| origin/deploy/mazaoyako-config | 34298383338df70a8551e8cf4ac91a285438b612 | 11 | 0 | 34298383338d | 0 | 0 |
+| origin/docs/csv-pilot-release | 736d1b799ed3d553da8f689f965bd9b33b8cdb30 | 109 | 0 | 736d1b799ed3 | 0 | 0 |
+| origin/docs/live-deployment-baseline | 812d1a9e70f8fa1133a51b3b17c207ba1f6aa258 | 2 | 5 | 2a5da2d82157 | 5 | 0 |
+| origin/docs/pilot-configuration-evidence | b2dca3ae9ec892fb958f445a7d50257e2607d89a | 116 | 0 | b2dca3ae9ec8 | 0 | 0 |
+| origin/feat/codebase-truth-s00 | 9df7ca32e4cb90428c90ea82e4a45cece28a664e | 26 | 0 | 9df7ca32e4cb | 0 | 0 |
+| origin/feat/confirmed-stock-exception-sales | 7373a7464812fabae6bf65d8cfa36cae9091f87d | 31 | 4 | ce5b8aba597c | 4 | 0 |
+| origin/feat/product-csv-import | 86f3e1702e6e81773ba7082dd086a0e81e287be4 | 111 | 0 | 86f3e1702e6e | 0 | 0 |
+| origin/feat/product-finishing | 908bad0b0d07033e6bb2894227eac855e455ab2c | 35 | 0 | 908bad0b0d07 | 0 | 0 |
+| origin/feat/product-import-queue-archive | 4d9e446f02fcb50ffc415fe723ae9f315dd0aaa0 | 7 | 0 | 4d9e446f02fc | 0 | 0 |
+| origin/feat/server-configuration | aac34eb22dc7f8a62253081f3804fa7e379b2260 | 118 | 0 | aac34eb22dc7 | 0 | 0 |
+| origin/feat/staff-workspace-access | 8f7fabc887a7b75164e323bb6ebe004017ac832b | 84 | 1 | b1035fe61316 | 0 | 1 |
+| origin/fix/account-self-service | 7cffafd7c6b42bf421d238c368afda9e162297e9 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| origin/fix/api-test-isolation | a883e5a1d649a552e73a4fa6e07d7102fbf44ae6 | 69 | 0 | a883e5a1d649 | 0 | 0 |
+| origin/fix/hotel-calendar-dates | 69cbd213069c9d012ca1204bfa39f690a47406f6 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| origin/fix/login-runtime-guard | e65c258b08df7ad6e902071251f0f512414f7cf9 | 78 | 2 | 5a74b5430203 | 0 | 2 |
+| origin/fix/mixed-stock-count | 4319b9af800d691ace21ecf4db3f0dbb2d6c52b4 | 78 | 1 | 5a74b5430203 | 0 | 1 |
+| origin/fix/operational-analytics-500 | 1be8da7eb751a38f310d33edeff9f262898c5b29 | 79 | 0 | 1be8da7eb751 | 0 | 0 |
+| origin/fix/pilot-server-login | bf55aff4f1907976cd8ab595c60527513a1516e0 | 125 | 0 | bf55aff4f190 | 0 | 0 |
+| origin/fix/release-gate-reliability | 01d13de23300cd2850f0b6284af00feddfbf8e89 | 31 | 0 | 01d13de23300 | 0 | 0 |
+| origin/main | 23cc0001d3d14607b2427e61126133bdaa30b359 | 0 | 0 | 23cc0001d3d1 | 0 | 0 |
+| origin/review/pr34-print-page-size-2026-11-22 | c6c09f4996d087850c29d8eef0a3f230a1668eda | 0 | 7 | 23cc0001d3d1 | 7 | 0 |
+
+git fetch --prune origin found these four remote-tracking refs absent from the server: origin/codex/guest-registration, origin/codex/product-import-resume, origin/docs/saas-offline-roadmap, and origin/feat/hospitality-kds-lifecycle. Their local branches/worktrees remain; this fetch did not delete remote branches.
