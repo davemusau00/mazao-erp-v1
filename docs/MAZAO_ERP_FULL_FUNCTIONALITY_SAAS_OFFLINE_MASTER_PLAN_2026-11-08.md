@@ -43,9 +43,12 @@ this roadmap work does not authorize production activation. The proposed
 `get.mazaoyako.co.ke` marketing site and `admin.mazaoyako.co.ke` platform console
 remain separate applications and require DNS/routing verification before use.
 
+The following milestone table and execution notes are dated snapshots. The
+latest state is recorded in the 22 November update below.
+
 | Milestone | Current delivery state | Required evidence before advancing |
 | --- | --- | --- |
-| M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Country/Yako production revision and schema baselines remain to be refreshed. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
+| M0–M1 | In progress: credential recovery PR #28, recovery navigation PR #29, and import resume PR #30 are merged. Guest-registration PR #31 is open for exact-head hosted PostgreSQL/browser CI. Its clean branch passes local typecheck/build and focused Chromium arrival/recovery checks, while local PostgreSQL-backed acceptance was unavailable. Public Country/Yako endpoints respond, but runtime SHAs and schema heads remain unverified because SSH to the user-confirmed host is unavailable from this workstation. | Each prerequisite is a separate exact-head green PR; Country/Yako identities and schemas recorded without mixing their data. |
 | M2 | Waiting on the prerequisite PRs; PR #26 is open and its lost-fire recovery browser gate remains unresolved. | Repaired exact-command recovery, migration upgrade/rerun, hosted CI, and review before merge; then the full two-station order-to-payment and physical-printer gates. |
 | M3 | Not started as an accepted delivery milestone. | Hotel, location/recipe, procurement and statement corrections each reconcile source records, stock and accounting. |
 | M4 | Eligible for an isolated ADR/spike after the M0 baseline; not a production control plane. | Two isolated tenants prove authenticated database routing, connection/job bounds, migrations, lifecycle and no cross-access. |
@@ -72,8 +75,73 @@ or live release state.
 PR #26 remains open at `5138f118253eb5ac2e70fd1416ef9bc59189154c`; its
 hosted TypeScript/build check is failed and its lost-fire recovery assertion is
 not accepted. Do not merge it until the recovery semantics and required checks
-pass after the four prerequisite slices. No Country/Yako live schema or release
-baseline was refreshed in this update, and no production activation is claimed.
+pass after the four prerequisite slices. No production activation is claimed.
+
+### Public deployment probe — 21 November 2026
+
+Current main is `2a5da2d` (roadmap integration PR #32). Guest-registration PR
+#31 now has exact head `901f84a`; local typecheck/build and the combined
+guest-registration plus directory-history browser run pass. Its first hosted
+run completed PostgreSQL/API acceptance but failed the full browser run because
+the directory-history fixture did not stub the new registration-policy read.
+That fixture now returns the reviewed policy, and the new exact-head hosted run
+is pending. Do not merge until that run passes.
+
+Read-only HTTPS probes returned `200` for the Country application at
+`country.mazaoyako.co.ke`, its `/api/v1/health/ready` endpoint, the Yako
+application at `mazaoyako.co.ke`, and Yako's
+`api.mazaoyako.co.ke/api/v1/health/ready`. Both API bodies reported
+`{"status":"ready","database":"available"}`. Country's page referenced
+`/assets/index-iTu1ccv9.js`; Yako referenced `/assets/index-shlJi_f1.js`.
+This confirms that both public routes respond and serve different asset
+bundles. It does not identify a source SHA, migration head, tenant/database
+identity, or which bundle is newer. Country resolved to `38.247.142.209`, also
+the Yako API response IP; the Yako apex is proxied through Cloudflare. Keep the
+products and data stores separate until runtime identities are verified.
+
+The user confirmed `38.247.142.209` as the correct VPS IP. A direct read-only
+SSH attempt to `administrator@38.247.142.209` was aborted before host-key
+verification; an earlier `admin@38.247.142.209` attempt timed out. The legacy
+`mazao-live` alias still points to `93.127.131.55`, so it is not a valid route
+for the current deployment and must not be used for this baseline. No
+known-hosts entry or SSH configuration was changed. Therefore the Country/Yako
+release SHA and schema baselines remain open. Once SSH is reachable at the
+confirmed IP with a verifiable host key, read the active static symlinks, API
+image revision labels, and each database's applied migration ledger
+independently. The proposed `get.` and `admin.` DNS and routes were not checked
+by this probe.
+
+### Delivery and deployment update — 22 November 2026
+
+PR #31 (guest registration) merged as
+`8df8d67bff6e1020e94a09f2e7d8bfde62d64cec`. PR #26 (restaurant configuration,
+source orders/fire, and KDS ticket lifecycle) then merged as
+`23cc0001d3d14607b2427e61126133bdaa30b359` from exact head
+`01c3566b23ffdc24633e6c8c58826e7bd84afb1b`. Migration 030 remains guest
+registration; migrations 031–033 are the restaurant slices. The existing 029
+import-archive migration and earlier checksums were preserved. Exact-head hosted
+run `45016674680` passed PostgreSQL migrations and checksum rerun, API tests,
+typecheck/build, Chromium/Firefox desktop/mobile acceptance, real API/PostgreSQL
+browser integration, Yako PWA/configuration validation, and production-container
+readiness. Main-release artifact uploads were skipped for this PR. No live
+deployment or production database migration occurred.
+
+The owner reports that Country at `country.mazaoyako.co.ke` is behind the
+deployment at `mazaoyako.co.ke`. This is an owner-reported version comparison;
+the 21 November probes established different public bundles but could not
+identify either source SHA or schema head. Continue to treat Country and Yako as
+independent deployments, tenants, databases, and release artifacts. For Country,
+first capture its active PWA/API release and applied migration head, compare
+them with the intended release, and validate a rollback path. Do not copy Yako's
+database or assume that replacing Country's bundle alone is a safe upgrade.
+
+The correct VPS address is confirmed as `38.247.142.209`; the old `mazao-live`
+SSH alias still points elsewhere. The existing SSH attempt did not complete
+host-key verification, so production SHA/schema inspection remains open. Verify
+the host key through a trusted channel before attempting authenticated release
+inspection. Backup automation remains deferred. M2 is now in progress: the next
+planned code slice is a durable restaurant KOT/BOT print queue; physical printer
+acceptance is still outstanding.
 
 ## 0. Executive decision
 
@@ -92,6 +160,9 @@ The implementation strategy is **evolutionary, not a rewrite**. Retain the React
 Do not equate a rendered screen, green unit test, merged PR, produced artifact or responding health endpoint with a completed business workflow. Each is a separate evidence gate.
 
 ## 1. Verified baseline and immediate blockers
+
+The baseline bullets below describe the 21 November review. Read the dated
+execution updates below for later merges and acceptance results.
 
 ### What already exists in current main
 
@@ -553,3 +624,36 @@ Avoid quoting SaaS prices, hardware SLA, uptime or KRA certification until the r
 ---
 
 **Planning recommendation:** Begin with M0 governance/release truth and P02 restaurant CI reconciliation. Fund the platform-admin control-plane foundation in parallel with hospitality completion, but defer release of financial offline mode until exact-source online money/stock/device invariants pass. Prioritize **verified business outcomes and recoverability** over the number of module screens.
+
+## Supplemental live deployment identity update - 23 November 2026
+
+This later read-only inspection supersedes the unresolved live-SHA/schema statements in the earlier 21 and 22 November probes. The user confirmed the VPS address `38.247.142.209`. SSH inspection succeeded in strict mode against the already-trusted host key; no SSH configuration or host key was changed.
+
+| Deployment | Public routing and active PWA release | API runtime | Database and applied schema |
+| --- | --- | --- | --- |
+| **Country / original Mazao** | `country.mazaoyako.co.ke`, same-origin `/api/v1`; static root `/var/www/mazao/current` -> `/var/www/mazao/releases/6119ee2d2043afca38b764b5a0750dd9cf75908c`; source SHA `6119ee2d2043afca38b764b5a0750dd9cf75908c`; DNS A `38.247.142.209`. | `ghcr.io/davemusau00/mazao-erp-v1/api:6119ee2d2043afca38b764b5a0750dd9cf75908c`; running image digest `sha256:05a994bef04ba72c456b037e341954698ea3e23edda12fd678938f81806aba02`. | Database `mazao`, role `mazao_app`; 21 applied migrations; head `021_confirmed_stock_exception_sales`. Migration 021 raw Git blob hash matches ledger checksum `279280364dcd8f57572dcf19513e6ed655de4a4e81ea662fb7df5e86b979615c`. |
+| **Yako** | `mazaoyako.co.ke`, API `api.mazaoyako.co.ke`; static root `/var/www/mazaoyako/current` -> `/var/www/mazaoyako/releases/0de9799aef2486547ed54b3d3a78b0475b11c231`; source SHA `0de9799aef2486547ed54b3d3a78b0475b11c231`; API DNS A `38.247.142.209`, apex Cloudflare-proxied. | `ghcr.io/davemusau00/mazao-erp-v1/api:0de9799aef2486547ed54b3d3a78b0475b11c231`; running image digest `sha256:f9f2ebf6d856d1003657f0ee1879b96a1d28faa739e7c8b2053cc10f1ec9b362`. | Database `mazaoyako`, role `mazaoyako_app`; 29 applied migrations; head `029_product_import_queue_archive`. Migration 029 raw Git blob hash matches ledger checksum `e0217ed5ea600cd3a14d2639ac6eaff65b26bb3a8bd0a068350edb481c501ea4`. |
+
+The Country PWA artifact for source SHA `6119ee2d2043afca38b764b5a0750dd9cf75908c` has digest `sha256:d9b6ec7981b8abb8ee3853253c216ded0e4306a09de18d2ae55edf25c58605db`; all 20 artifact files exactly match its active static release. The Yako-targeted PWA artifact for source SHA `0de9799aef2486547ed54b3d3a78b0475b11c231` has digest `sha256:0bf9097a947a1c67231fc8d9fd97de3c029b3fa2a1c2c33b0940573c523cc70d`; all 24 files exactly match its active static release.
+
+Country is 24 commits behind Yako; Yako is 6 commits behind `origin/main` at `23cc0001d3d14607b2427e61126133bdaa30b359`; Country is 30 commits behind main. Country schema 021 and Yako schema 029 both trail current main, which includes migrations 030-033. PR #34's proposed migration 034 is not deployed. The deployments use separate tenants and databases; retain that separation and plan each activation and rollback independently. No production activation or database mutation occurred during this inspection.
+
+On 23 November, Country and Yako public roots and API readiness endpoints returned HTTP 200; readiness proves service/database availability only. `get.mazaoyako.co.ke` returned HTTP 200. `admin.mazaoyako.co.ke` still does not resolve. No DNS or routing changes were made. The successful current-main CI run published artifacts, but Country and Yako remain on the older SHAs above.
+
+
+Read-only backup inventory later on 22 November found separate live data volumes and six Country dumps in `/srv/mazao/backups`, dated 17–20 October. The newest, `backup-316e05b732a24a7c8570eacc35587950.dump` (6,512,991 bytes; SHA256 `5409d6fc1fffbd02a73af097007bbcb5c1db9b6dbbc33086c69f44b6fa4a2cc5`), restored into a temporary no-network PostgreSQL 16 container with 54 tables and 20 recorded migrations through `020_account_display_catalog`; the container was removed. The dump is on the same VPS root filesystem and predates Country live schema 021, so this proves only that old archive can be restored. No Yako dump was found under the searched `/srv`, `/var/backups`, `/opt`, `/mnt` and `/home/administrator` paths. No PostgreSQL backup job was found in the searched cron/systemd locations. Current off-host backup proof and Yako restore remain unverified; backup automation remains deferred. Neither live database changed.
+
+## Execution status reconciliation - 23 November 2026
+
+The milestone table and execution notes above are historical snapshots. This dated reconciliation records current branch and release evidence; the roadmap remains a plan and does not claim that planned capabilities are live.
+
+| Milestone | Current evidence | Remaining release work |
+| --- | --- | --- |
+| **M0-M1: release truth and online reliability** | PRs #28-#31 and the PR #26 KDS foundation are merged. PR #32 adopted this roadmap. Current main is `23cc0001d3d14607b2427e61126133bdaa30b359`; exact-main hosted run `45017993532` passed. Country and Yako live release/schema identities are now recorded above. | Rehearse an independent Country catch-up and authenticated workflow acceptance. Keep Country and Yako data, release artifacts, rollout and rollback separate. |
+| **M2: restaurant lifecycle** | PR #26 is merged. PR #34 remains Draft at `520deb334411c56c3086ada20d82ffaf7905f98a`; its exact-head hosted CI passed. The valid page-size correction is Draft PR #35, stacked directly on #34 at `9283bd35e1218c624f6bc4c244174e3dc0586dc8`. Exact-head hosted run `45160206478` passed: 310 API tests with zero skips, fresh migration/checksum rerun, populated 029-to-034 upgrade and rerun, browser suites (216 and 240 cases), and 29 real API/PostgreSQL browser cases. Migration 034 blob is unchanged. | Physical printer/cutter/paper acceptance remains. Then deliver served/void, settlement/split-tender and recipe/location effects as separate slices. |
+| **M3: hotel, inventory and procurement** | Guest registration PR #31 is merged. Exact-main hosted run `45017993532` passed its Chromium/Firefox desktop/mobile suite (232 cases) and real API/PostgreSQL browser suite (29 cases); guest arrival passed at 1024x600 and 390x844. | Deposits/folios, room moves/extensions/checkout, location/recipe stock, procurement, invoice matching, supplier credits and linked statement corrections remain delivery work. Authenticated Country/Yako guest workflows still need live acceptance. |
+| **M4: managed SaaS** | An isolated ADR/spike is eligible after M0. A source search found no tenant-database router, SaaS control plane, platform entitlements or offline-grant implementation in current-main `apps/api/src` and `src`. | Keep platform identity/billing separate from tenant ledgers. Prove authenticated database routing, bounded pools/jobs, migrations and lifecycle isolation with two tenants before provisioning and billing. |
+| **M5: bounded offline POS** | No offline financial authority is accepted. | Start only after online settlement and device policy are stable; deliver cash-only grants, durable local receipts, idempotent replay, visible sync and the specified 100-sale conflict/restart acceptance. |
+| **M6: commercial readiness** | Not reached. The old Country archive restore is limited evidence; off-host current backup and Yako restore proof remain absent. | Complete independent restore drills, security/privacy, accessibility/performance, fiscal-provider evaluation, support/training and controlled release evidence before any GA claim. |
+
+The user-confirmed VPS address is `38.247.142.209`. Country is 24 commits behind Yako; Yako is 6 commits behind current main, and Country is 30 behind. Country remains at schema 021 and Yako at schema 029 while main contains schema 033. Release Country by its own rehearsed, rollback-ready path; do not point it at Yako's release or database. Backup automation remains deferred.
