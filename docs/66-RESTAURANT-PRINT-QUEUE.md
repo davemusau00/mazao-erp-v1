@@ -8,9 +8,10 @@ merged or deployed, and it does not complete M2.
 
 Firing an order stores one durable `QUEUED` print job per immutable station
 ticket in the same database transaction. The assigned station operator loads
-the queue, claims a job, prepares the 80 mm browser document, opens the system
-print dialog, inspects the paper and records the result. A failed attempt needs
-a reason. A confirmed or failed job can create a separately identified,
+the queue, claims a job, prepares the 76 mm content layout, selects the 80 mm
+roll in the system print dialog, inspects the paper and records the result.
+The browser page size follows the printer profile. A failed attempt needs a
+reason. A confirmed or failed job can create a separately identified,
 clearly labelled copy linked to its source job and original document hash.
 
 Claims are bound to the authenticated actor and logical device and expire after
@@ -52,19 +53,33 @@ queue read, an 80 mm print document and queue UI, terminal-result validation,
 API integration/upgrade coverage and browser coverage for claim, print-template
 rendering, operator confirmation, failure-reason visibility and a reprint copy.
 
-At the current worktree:
+Local checks at the current worktree:
 
 - `npm run typecheck` and `npm run build` passed; the existing main-bundle size
   and Vite config-loader warnings remain.
 - `npm run test:api` passed 109 tests with zero failures; 39 PostgreSQL-backed
-  cases were skipped because `TEST_DATABASE_URL` is not configured.
+  cases were skipped because `TEST_DATABASE_URL` is not configured locally.
 - `npx playwright test e2e/restaurant-orders.spec.ts --reporter=line` passed
   all 26 restaurant browser cases, including print-media rendering, expired
-  claim recovery from the station UI,
-  operator confirmation, copy creation and the existing responsive flows.
-- Fresh/populated PostgreSQL migration and checksum-rerun evidence still
-  requires a disposable database or green exact-head hosted CI. Physical
-  printer acceptance has not been performed.
+  claim recovery from the station UI, operator confirmation, copy creation and
+  the existing responsive flows.
+
+The pre-documentation PR #35 code candidate at `9283bd35e1218c624f6bc4c244174e3dc0586dc8`
+passed [hosted run 45160206478](https://github.com/davemusau00/mazao-erp-v1/actions/runs/45160206478):
+fresh migration install and checksum rerun; populated upgrade from migration 029
+through 034 with a safe rerun; API 310/310 with zero skips; browser acceptance
+216 passed; cross-browser desktop/mobile acceptance 240 passed; real
+API/PostgreSQL browser integration 29 passed; and API-container validation.
+Migration 034's file and checksum are unchanged. The candidate also corrects the
+print CSS by removing Chromium's rejected `80mm auto` page-size
+declaration. Run 45160206478 validates that pre-documentation code head; confirm green hosted checks on the current exact PR head before promotion because this documentation update triggers a fresh run.
+
+Physical printer/cutter/paper acceptance has not been performed. The browser
+records the operator's report, not hardware telemetry; test both stations with
+the target 80 mm printers, paper-out and printer-offline cases, reconnect,
+restart/recovery, cutter behavior and duplicate-output checks before claiming
+the hardware gate complete.
+
 
 The owner-confirmed VPS address is `38.247.142.209`. This source branch has not
 verified the SSH host identity or which live hostname/release is served by that
@@ -74,11 +89,13 @@ activation is implied.
 
 ## Next M2 work
 
-1. Finish exact-head migration, API and browser acceptance, including the
-   populated upgrade, checksum rerun, permissions, claim expiry/reclaim, lost
-   responses, failures and immutable copies.
-2. Obtain hosted CI and physical printer/cutter/paper acceptance before merging
-   or claiming the printer gate complete.
+1. Complete physical acceptance on both stations using the target 80 mm
+   printers: paper width/length, paper-out and offline behavior, reconnect,
+   restart/recovery, cutter operation and duplicate-output checks. Record the
+   printer model, browser, OS and actual outcomes. Browser confirmation alone
+   does not prove hardware output.
+2. Keep the print-queue candidate unmerged until the hardware gate is reviewed.
+   Run 45160206478 validates the pre-documentation code candidate. Confirm green hosted checks on the current exact PR head before promotion; documentation changes require a fresh run.
 3. Deliver served/void and waiter handoff, then settlement/split tender and
    recipe/location slices as separate reviewed vertical slices.
 4. Keep restaurant sales, stock and accounting workflows unavailable until the

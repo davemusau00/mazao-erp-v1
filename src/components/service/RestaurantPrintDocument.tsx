@@ -9,7 +9,7 @@ export function RestaurantPrintDocument({job,timeZone}:{job:RestaurantPrintJob;t
   return <>
     <style>{`
       #restaurant-print-document { display:none; }
-      @page { size:80mm auto; margin:2mm; }
+      @page { margin:2mm; }
       @media print {
         body * { visibility:hidden !important; }
         #restaurant-print-document,#restaurant-print-document * { visibility:visible !important; }
