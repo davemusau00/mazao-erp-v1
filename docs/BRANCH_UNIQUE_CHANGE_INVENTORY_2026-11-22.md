@@ -53,7 +53,7 @@ The local branch review/deployment-baseline-mainline-2026-11-22 is based directl
 - Main migration `029_product_import_queue_archive.sql` and the dirty root worktree's misnumbered `031_product_import_queue_archive.sql` have identical normalized content SHA256 `e0217ed5ea600cd3a14d2639ac6eaff65b26bb3a8bd0a068350edb481c501ea4`; only the path/number differs.
 - Main migration `026_count_recovery.sql` and the dirty count-recovery worktree's untracked path normalize identically.
 - Dirty credential migration `017_credential_operation_fences.sql` is new relative to main and differs from `022_credential_operation_fencing.sql`; main already uses migration 017 for configuration assets.
-- PR #34 migration 034 raw Git blob SHA256 is `486bbb8fa6afe2b86cdc22d2ec1bfeca0bc83c1b32b385d9ec33ac0d9a758b10` (blob `89287d87abf16432c649934a91efb2a7e4ebfffe`). Its exact-head populated-upgrade test and checksum rerun passed in hosted CI. Do not edit or renumber it after application.
+- PR #34 migration 034 raw file-content SHA256 is `486bbb8fa6afe2b86cdc22d2ec1bfeca0bc83c1b32b385d9ec33ac0d9a758b10` (Git blob object ID `89287d87abf16432c649934a91efb2a7e4ebfffe`). Its exact-head populated-upgrade test and checksum rerun passed in hosted CI. Do not edit or renumber it after application.
 
 ## Evidence files
 
