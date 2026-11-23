@@ -52,7 +52,7 @@ Follow-up checks returned HTTP 200 for both public ERP roots, both API readiness
 
 PR #13–16 regression checks ran from clean current-main source: six focused Node tests passed; local stock-count and hotel-calendar PostgreSQL tests skipped because no disposable DB/`TEST_DATABASE_URL` was available; Chromium account-access browser suite passed 14 cases; `npm run build` passed. Exact-main hosted CI passed PostgreSQL integration. Local Docker Desktop was unavailable.
 
-Hosted success proves only the exact tested commit. Artifact publication is not deployment; HTTP 200/health is not authenticated workflow acceptance; physical printer acceptance, current off-host backup proof and Yako restore have not been established. The old Country dump restore is only archive/restore evidence, not proof of a current independent recovery point.
+Hosted success proves only the exact tested commit. Artifact publication is not deployment; HTTP 200/health is not authenticated workflow acceptance; physical printer acceptance, current off-host backup proof and Yako restore have not been established. The old Country dump restore is only archive/restore evidence, not proof of a current independent recovery point. Current Windows device inventory shows two registered `Xprinter XP-80` queues on `USB001` reporting `Normal`, while Plug-and-Play lists only an Epson L3250 with `Unknown` status. No print job was sent; thermal-printer connectivity and all physical print acceptance remain unverified.
 
 ## Proposed next actions
 
