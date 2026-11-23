@@ -57,7 +57,7 @@ Hosted success proves only the exact tested commit. Artifact publication is not 
 ## Proposed next actions
 
 1. Reconcile the dirty WIP overlays one by one against current main; port only reviewed unique source changes onto fresh branches. Preserve existing worktrees and avoid migration renumbering of applied history.
-2. Update PR #33 chronology and deployment table with the verified exact live identities on a new branch from its reviewed head.
+2. Review the updated PR #33 chronology, deployment identities, and exact-head CI; decide separately whether to merge it after human review.
 3. Finish PR #34 manual review and physical printer/cutter/paper checks before promotion. Keep migration 034 intact.
 4. Continue restaurant served/void and settlement/split-tender, followed by recipe/location stock effects; then hotel folios/deposits/moves/checkout; then procurement and matching corrections.
 5. Start SaaS isolation ADR/spike after M0 if capacity permits. Keep platform control plane/database separate; prove two-tenant isolation before managed billing/operations.
