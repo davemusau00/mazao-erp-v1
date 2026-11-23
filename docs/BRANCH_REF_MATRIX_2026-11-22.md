@@ -1,6 +1,6 @@
 # Local and remote ref matrix
 
-Refreshed on 23 November 2026 against origin/main = 23cc0001d3d14607b2427e61126133bdaa30b359; 76 local and origin refs are inventoried; this baseline predates the report-only commit on review/branch-consolidation, so that row records its input SHA. Behind/ahead counts use git rev-list --left-right --count origin/main...ref; patch-only/equivalent counts use git cherry -v origin/main ref. Added candidate ref `origin/review/pr34-print-page-size-2026-11-22` for Draft PR #35; no existing remote ref was modified.
+Refreshed on 23 November 2026 against origin/main = 23cc0001d3d14607b2427e61126133bdaa30b359; The input baseline contains 76 local and origin refs and predates the report-only commit; the output ref `origin/review/branch-consolidation-2026-11-22` was published afterward and is intentionally excluded from this input matrix. Behind/ahead counts use git rev-list --left-right --count origin/main...ref; patch-only/equivalent counts use git cherry -v origin/main ref. Added candidate ref `origin/review/pr34-print-page-size-2026-11-22` for Draft PR #35; no existing remote ref was modified.
 
 | Ref | SHA | Behind | Ahead | Merge base | Patch-only | Patch-equivalent |
 | --- | --- | ---: | ---: | --- | ---: | ---: |
